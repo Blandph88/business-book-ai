@@ -4,6 +4,7 @@ import App from "./App";
 import "./index.css";
 import { bootstrapSeedMinutes } from "./data/importMinutes";
 import { bootstrapSeedExtras } from "./data/seedExtras";
+import { resetDemoIfStale } from "./data/resetDemo";
 import { applyDeviceClass } from "./lib/device";
 import { getAppMode } from "./lib/appMode";
 
@@ -31,9 +32,13 @@ function render() {
 //   2. bootstrapSeedExtras()  — SoWs + owner-edits (public/seed_extras.json).
 // Both are best-effort: if either can't reach its source the app still boots.
 // Demo mode applies the baked-in sample seeds; owned mode boots clean to the buyer's own
-// imported data (no demo meetings/opps/SoWs).
+// imported data (no demo meetings/opps/SoWs). resetDemoIfStale() runs first so a changed demo
+// dataset wipes the old (now-orphaned) demo rows before the fresh seed lands.
 const seeded =
   getAppMode() === "demo"
-    ? Promise.resolve().then(bootstrapSeedMinutes).then(bootstrapSeedExtras)
+    ? Promise.resolve()
+        .then(resetDemoIfStale)
+        .then(bootstrapSeedMinutes)
+        .then(bootstrapSeedExtras)
     : Promise.resolve();
 void seeded.finally(render);

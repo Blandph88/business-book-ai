@@ -293,6 +293,22 @@ export const COMPANY_DICTIONARY: CompanyEntry[] = [
   { name: "Edrington", industry: "consumer-retail", sub: "Food & Beverage", regions: ["europe"] },
   { name: "William Grant & Sons", industry: "consumer-retail", sub: "Food & Beverage", regions: ["europe"] },
 
+  // ── Real Estate — marquee firms first (the other industries lead with their giants; RE had no
+  //    such block, so the demo's RE clusters were landing on obscure names). These also exist in
+  //    SLICE_COMPANIES; listing them here (deduped first-wins) makes them the prominent RE entries. ──
+  { name: "CBRE", aliases: ["CBRE Group", "CB Richard Ellis"], industry: "real-estate", sub: "Commercial Real Estate Services", regions: ["north-america", "europe"] },
+  { name: "JLL", aliases: ["Jones Lang LaSalle", "LaSalle Investment Management"], industry: "real-estate", sub: "Commercial Real Estate Services", regions: ["north-america", "europe"] },
+  { name: "Cushman & Wakefield", aliases: ["Cushman and Wakefield", "C&W"], industry: "real-estate", sub: "Commercial Real Estate Services", regions: ["north-america", "europe"] },
+  { name: "Knight Frank", aliases: ["Knight Frank LLP"], industry: "real-estate", sub: "Commercial Real Estate Services", regions: ["europe", "north-america"] },
+  { name: "Savills", aliases: ["Savills plc"], industry: "real-estate", sub: "Commercial Real Estate Services", regions: ["europe", "north-america"] },
+  { name: "Brookfield", aliases: ["Brookfield Asset Management", "Brookfield Properties"], industry: "real-estate", sub: "REITs & Property Investment", regions: ["north-america", "europe"] },
+  { name: "Prologis", aliases: ["Prologis Inc"], industry: "real-estate", sub: "REITs & Property Investment", regions: ["north-america", "europe"] },
+  { name: "Segro", aliases: ["SEGRO plc"], industry: "real-estate", sub: "REITs & Property Investment", regions: ["europe"] },
+  { name: "Simon Property Group", aliases: ["Simon Property", "SPG"], industry: "real-estate", sub: "REITs & Property Investment", regions: ["north-america"] },
+  { name: "Lendlease", aliases: ["Lend Lease"], industry: "real-estate", sub: "Homebuilders & Developers", regions: ["north-america", "europe"] },
+  { name: "Related Companies", industry: "real-estate", sub: "Homebuilders & Developers", regions: ["north-america"] },
+  { name: "Hines", aliases: ["Hines Group"], industry: "real-estate", sub: "Homebuilders & Developers", regions: ["north-america", "europe"] },
+
   // The big mined dictionary (~1,800 companies across NA + Europe, with aliases). Deduped against
   // the curated seed above in classify.ts when the lookup tables are built.
   ...SLICE_COMPANIES,

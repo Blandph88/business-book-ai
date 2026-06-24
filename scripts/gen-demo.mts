@@ -58,8 +58,26 @@ const TIER_W = [0.16, 0.2, 0.22, 0.22, 0.2];
 function pickTier() { let r = rnd(); for (let i = 0; i < TIERS.length; i++) { r -= TIER_W[i]; if (r <= 0) return TIERS[i]; } return "ic" as const; }
 
 // ── unique company pool + CLUSTER plan (some companies get 2/3/4 contacts) ───────────────────
+// Dedup the dictionary PRESERVING ORDER (no shuffle): COMPANY_DICTIONARY lists the marquee
+// firms first and prominence-ordered within each industry (FS: JPMorgan→BofA→Goldman…;
+// Pro-services: KPMG→Deloitte→PwC→EY→McKinsey…), with the bulk SLICE_COMPANIES appended after.
+// Demo is a US/Europe book: only seed companies tagged for those regions. Region-untagged
+// entries (Gulf entities, region-[] long-tail) exist in the dictionary so they CLASSIFY on a real
+// import, but must never seed the demo — otherwise non-target / non-Latin org names leak in.
 const seen = new Set<string>();
-const POOL = shuffle(COMPANY_DICTIONARY.filter((c) => { const k = c.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }));
+const DICT = COMPANY_DICTIONARY.filter((c) => {
+  if (!Array.isArray(c.regions) || !(c.regions.includes("north-america") || c.regions.includes("europe"))) return false;
+  const k = c.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true;
+});
+// Group by industry (prominence order preserved), then round-robin across industries so the
+// FIRST companies we hand out are each industry's leaders. The biggest firms therefore get the
+// biggest clusters (4 contacts), which is what a real consultant's network looks like.
+const byIndustry = new Map<string, typeof DICT>();
+for (const c of DICT) { const a = byIndustry.get(c.industry) ?? []; a.push(c); byIndustry.set(c.industry, a); }
+const groups = [...byIndustry.values()];
+const maxRows = Math.max(...groups.map((g) => g.length));
+const ORDERED: typeof DICT = [];
+for (let row = 0; row < maxRows; row++) for (const g of groups) if (row < g.length) ORDERED.push(g[row]);
 type Contact = { first: string; last: string; company: string; title: string; url: string; email: string; connectedOn: string; tier: string };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function makeContact(company: string): Contact {
@@ -71,11 +89,21 @@ function makeContact(company: string): Contact {
   return { first, last, company, title, url, email, connectedOn, tier };
 }
 const contacts: Contact[] = [];
-// Clusters: 40 companies × 4, 60 × 3, 160 × 2, then 1 each until ~1,400 contacts.
+// Clusters: 40 companies × 4, 60 × 3, 160 × 2, then 1 each until ~1,400 contacts. The clustered
+// companies are the most prominent (front of ORDERED), so the biggest firms get the most contacts;
+// the long tail fills the singletons (shuffled so they're not industry-ordered).
 const plan: number[] = [...Array(40).fill(4), ...Array(60).fill(3), ...Array(160).fill(2)];
 let ci = 0;
-for (const n of plan) { const company = POOL[ci++ % POOL.length].name; for (let k = 0; k < n; k++) contacts.push(makeContact(company)); }
-while (contacts.length < 1400) contacts.push(makeContact(POOL[ci++ % POOL.length].name));
+for (let p = 0; p < plan.length; p++) {
+  const company = (ORDERED[p] ?? DICT[ci++ % DICT.length]).name;
+  for (let k = 0; k < plan[p]; k++) contacts.push(makeContact(company));
+}
+const tail = shuffle(ORDERED.slice(plan.length));
+let si = 0;
+while (contacts.length < 1400) {
+  const company = (tail[si++] ?? DICT[ci++ % DICT.length]).name;
+  contacts.push(makeContact(company));
+}
 
 // ── messages → derive the contacts-first funnel ──────────────────────────────────────────────
 const PROPOSE = ["coffee", "grab a coffee", "catch up", "meet up", "lunch", "get together"];
@@ -115,66 +143,140 @@ const sows: Sow[] = [];
 const TM_GRADES = ["Associate", "Senior", "Manager", "Senior Manager", "Director", "Partner"];
 const DL_CATS = ["Diagnostic & Assessment", "Strategy & Roadmap", "Operating Model & Org Design", "Process Design & Improvement", "Implementation & Delivery", "Programme & Project Management", "Change Management & Training", "Data & Analytics", "Advisory & Ongoing Support"];
 
-const STEPS_SPREAD = ["pursuit", "pursuit", "scoping", "scoping", "clearance", "proposal_build", "proposal_delivery", "procurement", "contracting", "setup", "delivery", "revenue"];
-[...agreedSet].forEach((url, i) => {
+// Workflow step offsets (mirror src/data/vocab.ts OPPORTUNITY_STEPS) so we can anchor each
+// opportunity's HELD date such that its NEXT step's planned date lands on a chosen day. The app
+// derives the next-step due date as anchor + offsetWeeks(nextStep); inverting that lets the demo
+// place an exact, small number of items in the "this week" agenda window instead of a flood.
+const STEP_ORDER = ["meeting", "qualify", "pursuit", "scoping", "clearance", "proposal_build", "proposal_delivery", "procurement", "contracting", "setup", "delivery", "revenue"];
+const OFFSET_WEEKS: Record<string, number> = { meeting: 0, qualify: 1, pursuit: 2, scoping: 4, clearance: 6, proposal_build: 8, proposal_delivery: 12, procurement: 16, contracting: 24, setup: 25, delivery: 37, revenue: 45 };
+const nextStep = (s: string) => STEP_ORDER[STEP_ORDER.indexOf(s) + 1];
+// Held date (days from today, negative = past) so that `step`'s NEXT planned step lands `delta`
+// days from today. delta=null → a recent hold; the large later-stage offset puts the next step
+// well in the future (or there is none), so it never enters the agenda window.
+const heldForDelta = (step: string, delta: number | null) =>
+  delta == null ? -(6 + (STEP_ORDER.indexOf(step) % 18)) : delta - OFFSET_WEEKS[nextStep(step)] * 7;
+
+const VALUE_POOL = [75000, 120000, 150000, 200000, 250000, 350000, 500000, 800000];
+const PIPE_STEPS = ["qualify", "pursuit", "scoping", "clearance", "proposal_build", "proposal_delivery", "procurement"];
+const WON_STEPS = ["contracting", "setup", "delivery", "delivery", "revenue"];
+
+// ── opportunity plan (~40 across every stage) ─────────────────────────────────────────────────
+// Each slot = { step, delta }. delta = days-from-today the next step is due (drives the agenda):
+//   • 6 OVERDUE   (a controlled "to chase" list, not a sea of red)
+//   • 3 UPCOMING  (due within the next week)
+//   • 11 QUIET    pipeline whose next step slipped weeks ago → shows in "going cold", not the agenda
+//   • 20 WON      (contracting → revenue) → these seed most of the Contracts/Revenue book
+type OppSlot = { step: string; delta: number | null };
+const oppPlan: OppSlot[] = [];
+[-9, -7, -5, -4, -2, -1].forEach((d, k) => oppPlan.push({ step: PIPE_STEPS[k % PIPE_STEPS.length], delta: d }));
+[2, 4, 6].forEach((d, k) => oppPlan.push({ step: PIPE_STEPS[(k + 2) % PIPE_STEPS.length], delta: d }));
+for (let k = 0; k < 11; k++) oppPlan.push({ step: PIPE_STEPS[k % PIPE_STEPS.length], delta: -(24 + k * 7) });
+for (let k = 0; k < 20; k++) oppPlan.push({ step: WON_STEPS[k % WON_STEPS.length], delta: null });
+
+// Collected for the contracts pass below (won opps become signed engagements).
+type OppMeta = { url: string; company: string; sl: string; step: string };
+const wonOpps: OppMeta[] = [];
+
+const agreed = [...agreedSet];
+let schedInWindow = 0; // cap the number of upcoming scheduled meetings that hit the agenda
+agreed.forEach((url, i) => {
   const c = byUrl.get(url)!;
   const full = `${c.first} ${c.last}`;
-  // stage: 60% Held, 25% Scheduled, 15% Agreed-not-scheduled
-  const r = rnd();
-  const stage = r < 0.6 ? "Held" : r < 0.85 ? "Scheduled" : "Agreed - not scheduled";
-  if (stage === "Held") heldSet.add(url);
-  const mAgreed = isoDay(-(20 + (i % 70)));       // agreed a few weeks–months ago
-  const mSched = isoDay((i % 75) + 1);            // scheduled = UPCOMING, spread out so few land in "this week"
-  const mHeld = isoDay(-(6 + (i % 60)));          // held recently
   const pain = pick(PAINS);
-  // Held meetings mostly spot an opportunity; scheduled ones sometimes carry a pre-identified one.
-  const spots = (stage === "Held" && chance(0.82)) || (stage === "Scheduled" && chance(0.4));
+  let stage: string;
+  let mHeld: string | undefined;
+  let mSched: string | undefined;
+  const mAgreed = isoDay(-(25 + (i % 60)));
   let opp: SeedOpp | null = null;
-  if (spots) {
-    const lost = stage === "Held" && chance(0.06);
-    // Scheduled meetings haven't happened → opportunity is still early-stage.
-    const step = lost ? "pursuit" : stage === "Scheduled" ? pick(["pursuit", "qualify", "scoping"]) : STEPS_SPREAD[i % STEPS_SPREAD.length];
+
+  if (i < oppPlan.length) {
+    // Opportunity-carrying HELD meeting. The held date is reverse-engineered from the agenda slot.
+    const slot = oppPlan[i];
+    stage = "Held";
+    mHeld = isoDay(heldForDelta(slot.step, slot.delta));
+    heldSet.add(url);
     const sl = pick(SERVICE_LINE);
-    const value = pick([75000, 120000, 150000, 200000, 250000, 350000, 500000, 800000]);
-    opp = { opportunity_name: `${c.company} — ${sl} engagement`, service_line: sl, step, lost: lost || undefined, description: `Opportunity spotted with ${full} (${c.title}) around ${pain}.`, est_value: value, probability: lost ? undefined : STEP_PROB[step], next_step: lost ? "Closed out — revisit next year" : pick(["Send a follow-up note", "Draft a short proposal", "Schedule a scoping call", "Confirm budget owner", "Share a relevant case study"]) };
-    // Won opportunities → a SoW in the Revenue tab. Alternate Fixed-price / T&M so the
-    // demo (and the tutorial) showcase both pricing models.
-    if (!lost && WON.has(step)) {
-      const completed = step === "delivery" && chance(0.5);
-      const isTM = i % 2 === 0;
-      let contracted = 0;
-      let deliverables: Deliverable[] | undefined;
-      let rate_card: RateLine[] | undefined;
-      if (isTM) {
-        const used = TM_GRADES.slice(1, 2 + (i % 4)); // 2–4 grades, skewed mid-senior
-        rate_card = used.map((grade) => ({ grade, rate_per_hour: pick([180, 220, 260, 320, 420, 550]), hours: pick([80, 120, 160, 240, 320]) }));
-        contracted = rate_card.reduce((s, r) => s + (r.rate_per_hour ?? 0) * (r.hours ?? 0), 0);
-      } else {
-        const n = 2 + (i % 3); // 2–4 deliverables
-        deliverables = Array.from({ length: n }, (_, di) => ({ id: `sow-${i}-d${di}`, name: `${["Phase", "Workstream", "Stage"][di % 3]} ${di + 1} — ${DL_CATS[(i + di) % DL_CATS.length]}`, category: DL_CATS[(i + di) % DL_CATS.length], price: pick([25000, 40000, 60000, 80000, 120000, 150000]) }));
-        contracted = deliverables.reduce((s, d) => s + (d.price ?? 0), 0);
-      }
-      sows.push({ id: `sow-${i}`, linked_opportunity_id: `opp:meeting:${url}#1`, organisation: c.company, engagement_name: `${sl} engagement`, signed_date: mHeld, start_date: isoDay(-(5 + (i % 60))), end_date: isoDay((i % 150) - 25), service_line: sl, project_type: isTM ? "Time & materials" : "Fixed price", deliverables, rate_card, recognised_to_date: Math.round(contracted * (completed ? 1 : pick([0.2, 0.4, 0.6]))), next_action: completed ? undefined : pick(["Invoice milestone 2", "Deliver phase 1", "Send the status report", "Chase the deposit", "Confirm scope for next phase", "Book the close-out review"]), next_action_date: completed ? undefined : isoDay((i % 40) + 1), status: completed ? "Completed" : "Active" });
+    opp = {
+      opportunity_name: `${c.company} — ${sl} engagement`, service_line: sl, step: slot.step,
+      description: `Opportunity spotted with ${full} (${c.title}) around ${pain}.`,
+      est_value: pick(VALUE_POOL), probability: STEP_PROB[slot.step],
+      next_step: pick(["Send a follow-up note", "Draft a short proposal", "Schedule a scoping call", "Confirm budget owner", "Share a relevant case study"]),
+    };
+    if (WON.has(slot.step)) wonOpps.push({ url, company: c.company, sl, step: slot.step });
+  } else {
+    // Relationship / pipeline meetings WITHOUT a spotted opportunity (still light up the funnel).
+    const j = i - oppPlan.length;
+    if (schedInWindow < 2 && j % 2 === 0) {
+      stage = "Scheduled"; mSched = isoDay(j === 0 ? 2 : 5); schedInWindow++;   // a couple of real upcoming meetings
+    } else if (j % 3 === 0) {
+      stage = "Scheduled"; mSched = isoDay(12 + (j % 50));                       // scheduled but further out
+    } else if (j % 3 === 1) {
+      stage = "Held"; mHeld = isoDay(-(9 + (j % 55))); heldSet.add(url);         // relationship-only held meeting
+    } else {
+      stage = "Agreed - not scheduled";
     }
   }
+
+  const held = stage === "Held";
   seedMinutes.push({
     contact_url: url, meeting_no: 1, meeting_stage: stage,
-    date_agreed: mAgreed, date_scheduled: stage === "Agreed - not scheduled" ? undefined : mSched, date_held: stage === "Held" ? mHeld : undefined,
+    date_agreed: mAgreed, date_scheduled: mSched, date_held: mHeld,
     type: pick(MEETING_TYPE), location: pick(["Their office", "Coffee near Liverpool St", "Video call", "Lunch in the City", "Industry conference"]),
     attendees_ours: OWNER.name, attendees_client: full,
     purpose: "Introductory meeting / explore where we could help.",
-    notes: `Good conversation with ${full}. ${stage === "Held" ? `Discussed ${pain}.` : "Looking forward to it."}`,
-    org_insights: stage === "Held" ? `${c.company} is dealing with ${pain}.` : undefined,
-    pain_points: stage === "Held" ? pain : undefined,
-    opportunity_spotted: spots ? "Yes" : "No",
-    actions_mine: stage === "Held" ? pick(["Send follow-up + relevant case study", "Draft a one-pager", "Introduce a colleague"]) : undefined,
-    actions_theirs: stage === "Held" ? "Share more detail on the current setup" : undefined,
-    followup: stage === "Held" ? "Reconnect in two weeks" : undefined,
-    followup_date: stage === "Held" ? isoDay((i % 45) + 4) : undefined,
+    notes: `Good conversation with ${full}. ${held ? `Discussed ${pain}.` : "Looking forward to it."}`,
+    org_insights: held ? `${c.company} is dealing with ${pain}.` : undefined,
+    pain_points: held ? pain : undefined,
+    opportunity_spotted: opp ? "Yes" : "No",
+    actions_mine: held ? pick(["Send follow-up + relevant case study", "Draft a one-pager", "Introduce a colleague"]) : undefined,
+    actions_theirs: held ? "Share more detail on the current setup" : undefined,
+    // Follow-ups sit beyond the agenda window (12+ days out) so they don't crowd "this week".
+    followup: held && !opp ? "Reconnect in two weeks" : undefined,
+    followup_date: held && !opp ? isoDay(12 + (i % 30)) : undefined,
     sentiment: pick(SENTIMENT),
     opportunity: opp,
   });
 });
+
+// ── contracts (~30) — the signed book across stages, fixed-price + T&M ─────────────────────────
+// Most come from the won opportunities above (linked); a handful are standalone engagements on
+// marquee firms (older work, no live pipeline row). A small, capped few carry an in-window next
+// action so the agenda shows ~2–3 upcoming contract steps without flooding it.
+let contractInWindow = 0;
+function buildSow(id: string, organisation: string, sl: string, idx: number, linkedId?: string): Sow {
+  const isTM = idx % 2 === 0;
+  let contracted = 0;
+  let deliverables: Deliverable[] | undefined;
+  let rate_card: RateLine[] | undefined;
+  if (isTM) {
+    const used = TM_GRADES.slice(1, 2 + (idx % 4));
+    rate_card = used.map((grade) => ({ grade, rate_per_hour: pick([180, 220, 260, 320, 420, 550]), hours: pick([80, 120, 160, 240, 320]) }));
+    contracted = rate_card.reduce((s, r) => s + (r.rate_per_hour ?? 0) * (r.hours ?? 0), 0);
+  } else {
+    const n = 2 + (idx % 3);
+    deliverables = Array.from({ length: n }, (_, di) => ({ id: `${id}-d${di}`, name: `${["Phase", "Workstream", "Stage"][di % 3]} ${di + 1} — ${DL_CATS[(idx + di) % DL_CATS.length]}`, category: DL_CATS[(idx + di) % DL_CATS.length], price: pick([25000, 40000, 60000, 80000, 120000, 150000]) }));
+    contracted = deliverables.reduce((s, d) => s + (d.price ?? 0), 0);
+  }
+  const completed = idx % 5 === 0;
+  const recPct = completed ? 1 : pick([0.15, 0.3, 0.45, 0.6, 0.75]);
+  const wantWindow = !completed && contractInWindow < 3 && idx % 4 === 1;
+  if (wantWindow) contractInWindow++;
+  const nextActionDate = completed ? undefined : wantWindow ? isoDay(pick([1, 3, 6])) : isoDay(15 + (idx % 90));
+  return {
+    id, linked_opportunity_id: linkedId, organisation, engagement_name: `${sl} engagement`,
+    signed_date: isoDay(-(20 + (idx % 200))), start_date: isoDay(-(10 + (idx % 120))), end_date: isoDay((idx % 160) - 30),
+    service_line: sl, project_type: isTM ? "Time & materials" : "Fixed price", deliverables, rate_card,
+    recognised_to_date: Math.round(contracted * recPct),
+    next_action: completed ? undefined : pick(["Invoice milestone 2", "Deliver phase 1", "Send the status report", "Chase the deposit", "Confirm scope for next phase", "Book the close-out review"]),
+    next_action_date: nextActionDate,
+    status: completed ? "Completed" : "Active",
+  };
+}
+wonOpps.forEach((m, k) => sows.push(buildSow(`sow-w${k}`, m.company, m.sl, k, `opp:meeting:${m.url}#1`)));
+for (let k = 0; sows.length < 30; k++) {
+  const co = ORDERED[(k * 4 + 1) % ORDERED.length];
+  sows.push(buildSow(`sow-s${k}`, co.name, SERVICE_LINE[k % SERVICE_LINE.length], k + 50));
+}
 
 // ── owner edits (relationship strength, priority, next actions) — light up Contacts + priorities ──
 type OwnerEdit = { url: string; edits: Record<string, unknown> };
