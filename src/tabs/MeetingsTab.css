@@ -159,7 +159,7 @@
 /* The panel slides in from the right; it's tall, scrollable, with a sticky header
    and footer so Save/Cancel are always reachable. */
 .mform-panel {
-  width: min(560px, 92vw);
+  width: min(680px, 94vw);
   background: #fff;
   height: 100%;
   display: flex;

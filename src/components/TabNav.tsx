@@ -35,7 +35,8 @@ export type TabIntent = {
 export type Navigate = (tab: TabId, intent?: TabIntent) => void;
 
 // The label shown to the user for each tab id, in display order.
-const TABS: { id: TabId; label: string }[] = [
+// Exported so the responsive SideNav (narrow screens) renders the same items + order.
+export const TABS: { id: TabId; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "metrics", label: "Metrics" },
   { id: "contacts", label: "Contacts" },

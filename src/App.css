@@ -78,6 +78,29 @@
   border-color: var(--line);
 }
 
+/* Global "Import your LinkedIn" button — the primary action, available on every tab. */
+.topbar-import {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 13px;
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--ease), border-color var(--ease);
+}
+.topbar-import:hover {
+  background: var(--primary-600);
+  border-color: var(--primary-600);
+}
+
 /* "Runs on Freehold" maker badge. */
 .freehold-badge {
   display: inline-flex;

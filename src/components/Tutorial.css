@@ -1,0 +1,208 @@
+/* Guided spotlight tour. The spotlight is a transparent ring with a huge box-shadow that
+   dims everything around it; the caption card floats next to it. */
+.tut {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+}
+
+.tut-dim {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 24, 38, 0.55);
+}
+
+.tut-spot {
+  position: fixed;
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(12, 24, 38, 0.55);
+  outline: 2px solid var(--primary);
+  outline-offset: 0;
+  pointer-events: none;
+  transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+
+.tut-card {
+  position: fixed;
+  z-index: 201;
+  box-sizing: border-box;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: 0 10px 40px rgba(12, 24, 38, 0.28);
+  padding: 20px 20px 16px;
+}
+
+.tut-x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 4px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+.tut-x:hover {
+  color: var(--ink);
+  background: var(--bg-2);
+}
+
+.tut-title {
+  margin: 0 24px 8px 0;
+  font-size: 1.08rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.tut-body {
+  font-size: 0.9rem;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+.tut-body strong {
+  color: var(--ink);
+}
+
+/* LinkedIn-export mini-illustration (the import how-to step). */
+.tut-illus {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  background: var(--primary-tint);
+  border: 1px solid var(--primary-tint-2);
+  border-radius: var(--r-sm);
+  font-size: 0.84rem;
+  color: var(--primary-700);
+}
+.tut-illus li {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.tut-illus strong {
+  color: var(--ink);
+}
+.tut-illus-n {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(2px);
+}
+
+.tut-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+}
+/* Progress takes the flexible space and may shrink to nothing; the actions never shrink,
+   so the Next button always stays inside the card. */
+.tut-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tut-progress-text {
+  flex: none;
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tut-progress-track {
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line-2);
+  overflow: hidden;
+}
+.tut-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.tut-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tut-skip,
+.tut-back {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.tut-skip:hover,
+.tut-back:hover {
+  color: var(--ink);
+  background: var(--bg-2);
+}
+.tut-next {
+  appearance: none;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 7px 16px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.tut-next:hover {
+  background: var(--primary-600);
+}
+
+/* The "?" tour button in the top bar. */
+.topbar-help {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--ease), color var(--ease), background var(--ease);
+}
+.topbar-help:hover {
+  border-color: var(--primary-tint-2);
+  color: var(--primary);
+  background: var(--primary-tint);
+}

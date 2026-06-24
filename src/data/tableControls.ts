@@ -21,6 +21,10 @@ export type FilterDef<T> = {
   label: string; // shown above the dropdown, e.g. "Priority"
   options: readonly string[]; // the dropdown choices (usually a vocab.ts constant)
   get: (row: T) => string; // the row's value in this dimension ("" = no value)
+  // Whether this filter renders as a toolbar dropdown. Default true. Set false for a
+  // dimension already covered by a stat-bar quick-filter (e.g. the Contacts funnel
+  // booleans) — it stays filterable (the stat sets it) but doesn't clutter the toolbar.
+  toolbar?: boolean;
 };
 
 // One sort option. `get` returns the comparable value; strings sort with
@@ -161,11 +165,11 @@ export function useTableControls<T>(
     query,
     setQuery,
     searchPlaceholder: config.searchPlaceholder,
-    filterDefs: (config.filters ?? []).map((f) => ({
-      key: f.key,
-      label: f.label,
-      options: f.options,
-    })),
+    // Only filters with toolbar !== false render as toolbar dropdowns (the rest stay
+    // filterable via the stat-bar quick-filters, which set the same keys).
+    filterDefs: (config.filters ?? [])
+      .filter((f) => f.toolbar !== false)
+      .map((f) => ({ key: f.key, label: f.label, options: f.options })),
     filterValues,
     setFilter,
     sortDefs: (config.sorts ?? []).map((s) => ({ key: s.key, label: s.label })),

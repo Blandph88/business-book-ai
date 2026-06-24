@@ -23,23 +23,28 @@ import { formatMoney, formatPct } from "../data/format";
 import { SERVICE_LINE, REVENUE_STATUS } from "../data/vocab";
 import type { TabIntent, Navigate } from "../components/TabNav";
 import { TableControls } from "../components/TableControls";
+import { ColumnHeader } from "../components/ColumnHeader";
 import { useTableControls, type ControlsConfig } from "../data/tableControls";
 import { RevenueForm, type RevenueFormTarget } from "./RevenueForm";
 import { StatsBar } from "../components/StatsBar";
 
 // What the Revenue list can be searched, filtered, and sorted by. Default sort keeps
-// the previous behaviour — biggest contracted value first.
+// the previous behaviour — biggest contracted value first. Status is filtered from the
+// status chips above the table, so it's hidden from the toolbar dropdowns (toolbar: false).
 const REVENUE_CONTROLS: ControlsConfig<Sow> = {
   searchPlaceholder: "Search engagement or organisation…",
   searchText: (s) => `${s.engagement_name} ${s.organisation}`,
   filters: [
     { key: "service_line", label: "Service line", options: SERVICE_LINE, get: (s) => s.service_line },
-    { key: "status", label: "Status", options: REVENUE_STATUS, get: (s) => s.status },
+    { key: "status", label: "Status", options: REVENUE_STATUS, get: (s) => s.status, toolbar: false },
   ],
   sorts: [
+    { key: "name", label: "Engagement", get: (s) => s.engagement_name },
+    { key: "organisation", label: "Organisation", get: (s) => s.organisation },
+    { key: "service_line", label: "Service line", get: (s) => s.service_line },
     { key: "contracted", label: "Contracted value", get: (s) => contractedRevenue(s) },
     { key: "pct", label: "% recognised", get: (s) => pctRecognised(s) },
-    { key: "name", label: "Engagement", get: (s) => s.engagement_name },
+    { key: "status", label: "Status", get: (s) => REVENUE_STATUS.indexOf(s.status as (typeof REVENUE_STATUS)[number]) },
   ],
   defaultSortKey: "contracted",
   defaultSortDir: "desc",
@@ -216,13 +221,13 @@ export function RevenueTab({
               <table className="rev-table">
             <thead>
               <tr>
-                <th>Engagement</th>
-                <th>Organisation</th>
-                <th>Service line</th>
+                <ColumnHeader label="Engagement" controls={controlsProps} sortKey="name" />
+                <ColumnHeader label="Organisation" controls={controlsProps} sortKey="organisation" />
+                <ColumnHeader label="Service line" controls={controlsProps} sortKey="service_line" />
                 <th>Linked opportunity</th>
-                <th className="cell-num">Contracted</th>
-                <th className="cell-num">% rec.</th>
-                <th>Status</th>
+                <ColumnHeader label="Contracted" controls={controlsProps} sortKey="contracted" className="cell-num" />
+                <ColumnHeader label="% rec." controls={controlsProps} sortKey="pct" className="cell-num" />
+                <ColumnHeader label="Status" controls={controlsProps} sortKey="status" />
                 <th />
               </tr>
             </thead>

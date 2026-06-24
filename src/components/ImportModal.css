@@ -11,7 +11,7 @@
 .imp-modal {
   position: relative;
   width: 100%;
-  max-width: 520px;
+  max-width: 620px;
   max-height: 90vh;
   overflow: auto;
   background: var(--bg, #fff);

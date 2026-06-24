@@ -51,7 +51,7 @@ const YESNO = ["Yes", "No"] as const;
 
 // What the Meetings list can be searched, filtered, and sorted by. Virtual seed rows
 // (agreed-to-meet contacts not yet written up) flow through the same controls. Every
-// column is sortable; categorical columns carry a header filter dropdown.
+// column header is click-to-sort; categorical filters live in the toolbar dropdowns.
 const MEETINGS_CONTROLS: ControlsConfig<MeetingRow> = {
   searchPlaceholder: "Search contact or organisation…",
   searchText: (m) => `${m.contactInfo.name} ${m.contactInfo.organisation}`,
@@ -391,12 +391,12 @@ export function MeetingsTab({
               <ColumnHeader label="Contact" controls={controlsProps} sortKey="name" />
               <ColumnHeader label="Organisation" controls={controlsProps} sortKey="organisation" />
               <ColumnHeader label="#" controls={controlsProps} sortKey="meeting_no" />
-              <ColumnHeader label="Sector group" controls={controlsProps} sortKey="sector_group" filter={{ key: "sector_group", options: SECTOR_GROUPS }} />
-              <ColumnHeader label="Stage" controls={controlsProps} sortKey="stage" filter={{ key: "stage", options: MEETING_STAGE }} />
-              <ColumnHeader label="Type" controls={controlsProps} sortKey="type" filter={{ key: "type", options: MEETING_TYPE }} />
+              <ColumnHeader label="Sector group" controls={controlsProps} sortKey="sector_group" />
+              <ColumnHeader label="Stage" controls={controlsProps} sortKey="stage" />
+              <ColumnHeader label="Type" controls={controlsProps} sortKey="type" />
               <ColumnHeader label="Date" controls={controlsProps} sortKey="date" />
-              <ColumnHeader label="Sentiment" controls={controlsProps} sortKey="sentiment" filter={{ key: "sentiment", options: SENTIMENT }} />
-              <ColumnHeader label="Opp?" controls={controlsProps} sortKey="opp" filter={{ key: "opp", options: YESNO }} />
+              <ColumnHeader label="Sentiment" controls={controlsProps} sortKey="sentiment" />
+              <ColumnHeader label="Opp?" controls={controlsProps} sortKey="opp" />
               <ColumnHeader label="Follow-up" controls={controlsProps} sortKey="followup" />
               <th />
             </tr>

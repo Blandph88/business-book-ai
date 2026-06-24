@@ -58,8 +58,8 @@ import { StatsBar } from "../components/StatsBar";
 
 // The static parts of the Opportunities controls. The Sector-group filter/sort is added
 // in the component because it depends on the linked contact (resolved at runtime). Every
-// column is sortable; categorical columns carry a header filter dropdown. The default
-// sort keeps the previous behaviour — most valuable (weighted) pursuits lead.
+// column header is click-to-sort; categorical filters live in the toolbar dropdowns. The
+// default sort keeps the previous behaviour — most valuable (weighted) pursuits lead.
 const OPPS_CONTROLS_BASE: ControlsConfig<Opportunity> = {
   searchPlaceholder: "Search opportunity or organisation…",
   searchText: (o) => `${o.opportunity_name} ${o.organisation} ${o.primary_contact}`,
@@ -319,14 +319,14 @@ export function OpportunitiesTab({
                 <th className="cell-icon-head" title="WhatsApp"><WhatsAppIcon /></th>
                 <ColumnHeader label="Opportunity" controls={controlsProps} sortKey="name" />
                 <ColumnHeader label="Organisation" controls={controlsProps} sortKey="organisation" />
-                <ColumnHeader label="Sector group" controls={controlsProps} sortKey="sector_group" filter={{ key: "sector_group", options: SECTOR_OPTIONS }} />
-                <ColumnHeader label="Service line" controls={controlsProps} sortKey="service_line" filter={{ key: "service_line", options: SERVICE_LINE }} />
-                <ColumnHeader label="Phase" controls={controlsProps} sortKey="step" filter={{ key: "phase", options: PHASE_OPTIONS }} />
-                <ColumnHeader label="Step" controls={controlsProps} sortKey="step" filter={{ key: "step", options: STEP_OPTIONS }} />
+                <ColumnHeader label="Sector group" controls={controlsProps} sortKey="sector_group" />
+                <ColumnHeader label="Service line" controls={controlsProps} sortKey="service_line" />
+                <ColumnHeader label="Phase" controls={controlsProps} sortKey="step" />
+                <ColumnHeader label="Step" controls={controlsProps} sortKey="step" />
                 <ColumnHeader label="Est. value" controls={controlsProps} sortKey="est_value" className="cell-num" />
                 <ColumnHeader label="Prob." controls={controlsProps} sortKey="prob" className="cell-num" />
                 <ColumnHeader label="Weighted" controls={controlsProps} sortKey="weighted" className="cell-num" />
-                <ColumnHeader label="Status" controls={controlsProps} sortKey="status" filter={{ key: "status", options: OPPORTUNITY_OUTCOMES }} />
+                <ColumnHeader label="Status" controls={controlsProps} sortKey="status" />
                 <th />
               </tr>
             </thead>

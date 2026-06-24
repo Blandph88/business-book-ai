@@ -487,7 +487,7 @@ export function MetricsTab({
       </div>
 
       {/* ── Networking funnel, stacked by sector group (§4, EY report) ───── */}
-      <div className="dash-card">
+      <div className="dash-card" data-tour="met-funnel">
         <h3>Networking funnel by segment</h3>
         <p className="dash-card-note">
           Each stage is a nested subset of the one above it: Met ⊆ Agreed ⊆ Responded ⊆
@@ -538,7 +538,7 @@ export function MetricsTab({
         ))}
       </div>
 
-      <div className="dash-grid">
+      <div className="dash-grid" data-tour="met-segments">
         <BarChartCard
           title={`Seniority · ${activePopulationLabel}`}
           breakdown={seniority}
@@ -553,7 +553,7 @@ export function MetricsTab({
       </div>
 
       {/* ── Market Penetration Summary → opens the detailed matrices ─────── */}
-      <div className="dash-card">
+      <div className="dash-card" data-tour="met-penetration">
         <h3>Market penetration summary</h3>
         <p className="dash-card-note">
           Contacts by sector group for the population selected above. Click any bar to
@@ -576,7 +576,7 @@ export function MetricsTab({
       </div>
 
       {/* ── Follow-up actions: the gaps between funnel stages ─────────────── */}
-      <div className="dash-card">
+      <div className="dash-card" data-tour="met-followups">
         <h3>Follow-up actions</h3>
         <p className="dash-card-note">
           Who to act on next, taken from the gaps between consecutive funnel stages.
@@ -665,7 +665,7 @@ export function MetricsTab({
 
 
       <div className="dash-grid">
-        <div className="dash-card">
+        <div className="dash-card" data-tour="met-opp-phase">
           <h3>Opportunity funnel (by phase)</h3>
           <p className="dash-card-note">
             A snapshot: how many opportunities sit in each phase now. Click a phase to
@@ -708,7 +708,7 @@ export function MetricsTab({
       </div>
 
       {/* ── Opportunity breakdowns (phase-filtered, like the contact population tabs) ── */}
-      <div className="dash-card">
+      <div className="dash-card" data-tour="met-opp-breakdowns">
         <h3>Opportunity breakdowns</h3>
         <p className="dash-card-note">
           Slice the open opportunities by service line, sector group, and the buyer’s

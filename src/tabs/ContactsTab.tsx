@@ -35,7 +35,6 @@ import {
   LinkedInCell,
   WhatsAppCell,
 } from "../components/BrandIcons";
-import { ImportModal } from "../components/ImportModal";
 import { getAppMode } from "../lib/appMode";
 
 const YESNO = ["Yes", "No"] as const;
@@ -48,10 +47,10 @@ const yn = (b: boolean) => (b ? "Yes" : "No");
 const RENDER_BASE = 150;
 const RENDER_STEP = 350;
 
-// What the Contacts list can be searched, filtered, and sorted by. Every column is
-// sortable; categorical columns also expose a header filter dropdown. Free-text / date
-// columns (name, organisation, position, next-action, dates) are sort-only — the search
-// box covers them. Filter options reuse the shared vocab constants so they can't drift.
+// What the Contacts list can be searched, filtered, and sorted by. Every column header is
+// click-to-sort; categorical dimensions are filtered from the toolbar dropdowns (the funnel
+// booleans are `toolbar: false` — they filter from the headline stat bar instead). Filter
+// options reuse the shared vocab constants so they can't drift.
 // (`ContactRow` = a contact merged with its owner edits, defined in ./ContactForm.)
 const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
   searchPlaceholder: "Search name, organisation, position…",
@@ -61,10 +60,12 @@ const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
     { key: "sector_group", label: "Sector group", options: SECTOR_GROUPS, get: (c) => c.sector_group },
     { key: "relationship", label: "Relationship", options: RELATIONSHIP_STRENGTH, get: (c) => c.relationship_strength ?? "" },
     { key: "priority", label: "Priority", options: PRIORITY, get: (c) => c.priority ?? "" },
-    { key: "messaged", label: "Messaged", options: YESNO, get: (c) => yn(c.messaged) },
-    { key: "responded", label: "Responded", options: YESNO, get: (c) => yn(c.two_way) },
-    { key: "agreed", label: "Agreed", options: YESNO, get: (c) => yn(c.agreed_to_meet) },
-    { key: "met", label: "Met", options: YESNO, get: (c) => yn(c.met) },
+    // The funnel booleans are filtered from the headline stat bar, so they're hidden from
+    // the toolbar dropdowns (toolbar: false) — they still filter via the same keys.
+    { key: "messaged", label: "Messaged", options: YESNO, get: (c) => yn(c.messaged), toolbar: false },
+    { key: "responded", label: "Responded", options: YESNO, get: (c) => yn(c.two_way), toolbar: false },
+    { key: "agreed", label: "Agreed", options: YESNO, get: (c) => yn(c.agreed_to_meet), toolbar: false },
+    { key: "met", label: "Met", options: YESNO, get: (c) => yn(c.met), toolbar: false },
   ],
   // Sort getters for EVERY column (clickable headers). Categorical orders follow §5.
   sorts: [
@@ -100,6 +101,8 @@ type Props = {
   // Dashboard/Metrics tab it was reached from. No-ops when there's no such origin, so a
   // form opened from within this tab just stays put.
   onReturn?: () => void;
+  // Open the global "Import your LinkedIn" modal (owned by App).
+  onImport?: () => void;
 };
 
 // The Contacts tab (CLAUDE.md §4): the universe of contacts.
@@ -112,6 +115,7 @@ export function ContactsTab({
   onNavigate,
   onOpenAccount,
   onReturn,
+  onImport,
 }: Props) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [edits, setEdits] = useState<Record<string, OwnerEdits>>({});
@@ -129,9 +133,6 @@ export function ContactsTab({
 
   // The currently-open contact panel, or null when closed.
   const [formTarget, setFormTarget] = useState<ContactRow | null>(null);
-
-  // The "Import your LinkedIn" modal (explainer in demo, real file picker in owned mode).
-  const [showImport, setShowImport] = useState(false);
 
   // Load the CSV and any previously saved edits once, on mount.
   useEffect(() => {
@@ -297,18 +298,16 @@ export function ContactsTab({
             Turn your LinkedIn connections &amp; messages into a working book of business —
             classified, searchable, and read entirely on your computer.
           </p>
-          <button className="imp-btn imp-btn-primary" onClick={() => setShowImport(true)}>
+          <button className="imp-btn imp-btn-primary" onClick={onImport}>
             ⬆ Import your LinkedIn
           </button>
         </div>
-        {showImport && <ImportModal onClose={() => setShowImport(false)} />}
       </section>
     );
   }
 
   return (
     <section className="contacts">
-      {showImport && <ImportModal onClose={() => setShowImport(false)} />}
       <div className="contacts-toolbar">
         <h2>Contacts</h2>
         <span className="contacts-count">{contacts.length} contacts</span>
@@ -321,16 +320,13 @@ export function ContactsTab({
         >
           Saved ✓
         </span>
-        <button className="contacts-import" onClick={() => setShowImport(true)}>
-          ⬆ Import your LinkedIn
-        </button>
       </div>
 
       <p className="contacts-hint">
         Pipeline data comes from the LinkedIn export and is read-only. Click any row
         to open it and maintain your own CRM fields — changes save when you press Save
-        and survive a reload. Click a column header to sort; use the header dropdowns to
-        filter.
+        and survive a reload. Search and use the filters above to narrow the list; click a
+        column header to sort.
       </p>
 
       <StatsBar stats={stats} />
@@ -346,15 +342,15 @@ export function ContactsTab({
               <ColumnHeader label="Name" controls={controlsProps} sortKey="name" />
               <ColumnHeader label="Organisation" controls={controlsProps} sortKey="organisation" />
               <ColumnHeader label="Position" controls={controlsProps} sortKey="position" />
-              <ColumnHeader label="Seniority" controls={controlsProps} sortKey="seniority" filter={{ key: "seniority", options: SENIORITY }} />
-              <ColumnHeader label="Sector group" controls={controlsProps} sortKey="sector_group" filter={{ key: "sector_group", options: SECTOR_GROUPS }} />
-              <ColumnHeader label="Relationship" controls={controlsProps} sortKey="relationship" filter={{ key: "relationship", options: RELATIONSHIP_STRENGTH }} />
-              <ColumnHeader label="Priority" controls={controlsProps} sortKey="priority" filter={{ key: "priority", options: PRIORITY }} />
+              <ColumnHeader label="Seniority" controls={controlsProps} sortKey="seniority" />
+              <ColumnHeader label="Sector group" controls={controlsProps} sortKey="sector_group" />
+              <ColumnHeader label="Relationship" controls={controlsProps} sortKey="relationship" />
+              <ColumnHeader label="Priority" controls={controlsProps} sortKey="priority" />
               <ColumnHeader label="Next action" controls={controlsProps} sortKey="next_action" />
               <ColumnHeader label="Next action date" controls={controlsProps} sortKey="next_action_date" />
-              <ColumnHeader label="Messaged" controls={controlsProps} sortKey="messaged" filter={{ key: "messaged", options: YESNO }} />
-              <ColumnHeader label="Responded" controls={controlsProps} sortKey="responded" filter={{ key: "responded", options: YESNO }} />
-              <ColumnHeader label="Agreed?" controls={controlsProps} sortKey="agreed" filter={{ key: "agreed", options: YESNO }} />
+              <ColumnHeader label="Messaged" controls={controlsProps} sortKey="messaged" />
+              <ColumnHeader label="Responded" controls={controlsProps} sortKey="responded" />
+              <ColumnHeader label="Agreed?" controls={controlsProps} sortKey="agreed" />
             </tr>
           </thead>
           <tbody>

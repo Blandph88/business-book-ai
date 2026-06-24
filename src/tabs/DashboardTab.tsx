@@ -260,7 +260,7 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
       </div>
 
       {/* ── This week (urgency) — one full-width chronological table ──── */}
-      <div className="home-card">
+      <div className="home-card" data-tour="dash-week">
         <div className="home-card-head">
           <h3>This week</h3>
           <span className="home-card-sub">
@@ -278,7 +278,7 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
       </div>
 
       {/* ── Priorities (importance), computed from stage / value / seniority ── */}
-      <div className="home-card">
+      <div className="home-card" data-tour="dash-priorities">
         <div className="home-card-head">
           <h3>Priorities</h3>
           <span className="home-card-sub">
@@ -336,7 +336,7 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
       </div>
 
       {/* ── Loose ends (data hygiene) ────────────────────────────────── */}
-      <div className="home-card">
+      <div className="home-card" data-tour="dash-hygiene">
         <div className="home-card-head">
           <h3>Loose ends</h3>
           <span className="home-card-sub">
@@ -419,7 +419,7 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
 
       {/* ── The two funnels (clickable) ─────────────────────────────────── */}
       <div className="home-cols">
-        <div className="home-card">
+        <div className="home-card" data-tour="dash-net-funnel">
           <div className="home-card-head">
             <h3>Networking → meeting funnel</h3>
             <button type="button" className="home-link" onClick={() => onNavigate("metrics")}>
@@ -446,7 +446,7 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
           </p>
         </div>
 
-        <div className="home-card">
+        <div className="home-card" data-tour="dash-opp-funnel">
           <div className="home-card-head">
             <h3>Opportunity funnel</h3>
           </div>

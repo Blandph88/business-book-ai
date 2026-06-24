@@ -189,3 +189,42 @@ describe("derived controlsProps", () => {
     ]);
   });
 });
+
+// A toolbar:false filter is HIDDEN from the toolbar dropdowns but still filters (the stat
+// bar sets it). Drive a config with one of each through its own tiny host.
+describe("toolbar:false filters", () => {
+  let host: HTMLDivElement;
+  let hostRoot: Root;
+  let cap: { filtered: Row[]; controlsProps: ControlsProps };
+  const CONFIG2: ControlsConfig<Row> = {
+    searchText: (r) => r.name,
+    filters: [
+      { key: "priority", label: "Priority", options: ["High", "Low"], get: (r) => r.priority },
+      { key: "flag", label: "Flag", options: ["Yes", "No"], get: (r) => (r.value > 15 ? "Yes" : "No"), toolbar: false },
+    ],
+  };
+  function Host2() {
+    cap = useTableControls(ROWS, CONFIG2);
+    return null;
+  }
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    hostRoot = createRoot(host);
+    act(() => hostRoot.render(<Host2 />));
+  });
+  afterEach(() => {
+    act(() => hostRoot.unmount());
+    host.remove();
+  });
+
+  it("omits the toolbar:false filter from filterDefs", () => {
+    expect(cap.controlsProps.filterDefs.map((f) => f.key)).toEqual(["priority"]);
+  });
+
+  it("still filters when that hidden key is set (e.g. from a stat-bar click)", () => {
+    act(() => cap.controlsProps.setFilter("flag", "Yes"));
+    expect(cap.filtered.map((r) => r.value).sort((a, b) => a - b)).toEqual([20, 30]);
+    expect(cap.controlsProps.isActive).toBe(true);
+  });
+});

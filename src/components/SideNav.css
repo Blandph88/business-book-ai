@@ -1,0 +1,112 @@
+/* Responsive left navigation.
+   - Wide screens: hidden — the horizontal top-bar nav (.tab-nav) is used.
+   - Narrow, non-mobile widths (≤1024px, not the device-gated mobile shell): the top-bar nav
+     is hidden and this left rail takes over — collapsed to a thin strip with an expand
+     button, expanding into an accordion drawer of the nav items.
+   - Device-gated mobile (html.is-mobile): untouched — it keeps its fixed bottom bar. */
+
+.sidenav,
+.sidenav-backdrop {
+  display: none;
+}
+
+/* Toggle button at the top of the rail. */
+.sidenav-toggle {
+  appearance: none;
+  border: none;
+  background: none;
+  width: 46px;
+  height: 46px;
+  flex: none;
+  font-size: 1.05rem;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background var(--ease), color var(--ease);
+}
+.sidenav-toggle:hover {
+  color: var(--primary);
+  background: var(--bg-2);
+}
+
+.sidenav-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px 12px;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow-y: auto;
+  transition: opacity 0.15s ease;
+}
+.sidenav--open .sidenav-items {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sidenav-item {
+  appearance: none;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.sidenav-item:hover {
+  background: var(--bg-2);
+  color: var(--ink);
+}
+.sidenav-item--active {
+  background: var(--primary-tint);
+  color: var(--primary);
+}
+.sidenav-item--import {
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--primary);
+}
+
+@media (max-width: 1024px) {
+  /* Swap the horizontal top nav for the left rail. */
+  html:not(.is-mobile) .tab-nav {
+    display: none;
+  }
+
+  html:not(.is-mobile) .sidenav {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 61px; /* just below the 60px sticky top bar + its 1px border */
+    left: 0;
+    bottom: 0;
+    width: 46px;
+    z-index: 45;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    overflow: hidden;
+    transition: width 0.2s ease, box-shadow 0.2s ease;
+  }
+  html:not(.is-mobile) .sidenav--open {
+    width: 250px;
+    box-shadow: 6px 0 26px rgba(12, 24, 38, 0.16);
+  }
+
+  /* Keep page content clear of the collapsed rail. */
+  html:not(.is-mobile) .app {
+    padding-left: 58px;
+  }
+
+  /* Dim the content behind the open drawer (click to collapse). */
+  html:not(.is-mobile) .sidenav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 61px 0 0 0;
+    z-index: 44;
+    background: rgba(12, 24, 38, 0.35);
+  }
+}

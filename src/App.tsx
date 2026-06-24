@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 import { TabNav, type TabId, type TabIntent } from "./components/TabNav";
+import { Tutorial } from "./components/Tutorial";
 import { DashboardTab } from "./tabs/DashboardTab";
 import { MetricsTab } from "./tabs/MetricsTab";
 import { ContactsTab } from "./tabs/ContactsTab";
@@ -10,7 +11,15 @@ import { RevenueTab } from "./tabs/RevenueTab";
 import { AccountView } from "./components/AccountView";
 import MobileNote from "./components/MobileNote";
 import { Brand, FreeholdBadge } from "./components/Brand";
+import { ImportModal } from "./components/ImportModal";
+import { SideNav } from "./components/SideNav";
 import { CURRENCY_CODE, CURRENCY_OPTIONS, setCurrency } from "./data/format";
+
+// Persisted "the onboarding tour has been seen" flag. Written through localStorage so it
+// rides the same persistence as the rest of the app: in the OWNED app the vault persists it
+// (true show-once); in the sandboxed DEMO it's in-memory (shows once per session — the demo
+// iframe re-seeds fresh each launch, so it can't be suppressed across separate demo visits).
+const TUTORIAL_SEEN_KEY = "bob.tutorialSeen.v1";
 
 // Top-level layout for the BD CRM: a header + the tab bar + the active tab panel.
 //
@@ -31,6 +40,41 @@ export default function App() {
   // remember which overview to return to. Drives the Back bar and the return-on-save:
   // null while browsing the record tabs normally (so those just stay put on save).
   const [returnTo, setReturnTo] = useState<TabId | null>(null);
+
+  // The onboarding tour. Auto-opens on first run (no "seen" flag yet); re-openable any time
+  // via the "?" button in the top bar.
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem(TUTORIAL_SEEN_KEY)) setTutorialOpen(true);
+    } catch {
+      /* storage unavailable — just skip the auto-open */
+    }
+  }, []);
+  const closeTutorial = () => {
+    setTutorialOpen(false);
+    try {
+      localStorage.setItem(TUTORIAL_SEEN_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // The "Import your LinkedIn" modal, lifted to app level so the entry point is global
+  // (the top-bar button on every tab) rather than living only on Contacts.
+  const [showImport, setShowImport] = useState(false);
+
+  // The responsive left nav (narrow widths): open/closed accordion. Selecting an item or
+  // importing collapses it.
+  const [navOpen, setNavOpen] = useState(false);
+  const selectTabFromNav = (tab: TabId) => {
+    selectTab(tab);
+    setNavOpen(false);
+  };
+  const openImport = () => {
+    setShowImport(true);
+    setNavOpen(false);
+  };
 
   // A deep-link navigation (from Dashboard/Metrics content, or a cross-tab form link).
   // Leaving an overview tab for a record tab records where to return to.
@@ -74,12 +118,21 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {/* Single top app-bar: brand (left) · nav (inline) · currency + maker brand (right). */}
+      {/* Single top app-bar: brand (left) · nav (inline, wide screens) · utilities (right).
+          On narrow screens the inline nav is hidden and the SideNav drawer takes over. */}
       <header className="topbar">
         <div className="topbar-inner">
           <Brand />
           <TabNav activeTab={activeTab} onSelect={selectTab} />
           <div className="topbar-right">
+            <button
+              type="button"
+              className="topbar-import"
+              title="Import your LinkedIn connections"
+              onClick={() => setShowImport(true)}
+            >
+              ⬆ Import
+            </button>
             <label className="app-currency" title="Display currency">
               <span>Currency</span>
               <select value={CURRENCY_CODE} onChange={(e) => setCurrency(e.target.value)}>
@@ -88,10 +141,28 @@ export default function App() {
                 ))}
               </select>
             </label>
+            <button
+              type="button"
+              className="topbar-help"
+              title="Take the tour"
+              aria-label="Take the tour"
+              onClick={() => setTutorialOpen(true)}
+            >
+              ?
+            </button>
             <FreeholdBadge />
           </div>
         </div>
       </header>
+
+      {/* Responsive left nav — only visible on narrow widths (CSS-gated). */}
+      <SideNav
+        activeTab={activeTab}
+        open={navOpen}
+        onToggle={() => setNavOpen((v) => !v)}
+        onSelect={selectTabFromNav}
+        onImport={openImport}
+      />
 
       <div className="app">
         <MobileNote />
@@ -109,7 +180,7 @@ export default function App() {
         <main className="app-main">
           {activeTab === "dashboard" && <DashboardTab onNavigate={navigate} />}
           {activeTab === "metrics" && <MetricsTab onNavigate={navigate} onOpenAccount={openAccount} />}
-          {activeTab === "contacts" && <ContactsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}
+          {activeTab === "contacts" && <ContactsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} onImport={() => setShowImport(true)} />}
           {activeTab === "meetings" && <MeetingsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}
           {activeTab === "opportunities" && <OpportunitiesTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}
           {activeTab === "revenue" && <RevenueTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}
@@ -128,6 +199,12 @@ export default function App() {
           onClose={() => setAccountOrg(null)}
         />
       )}
+
+      {/* The onboarding tour drives the real tabs (it can switch tabs to spotlight each). */}
+      {tutorialOpen && <Tutorial onTab={selectTab} onClose={closeTutorial} />}
+
+      {/* Global "Import your LinkedIn" modal (opened from the top bar / side nav / Contacts). */}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} />}
     </div>
   );
 }
