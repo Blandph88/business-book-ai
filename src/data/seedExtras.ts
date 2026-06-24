@@ -8,7 +8,7 @@
 
 import { normalizeUrl } from "../storage/ownerEdits";
 
-const APPLIED_KEY = "bob.extrasSeedApplied.v2";
+const APPLIED_KEY = "bob.extrasSeedApplied.v3";
 const REVENUE_KEY = "bob.revenue.v1";
 const EDITS_KEY = "bob.contactOwnerEdits.v1";
 

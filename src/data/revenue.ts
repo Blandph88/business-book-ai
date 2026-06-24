@@ -4,9 +4,21 @@
 import type { Sow } from "../storage/revenue";
 import type { Opportunity } from "../storage/opportunities";
 
-// Contracted revenue = chargeable_hours / 8 × day_rate (§4). We divide hours by 8
-// because day_rate is per 8-hour day. A missing number counts as 0.
+// Contracted revenue, by how the SoW is priced (§4). A missing number counts as 0.
+//   • Fixed price       → sum of deliverable prices
+//   • Time & materials  → sum of (rate per hour × hours) across the rate card
+//   • Legacy (no type)  → the original chargeable_hours / 8 × day_rate (day_rate is per
+//                         8-hour day), so SoWs saved before the pricing split still compute.
 export function contractedRevenue(sow: Sow): number {
+  if (sow.project_type === "Fixed price") {
+    return (sow.deliverables ?? []).reduce((sum, d) => sum + (d.price ?? 0), 0);
+  }
+  if (sow.project_type === "Time & materials") {
+    return (sow.rate_card ?? []).reduce(
+      (sum, r) => sum + (r.rate_per_hour ?? 0) * (r.hours ?? 0),
+      0,
+    );
+  }
   return ((sow.chargeable_hours ?? 0) / 8) * (sow.day_rate ?? 0);
 }
 

@@ -108,8 +108,12 @@ const heldSet = new Set<string>();
 type SeedOpp = { opportunity_name: string; service_line: string; step?: string; lost?: boolean; description?: string; est_value?: number; probability?: number; next_step?: string };
 type SeedMinute = Record<string, unknown> & { contact_url: string; meeting_no: number; meeting_stage: string; opportunity: SeedOpp | null };
 const seedMinutes: SeedMinute[] = [];
-type Sow = { id: string; linked_opportunity_id?: string; organisation: string; engagement_name: string; signed_date?: string; start_date?: string; end_date?: string; service_line: string; team_size?: number; chargeable_hours?: number; day_rate?: number; recognised_to_date?: number; status: string };
+type Deliverable = { id: string; name: string; category: string; price?: number };
+type RateLine = { grade: string; rate_per_hour?: number; hours?: number };
+type Sow = { id: string; linked_opportunity_id?: string; organisation: string; engagement_name: string; signed_date?: string; start_date?: string; end_date?: string; service_line: string; project_type?: string; deliverables?: Deliverable[]; rate_card?: RateLine[]; recognised_to_date?: number; status: string };
 const sows: Sow[] = [];
+const TM_GRADES = ["Associate", "Senior", "Manager", "Senior Manager", "Director", "Partner"];
+const DL_CATS = ["Diagnostic & Assessment", "Strategy & Roadmap", "Operating Model & Org Design", "Process Design & Improvement", "Implementation & Delivery", "Programme & Project Management", "Change Management & Training", "Data & Analytics", "Advisory & Ongoing Support"];
 
 const STEPS_SPREAD = ["pursuit", "pursuit", "scoping", "scoping", "clearance", "proposal_build", "proposal_delivery", "procurement", "contracting", "setup", "delivery", "revenue"];
 [...agreedSet].forEach((url, i) => {
@@ -133,14 +137,24 @@ const STEPS_SPREAD = ["pursuit", "pursuit", "scoping", "scoping", "clearance", "
     const sl = pick(SERVICE_LINE);
     const value = pick([75000, 120000, 150000, 200000, 250000, 350000, 500000, 800000]);
     opp = { opportunity_name: `${c.company} — ${sl} engagement`, service_line: sl, step, lost: lost || undefined, description: `Opportunity spotted with ${full} (${c.title}) around ${pain}.`, est_value: value, probability: lost ? undefined : STEP_PROB[step], next_step: lost ? "Closed out — revisit next year" : pick(["Send a follow-up note", "Draft a short proposal", "Schedule a scoping call", "Confirm budget owner", "Share a relevant case study"]) };
-    // Won opportunities → a SoW in the Revenue tab.
+    // Won opportunities → a SoW in the Revenue tab. Alternate Fixed-price / T&M so the
+    // demo (and the tutorial) showcase both pricing models.
     if (!lost && WON.has(step)) {
-      const teamSize = pick([2, 3, 4, 5, 6]);
-      const hours = teamSize * pick([160, 240, 320, 480]);
-      const rate = pick([1500, 1800, 2200, 2600, 3000]);
-      const contracted = (hours / 8) * rate;
       const completed = step === "delivery" && chance(0.5);
-      sows.push({ id: `sow-${i}`, linked_opportunity_id: `opp:meeting:${url}#1`, organisation: c.company, engagement_name: `${sl} engagement`, signed_date: mHeld, start_date: isoDay(-(5 + (i % 60))), end_date: isoDay((i % 150) - 25), service_line: sl, team_size: teamSize, chargeable_hours: hours, day_rate: rate, recognised_to_date: Math.round(contracted * (completed ? 1 : pick([0.2, 0.4, 0.6]))), status: completed ? "Completed" : "Active" });
+      const isTM = i % 2 === 0;
+      let contracted = 0;
+      let deliverables: Deliverable[] | undefined;
+      let rate_card: RateLine[] | undefined;
+      if (isTM) {
+        const used = TM_GRADES.slice(1, 2 + (i % 4)); // 2–4 grades, skewed mid-senior
+        rate_card = used.map((grade) => ({ grade, rate_per_hour: pick([180, 220, 260, 320, 420, 550]), hours: pick([80, 120, 160, 240, 320]) }));
+        contracted = rate_card.reduce((s, r) => s + (r.rate_per_hour ?? 0) * (r.hours ?? 0), 0);
+      } else {
+        const n = 2 + (i % 3); // 2–4 deliverables
+        deliverables = Array.from({ length: n }, (_, di) => ({ id: `sow-${i}-d${di}`, name: `${["Phase", "Workstream", "Stage"][di % 3]} ${di + 1} — ${DL_CATS[(i + di) % DL_CATS.length]}`, category: DL_CATS[(i + di) % DL_CATS.length], price: pick([25000, 40000, 60000, 80000, 120000, 150000]) }));
+        contracted = deliverables.reduce((s, d) => s + (d.price ?? 0), 0);
+      }
+      sows.push({ id: `sow-${i}`, linked_opportunity_id: `opp:meeting:${url}#1`, organisation: c.company, engagement_name: `${sl} engagement`, signed_date: mHeld, start_date: isoDay(-(5 + (i % 60))), end_date: isoDay((i % 150) - 25), service_line: sl, project_type: isTM ? "Time & materials" : "Fixed price", deliverables, rate_card, recognised_to_date: Math.round(contracted * (completed ? 1 : pick([0.2, 0.4, 0.6]))), status: completed ? "Completed" : "Active" });
     }
   }
   seedMinutes.push({

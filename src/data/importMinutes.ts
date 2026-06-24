@@ -31,7 +31,8 @@ import {
 // v2: bumped alongside the meetings/opportunities stores when the mock minutes were
 // cleared. Resetting the "applied seeds" set means the (now empty) seed file starts
 // from scratch and no mock-### seed is remembered as applied.
-const APPLIED_KEY = "bob.seedApplied.v3";
+// v4: refresh existing demo browsers onto the current 1400-contact mock (new SoW format).
+const APPLIED_KEY = "bob.seedApplied.v4";
 
 // Build a Meeting from a compiled minute. The contact's name/org/seniority/function
 // are NOT stored here — they're derived live from the contact (see ./meetings.ts) —

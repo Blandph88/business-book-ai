@@ -283,3 +283,42 @@ export const REVENUE_STATUS = [
 ] as const;
 
 export type RevenueStatus = (typeof REVENUE_STATUS)[number];
+
+// How a SoW is priced — drives the Commercials editor and the contracted-revenue calc.
+export const PROJECT_TYPE = ["Fixed price", "Time & materials"] as const;
+export type ProjectType = (typeof PROJECT_TYPE)[number];
+
+// Grades for a Time & materials rate card (junior → senior); each billed at its own rate
+// per hour × hours.
+export const TM_GRADES = [
+  "Associate",
+  "Senior",
+  "Manager",
+  "Senior Manager",
+  "Director",
+  "Partner",
+] as const;
+export type TmGrade = (typeof TM_GRADES)[number];
+
+// Deliverable categories for a Fixed-price SoW. Deliberately high-level (broad buckets, so
+// most work lands cleanly in one) with an "Other" catch-all.
+export const DELIVERABLE_CATEGORIES = [
+  "Diagnostic & Assessment",
+  "Strategy & Roadmap",
+  "Operating Model & Org Design",
+  "Process Design & Improvement",
+  "Implementation & Delivery",
+  "Programme & Project Management",
+  "Change Management & Training",
+  "Data & Analytics",
+  "Technology & Systems",
+  "Finance & Commercial",
+  "Risk, Audit & Compliance",
+  "Research & Insights",
+  "Marketing & Customer",
+  "People & HR",
+  "Workshops & Facilitation",
+  "Advisory & Ongoing Support",
+  "Other",
+] as const;
+export type DeliverableCategory = (typeof DELIVERABLE_CATEGORIES)[number];

@@ -4,8 +4,25 @@
 // localStorage store separate from the CSV and the other stores. Per CLAUDE.md §3
 // we start with browser storage; no database yet.
 
-import type { ServiceLine, RevenueStatus } from "../data/vocab";
+import type { ServiceLine, RevenueStatus, ProjectType } from "../data/vocab";
 import { persistLocal, scopedKey } from "./persist";
+
+// One line of a Fixed-price SoW: a named deliverable in a category, at a price. The sum of
+// deliverable prices is the contracted revenue.
+export type Deliverable = {
+  id: string;
+  name: string;
+  category: string;
+  price?: number;
+};
+
+// One line of a Time & materials rate card: a grade billed at a rate per hour for a number
+// of hours. The sum of (rate × hours) across grades is the contracted revenue.
+export type RateLine = {
+  grade: string;
+  rate_per_hour?: number;
+  hours?: number;
+};
 
 // One signed Statement of Work (CLAUDE.md §4).
 //
@@ -31,11 +48,21 @@ export type Sow = {
 
   service_line: ServiceLine;
 
-  // The numbers behind the auto-calcs. Optional until known; the calcs treat a
-  // missing number as 0.
+  // How the work is priced (drives the contracted-revenue calc). Undefined = a legacy SoW
+  // priced on the old day_rate × hours fields below.
+  project_type?: ProjectType;
+  // Fixed price: the deliverables (Σ price = contracted revenue).
+  deliverables?: Deliverable[];
+  // Time & materials: the rate card per grade (Σ rate × hours = contracted revenue).
+  rate_card?: RateLine[];
+
+  // Legacy numbers behind the old day-rate calc — kept so SoWs saved before the
+  // Fixed-price / T&M split still compute (see ../data/revenue.ts contractedRevenue).
   team_size?: number;
   chargeable_hours?: number;
   day_rate?: number;
+
+  // Recognised revenue to date (a single number; % recognised is derived from it).
   recognised_to_date?: number;
 
   status: RevenueStatus;

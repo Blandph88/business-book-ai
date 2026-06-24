@@ -54,6 +54,58 @@ describe("contractedRevenue", () => {
     // 4 hours = 0.5 days × 1000 = 500
     expect(contractedRevenue(sow({ chargeable_hours: 4, day_rate: 1000 }))).toBe(500);
   });
+
+  it("uses the legacy day-rate path only when project_type is unset", () => {
+    expect(contractedRevenue(sow({ chargeable_hours: 80, day_rate: 1000 }))).toBe(10000);
+  });
+});
+
+describe("contractedRevenue — Fixed price", () => {
+  it("sums the deliverable prices (a missing price counts as 0)", () => {
+    const s = sow({
+      project_type: "Fixed price",
+      deliverables: [
+        { id: "a", name: "Assessment", category: "Diagnostic & Assessment", price: 40000 },
+        { id: "b", name: "Roadmap", category: "Strategy & Roadmap", price: 60000 },
+        { id: "c", name: "TBD", category: "Other" },
+      ],
+    });
+    expect(contractedRevenue(s)).toBe(100000);
+  });
+
+  it("is 0 with no deliverables", () => {
+    expect(contractedRevenue(sow({ project_type: "Fixed price" }))).toBe(0);
+    expect(contractedRevenue(sow({ project_type: "Fixed price", deliverables: [] }))).toBe(0);
+  });
+
+  it("ignores the legacy day_rate fields once priced Fixed price", () => {
+    const s = sow({
+      project_type: "Fixed price",
+      deliverables: [{ id: "a", name: "x", category: "Other", price: 5000 }],
+      chargeable_hours: 80,
+      day_rate: 1000,
+    });
+    expect(contractedRevenue(s)).toBe(5000); // not the legacy 10000
+  });
+});
+
+describe("contractedRevenue — Time & materials", () => {
+  it("sums rate per hour × hours across the rate card", () => {
+    const s = sow({
+      project_type: "Time & materials",
+      rate_card: [
+        { grade: "Associate", rate_per_hour: 200, hours: 100 }, // 20000
+        { grade: "Manager", rate_per_hour: 350, hours: 40 }, // 14000
+        { grade: "Partner", rate_per_hour: 600 }, // no hours → 0
+      ],
+    });
+    expect(contractedRevenue(s)).toBe(34000);
+  });
+
+  it("is 0 with no rate card", () => {
+    expect(contractedRevenue(sow({ project_type: "Time & materials" }))).toBe(0);
+    expect(contractedRevenue(sow({ project_type: "Time & materials", rate_card: [] }))).toBe(0);
+  });
 });
 
 // ── pctRecognised ─────────────────────────────────────────────────────────────

@@ -120,3 +120,89 @@
 }
 
 /* The headline figures now use the shared <StatsBar> (components/StatsBar.css). */
+
+/* ── Commercials editor (SoW form): deliverables (fixed price) + rate card (T&M) ──── */
+.sow-dl,
+.sow-rc {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 4px 0 10px;
+}
+.sow-dl-head,
+.sow-dl-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 116px 28px;
+  gap: 8px;
+  align-items: center;
+}
+.sow-rc-head,
+.sow-rc-row {
+  display: grid;
+  grid-template-columns: 1.2fr 110px 90px 110px;
+  gap: 8px;
+  align-items: center;
+}
+.sow-dl-head span,
+.sow-rc-head span {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.sow-rc-head .sow-rc-sub-h,
+.sow-rc-sub {
+  text-align: right;
+}
+.sow-rc-grade {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.sow-rc-sub {
+  font-size: 0.88rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.sow-dl-remove {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--r-xs);
+}
+.sow-dl-remove:hover {
+  color: var(--danger);
+  background: var(--danger-tint);
+}
+.sow-dl-add {
+  align-self: flex-start;
+  appearance: none;
+  border: 1px dashed var(--line-2);
+  background: var(--surface);
+  color: var(--primary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.sow-dl-add:hover {
+  background: var(--primary-tint);
+  border-color: var(--primary-tint-2);
+}
+.sow-totals {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.sow-total {
+  font-weight: 700;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}

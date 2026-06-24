@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
-import type { Sow } from "../storage/revenue";
+import type { Sow, Deliverable, RateLine } from "../storage/revenue";
 import type { Opportunity } from "../storage/opportunities";
 import { contractedRevenue, pctRecognised } from "../data/revenue";
-import { SERVICE_LINE, REVENUE_STATUS } from "../data/vocab";
+import {
+  SERVICE_LINE,
+  REVENUE_STATUS,
+  PROJECT_TYPE,
+  TM_GRADES,
+  DELIVERABLE_CATEGORIES,
+} from "../data/vocab";
 import { formatMoney, formatPct } from "../data/format";
 import {
   Field,
@@ -12,6 +18,24 @@ import {
   Select,
 } from "./formControls";
 
+// New deliverable / fresh rate card for the Commercials editor.
+const uid = () =>
+  typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `dl-${Math.random().toString(36).slice(2)}`;
+const emptyDeliverable = (): Deliverable => ({ id: uid(), name: "", category: "", price: undefined });
+const freshRateCard = (): RateLine[] => TM_GRADES.map((grade) => ({ grade }));
+
+// Normalise a SoW for editing: ensure a project_type, and seed the matching editor (one
+// blank deliverable for Fixed price, the full grade ladder for T&M) so it's never empty.
+function normalizeForEdit(sow: Sow): Sow {
+  const project_type = sow.project_type ?? "Fixed price";
+  const out: Sow = { ...sow, project_type };
+  if (project_type === "Fixed price" && !sow.deliverables?.length) out.deliverables = [emptyDeliverable()];
+  if (project_type === "Time & materials" && !sow.rate_card?.length) out.rate_card = freshRateCard();
+  return out;
+}
+
 // The slide-in detail/edit panel for a single SoW (CLAUDE.md §4 Revenue & SoW).
 // Same buffer-and-save model and shared `mform-*` styles as the other forms.
 
@@ -20,13 +44,14 @@ export type RevenueFormTarget =
   // `prefill` pre-populates a new SoW (e.g. from a won opportunity's "Create SoW").
   | { mode: "new"; prefill?: Sow };
 
-// A new SoW starts Active, FAAS.
+// A new SoW starts Active, Strategy, priced Fixed-price.
 const EMPTY: Sow = {
   id: "",
   organisation: "",
   engagement_name: "",
   service_line: "Strategy",
   status: "Active",
+  project_type: "Fixed price",
 };
 
 export function RevenueForm({
@@ -48,10 +73,10 @@ export function RevenueForm({
 }) {
   const isNew = target.mode === "new";
 
-  const [draft, setDraft] = useState<Sow>(
-    target.mode === "new"
-      ? { ...EMPTY, ...(target.prefill ?? {}) }
-      : { ...target.sow },
+  const [draft, setDraft] = useState<Sow>(() =>
+    normalizeForEdit(
+      target.mode === "new" ? { ...EMPTY, ...(target.prefill ?? {}) } : { ...target.sow },
+    ),
   );
 
   useEffect(() => {
@@ -65,6 +90,38 @@ export function RevenueForm({
   function set<K extends keyof Sow>(field: K, value: Sow[K]) {
     setDraft((d) => ({ ...d, [field]: value }));
   }
+
+  // Switching pricing model seeds the other editor on first switch (keeps both arrays so
+  // nothing is lost if you switch back and forth).
+  function changeProjectType(pt: string) {
+    setDraft((d) => {
+      const next: Sow = { ...d, project_type: pt as Sow["project_type"] };
+      if (pt === "Fixed price" && !next.deliverables?.length) next.deliverables = [emptyDeliverable()];
+      if (pt === "Time & materials" && !next.rate_card?.length) next.rate_card = freshRateCard();
+      return next;
+    });
+  }
+
+  // Fixed-price deliverables editor.
+  const deliverables = draft.deliverables ?? [];
+  const setDeliverable = (id: string, patch: Partial<Deliverable>) =>
+    set("deliverables", deliverables.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+  const addDeliverable = () => set("deliverables", [...deliverables, emptyDeliverable()]);
+  const removeDeliverable = (id: string) =>
+    set("deliverables", deliverables.filter((d) => d.id !== id));
+
+  // T&M rate-card editor (fixed grade ladder; each grade billed rate × hours).
+  const rateCard = draft.rate_card ?? [];
+  const rateFor = (grade: string) => rateCard.find((r) => r.grade === grade);
+  const setRate = (grade: string, patch: Partial<RateLine>) => {
+    const has = rateCard.some((r) => r.grade === grade);
+    set(
+      "rate_card",
+      has
+        ? rateCard.map((r) => (r.grade === grade ? { ...r, ...patch } : r))
+        : [...rateCard, { grade, ...patch }],
+    );
+  };
 
   // The two auto-calcs, recomputed live (§6 rule 4 — shown read-only).
   const contracted = contractedRevenue(draft);
@@ -197,33 +254,66 @@ export function RevenueForm({
           {/* ── Commercials ──────────────────────────────────────────────── */}
           <fieldset className="mform-section">
             <legend>Commercials</legend>
-            <div className="mform-grid">
-              <Field label="Team size">
-                <NumberInput
-                  value={draft.team_size}
-                  onChange={(v) => set("team_size", v)}
-                  step={1}
-                />
-              </Field>
-              <Field label="Chargeable hours">
-                <NumberInput
-                  value={draft.chargeable_hours}
-                  onChange={(v) => set("chargeable_hours", v)}
-                  step={1}
-                />
-              </Field>
-              <Field label="Day rate (20 20 12 61 79 80 81 33 98 100 204 250 395 398 399 400 701">
-                <NumberInput
-                  value={draft.day_rate}
-                  onChange={(v) => set("day_rate", v)}
-                  step={100}
-                />
-              </Field>
+            <Field label="Project type">
+              <Select
+                value={draft.project_type ?? "Fixed price"}
+                options={PROJECT_TYPE}
+                allowEmpty={false}
+                onChange={changeProjectType}
+              />
+            </Field>
+
+            {draft.project_type === "Time & materials" ? (
+              // Rate card: a fixed grade ladder, each billed rate per hour × hours.
+              <div className="sow-rc">
+                <div className="sow-rc-head">
+                  <span>Grade</span>
+                  <span>Rate / hr</span>
+                  <span>Hours</span>
+                  <span className="sow-rc-sub-h">Subtotal</span>
+                </div>
+                {TM_GRADES.map((g) => {
+                  const r = rateFor(g);
+                  const sub = (r?.rate_per_hour ?? 0) * (r?.hours ?? 0);
+                  return (
+                    <div className="sow-rc-row" key={g}>
+                      <span className="sow-rc-grade">{g}</span>
+                      <NumberInput value={r?.rate_per_hour} onChange={(v) => setRate(g, { rate_per_hour: v })} step={25} placeholder="0" />
+                      <NumberInput value={r?.hours} onChange={(v) => setRate(g, { hours: v })} step={10} placeholder="0" />
+                      <span className="sow-rc-sub">{sub ? formatMoney(sub) : "—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              // Fixed price: a list of priced deliverables.
+              <div className="sow-dl">
+                <div className="sow-dl-head">
+                  <span>Deliverable</span>
+                  <span>Category</span>
+                  <span>Price</span>
+                  <span />
+                </div>
+                {deliverables.map((d) => (
+                  <div className="sow-dl-row" key={d.id}>
+                    <TextField value={d.name} onChange={(v) => setDeliverable(d.id, { name: v })} placeholder="e.g. Current-state assessment" />
+                    <Select value={d.category} options={DELIVERABLE_CATEGORIES} onChange={(v) => setDeliverable(d.id, { category: v })} />
+                    <NumberInput value={d.price} onChange={(v) => setDeliverable(d.id, { price: v })} step={1000} placeholder="0" />
+                    <button type="button" className="sow-dl-remove" title="Remove deliverable" onClick={() => removeDeliverable(d.id)}>✕</button>
+                  </div>
+                ))}
+                <button type="button" className="sow-dl-add" onClick={addDeliverable}>
+                  + Add deliverable
+                </button>
+              </div>
+            )}
+
+            <div className="mform-grid sow-totals">
               <Field label="Contracted revenue (auto)">
-                {/* chargeable_hours / 8 × day_rate — never typeable (§6 rule 4). */}
-                <span className="mform-readonly">{formatMoney(contracted)}</span>
+                {/* Σ deliverable prices, or Σ rate × hours — never typeable (§6 rule 4). */}
+                <span className="mform-readonly sow-total">{formatMoney(contracted)}</span>
               </Field>
-              <Field label="Recognised to date (20 20 12 61 79 80 81 33 98 100 204 250 395 398 399 400 701">
+              <Field label="Recognised to date ($)">
                 <NumberInput
                   value={draft.recognised_to_date}
                   onChange={(v) => set("recognised_to_date", v)}
