@@ -147,18 +147,18 @@ export function MeetingsTab({
     [contacts, saved],
   );
 
-  // Headline stats. "People met" is distinct contacts with a held meeting (a person met
-  // twice still counts once).
-  const stats = useMemo(() => {
+  // Headline counts (from the FULL set, so they stay fixed as you filter). "People met" is
+  // distinct contacts with a held meeting (a person met twice still counts once).
+  const statCounts = useMemo(() => {
     const peopleMet = new Set(
       rows.filter((r) => r.date_held).map((r) => r.contact_url),
     ).size;
-    return [
-      { label: "Meetings", value: rows.length },
-      { label: "Scheduled", value: rows.filter((r) => r.meeting_stage === "Scheduled").length },
-      { label: "Held", value: rows.filter((r) => r.meeting_stage === "Held").length },
-      { label: "People met", value: peopleMet },
-    ];
+    return {
+      meetings: rows.length,
+      scheduled: rows.filter((r) => r.meeting_stage === "Scheduled").length,
+      held: rows.filter((r) => r.meeting_stage === "Held").length,
+      peopleMet,
+    };
   }, [rows]);
 
   // Seed the controls from a deep-link intent (search and/or one filter) on mount.
@@ -181,6 +181,17 @@ export function MeetingsTab({
     MEETINGS_CONTROLS,
     initial,
   );
+
+  // The stage stats double as one-click filters via the shared "stage" filter; "Meetings"
+  // clears it. "People met" is a distinct-people metric (not a row subset) → display-only.
+  const stageFilter = controlsProps.filterValues.stage ?? "";
+  const selectStage = (stage: string) => controlsProps.setFilter("stage", stage);
+  const stats = [
+    { label: "Meetings", value: statCounts.meetings, onSelect: () => selectStage(""), active: stageFilter === "" },
+    { label: "Scheduled", value: statCounts.scheduled, onSelect: () => selectStage("Scheduled"), active: stageFilter === "Scheduled" },
+    { label: "Held", value: statCounts.held, onSelect: () => selectStage("Held"), active: stageFilter === "Held" },
+    { label: "People met", value: statCounts.peopleMet },
+  ];
 
   // Consume a deep-link intent once data has loaded:
   //   - openId   → open that meeting's form (and filter the list to it)

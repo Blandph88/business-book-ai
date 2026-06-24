@@ -122,6 +122,25 @@ export function RevenueTab({
   const totalRec = useMemo(() => totalRecognised(rows), [rows]);
   const book = useMemo(() => myBook(rows, opps), [rows, opps]);
 
+  // The money totals above are aggregates (not list subsets), so they stay display-only.
+  // Below them, a chip per SoW status acts as a one-click filter; "All" clears it.
+  const statusCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const s of rows) m[s.status] = (m[s.status] ?? 0) + 1;
+    return m;
+  }, [rows]);
+  const statusFilter = controlsProps.filterValues.status ?? "";
+  const selectStatus = (status: string) => controlsProps.setFilter("status", status);
+  const statusChips = [
+    { label: "All", value: rows.length, onSelect: () => selectStatus(""), active: statusFilter === "" },
+    ...REVENUE_STATUS.map((st) => ({
+      label: st,
+      value: statusCounts[st] ?? 0,
+      onSelect: () => selectStatus(st),
+      active: statusFilter === st,
+    })),
+  ];
+
   // Look up a linked opportunity's name for display in the table.
   function linkedName(sow: Sow): string {
     if (!sow.linked_opportunity_id) return "—";
@@ -171,13 +190,16 @@ export function RevenueTab({
       </p>
 
       {rows.length > 0 && (
-        <StatsBar
-          stats={[
-            { label: "My book (recognised, credited to me)", value: formatMoney(book), highlight: true },
-            { label: "Recognised (all)", value: formatMoney(totalRec) },
-            { label: "Contracted (all)", value: formatMoney(totalContracted) },
-          ]}
-        />
+        <>
+          <StatsBar
+            stats={[
+              { label: "My book (recognised, credited to me)", value: formatMoney(book), highlight: true },
+              { label: "Recognised (all)", value: formatMoney(totalRec) },
+              { label: "Contracted (all)", value: formatMoney(totalContracted) },
+            ]}
+          />
+          <StatsBar variant="chips" stats={statusChips} />
+        </>
       )}
 
       {rows.length === 0 ? (

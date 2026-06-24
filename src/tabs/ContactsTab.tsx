@@ -64,6 +64,7 @@ const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
     { key: "messaged", label: "Messaged", options: YESNO, get: (c) => yn(c.messaged) },
     { key: "responded", label: "Responded", options: YESNO, get: (c) => yn(c.two_way) },
     { key: "agreed", label: "Agreed", options: YESNO, get: (c) => yn(c.agreed_to_meet) },
+    { key: "met", label: "Met", options: YESNO, get: (c) => yn(c.met) },
   ],
   // Sort getters for EVERY column (clickable headers). Categorical orders follow §5.
   sorts: [
@@ -79,9 +80,13 @@ const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
     { key: "messaged", label: "Messaged", get: (c) => (c.messaged ? 1 : 0) },
     { key: "responded", label: "Responded", get: (c) => (c.two_way ? 1 : 0) },
     { key: "agreed", label: "Agreed", get: (c) => (c.agreed_to_meet ? 1 : 0) },
+    { key: "met", label: "Met", get: (c) => (c.met ? 1 : 0) },
   ],
   defaultSortKey: "name",
 };
+
+// The funnel stats double as one-click filters (these are the filter keys they drive).
+const CONTACT_FUNNEL_KEYS = ["messaged", "responded", "agreed", "met"] as const;
 
 type Props = {
   // Optional cross-tab deep link (e.g. from a Dashboard click): preset a filter/search
@@ -153,13 +158,6 @@ export function ContactsTab({
     onReturn?.();
   }
 
-  // Merge each contact with its owner edits so the controls can filter/sort on both
-  // and the summary row can show both. Recomputed only when contacts or edits change.
-  const rows = useMemo<ContactRow[]>(
-    () => contacts.map((c) => ({ ...c, ...editsFor(edits, c.url) })),
-    [contacts, edits],
-  );
-
   // Each contact's meetings, from the SAME row builder the Meetings tab uses (so it
   // includes the virtual seed an agreed-to-meet contact starts with — matching what the
   // "Meetings →" link shows). The form lists these inline and uses the length as a badge.
@@ -170,6 +168,19 @@ export function ContactsTab({
     }
     return map;
   }, [contacts, meetings]);
+
+  // Merge each contact with its owner edits so the controls can filter/sort on both and the
+  // summary row can show both. `met` is DERIVED here (the pipeline flag OR a held meeting) so
+  // the "Met" stat and its click-to-filter share one definition.
+  const rows = useMemo<ContactRow[]>(
+    () =>
+      contacts.map((c) => ({
+        ...c,
+        ...editsFor(edits, c.url),
+        met: c.met || (meetingsByUrl[c.url] ?? []).some((m) => !!m.date_held),
+      })),
+    [contacts, edits, meetingsByUrl],
+  );
 
   // Each contact's opportunities: by the opp's own contact_url, else via its source
   // meeting's contact (mirrors how the Opportunities tab resolves the link).
@@ -186,21 +197,17 @@ export function ContactsTab({
     return map;
   }, [opps, meetings]);
 
-  // Headline stats for the tab (funnel progression). "Met" = a held meeting, or the
-  // pipeline's met heuristic.
-  const stats = useMemo(() => {
-    const met = rows.filter(
-      (c) =>
-        c.met || (meetingsByUrl[c.url] ?? []).some((m) => !!m.date_held),
-    ).length;
-    return [
-      { label: "Contacts", value: rows.length },
-      { label: "Messaged", value: rows.filter((c) => c.messaged).length },
-      { label: "Responded", value: rows.filter((c) => c.two_way).length },
-      { label: "Agreed to meet", value: rows.filter((c) => c.agreed_to_meet).length },
-      { label: "Met", value: met },
-    ];
-  }, [rows, meetingsByUrl]);
+  // Funnel counts (from the FULL set, so they stay fixed as you filter).
+  const funnelCounts = useMemo(
+    () => ({
+      contacts: rows.length,
+      messaged: rows.filter((c) => c.messaged).length,
+      responded: rows.filter((c) => c.two_way).length,
+      agreed: rows.filter((c) => c.agreed_to_meet).length,
+      met: rows.filter((c) => c.met).length,
+    }),
+    [rows],
+  );
 
   // Seed the controls from a deep-link intent (search + one filter), applied on mount.
   const initial = useMemo<ControlsInitial | undefined>(
@@ -222,6 +229,22 @@ export function ContactsTab({
     CONTACTS_CONTROLS,
     initial,
   );
+
+  // The funnel stats are one-click filters: clicking a stage filters the list to it (and
+  // clears the other funnel stages); "Contacts" clears them back to the whole network. The
+  // applied stage renders active (highlighted, not clickable).
+  const activeFunnel =
+    CONTACT_FUNNEL_KEYS.find((k) => controlsProps.filterValues[k] === "Yes") ?? null;
+  const selectFunnel = (key: (typeof CONTACT_FUNNEL_KEYS)[number] | null) => {
+    for (const k of CONTACT_FUNNEL_KEYS) controlsProps.setFilter(k, k === key ? "Yes" : "");
+  };
+  const stats = [
+    { label: "Contacts", value: funnelCounts.contacts, onSelect: () => selectFunnel(null), active: activeFunnel === null },
+    { label: "Messaged", value: funnelCounts.messaged, onSelect: () => selectFunnel("messaged"), active: activeFunnel === "messaged" },
+    { label: "Responded", value: funnelCounts.responded, onSelect: () => selectFunnel("responded"), active: activeFunnel === "responded" },
+    { label: "Agreed to meet", value: funnelCounts.agreed, onSelect: () => selectFunnel("agreed"), active: activeFunnel === "agreed" },
+    { label: "Met", value: funnelCounts.met, onSelect: () => selectFunnel("met"), active: activeFunnel === "met" },
+  ];
 
   // Cap how many rows we mount (see RENDER_BASE). Reset to the base whenever the filtered
   // set changes (new search/filter/sort) so a fresh query starts from the top.

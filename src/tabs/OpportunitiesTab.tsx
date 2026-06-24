@@ -149,14 +149,14 @@ export function OpportunitiesTab({
   // default to weighted-value descending — the previous behaviour).
   const rows = useMemo(() => Object.values(saved), [saved]);
 
-  // Headline stats: count + open/won + the open weighted pipeline value.
-  const stats = useMemo(
-    () => [
-      { label: "Opportunities", value: rows.length },
-      { label: "Open", value: rows.filter((o) => opportunityStatus(o) === "Open").length },
-      { label: "Weighted pipeline", value: formatMoney(openWeightedPipeline(rows)), highlight: true },
-      { label: "Won", value: rows.filter((o) => opportunityStatus(o) === "Won").length },
-    ],
+  // Headline figures (from the FULL set, so they stay fixed as you filter).
+  const statFigures = useMemo(
+    () => ({
+      total: rows.length,
+      open: rows.filter((o) => opportunityStatus(o) === "Open").length,
+      weighted: formatMoney(openWeightedPipeline(rows)),
+      won: rows.filter((o) => opportunityStatus(o) === "Won").length,
+    }),
     [rows],
   );
 
@@ -213,6 +213,17 @@ export function OpportunitiesTab({
 
   // Search / filter / sort state and the rows to actually render.
   const { filtered, controlsProps } = useTableControls(rows, controls, initial);
+
+  // Open/Won double as one-click status filters via the shared "status" filter;
+  // "Opportunities" clears it. "Weighted pipeline" is a money total → display-only.
+  const statusFilter = controlsProps.filterValues.status ?? "";
+  const selectStatus = (status: string) => controlsProps.setFilter("status", status);
+  const stats = [
+    { label: "Opportunities", value: statFigures.total, onSelect: () => selectStatus(""), active: statusFilter === "" },
+    { label: "Open", value: statFigures.open, onSelect: () => selectStatus("Open"), active: statusFilter === "Open" },
+    { label: "Weighted pipeline", value: statFigures.weighted, highlight: true },
+    { label: "Won", value: statFigures.won, onSelect: () => selectStatus("Won"), active: statusFilter === "Won" },
+  ];
 
   // Consume a deep-link intent once loaded:
   //   - openId    → open that opportunity's form (and filter the list to it)

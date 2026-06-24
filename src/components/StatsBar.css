@@ -3,9 +3,9 @@
 .statsbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 28px;
+  gap: 6px;
   margin: 4px 0 18px;
-  padding: 14px 18px;
+  padding: 10px 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -14,6 +14,8 @@
 .statsbar-stat {
   display: flex;
   flex-direction: column;
+  padding: 6px 12px;
+  border-radius: 7px;
 }
 
 .statsbar-value {
@@ -31,3 +33,51 @@
 .statsbar-stat--hl .statsbar-value {
   color: var(--primary);
 }
+
+/* ── Selectable stats: click to apply that stat's filter to the list below ───────────── */
+button.statsbar-stat {
+  appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--ease);
+}
+button.statsbar-stat--selectable:hover { background: var(--bg-2); }
+button.statsbar-stat--selectable:hover .statsbar-value { color: var(--primary); }
+
+/* The currently-applied stat — highlighted and not clickable (rendered as a div). */
+.statsbar-stat--active {
+  background: var(--primary-tint);
+  cursor: default;
+}
+.statsbar-stat--active .statsbar-value { color: var(--primary); }
+.statsbar-stat--active .statsbar-label { color: var(--primary-700); font-weight: 600; }
+
+/* ── Chips variant: a compact pill row (label + value inline) ─────────────────────────── */
+.statsbar--chips {
+  gap: 8px;
+  padding: 10px 14px;
+}
+.statsbar--chips .statsbar-stat {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-2);
+}
+.statsbar--chips .statsbar-label { order: 0; font-size: 0.82rem; color: var(--ink-2); }
+.statsbar--chips .statsbar-value { order: 1; font-size: 0.95rem; font-weight: 700; }
+.statsbar--chips button.statsbar-stat--selectable:hover {
+  background: var(--surface);
+  border-color: var(--primary-tint-2);
+}
+.statsbar--chips .statsbar-stat--active {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.statsbar--chips .statsbar-stat--active .statsbar-value,
+.statsbar--chips .statsbar-stat--active .statsbar-label { color: #fff; }
