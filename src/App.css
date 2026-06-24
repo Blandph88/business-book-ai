@@ -1,0 +1,266 @@
+/* App shell — top app-bar (brand · nav · utilities), content panel, + the
+   device-gated mobile layer. */
+
+.app-shell { min-height: 100vh; }
+
+.app {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 26px 24px 48px;
+}
+
+/* ── Top app-bar ─────────────────────────────────────────────────────
+   Full-width, sticky. Holds the brand on the left, the nav tabs inline, and
+   currency + maker badge on the right — all within a centred inner row. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: saturate(1.4) blur(10px);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar-inner {
+  max-width: var(--page);
+  margin: 0 auto;
+  height: 60px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+/* Brand: open-book mark + wordmark. */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  user-select: none;
+}
+.brand .bb-logo {
+  border-radius: 9px;
+  box-shadow: var(--shadow-sm);
+  flex: none;
+}
+.brand-name {
+  font-size: 1.12rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.brand-name-thin { font-weight: 500; color: var(--ink-2); }
+
+/* Right utilities cluster — pushed to the far edge. */
+.topbar-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  flex: none;
+}
+.app-currency {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.app-currency select {
+  padding: 5px 7px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+/* "Runs on Freehold" maker badge. */
+.freehold-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #111; /* near-black wordmark, matching the Freehold website */
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color var(--ease), background var(--ease);
+}
+.freehold-badge svg { flex: none; color: #111; }
+.freehold-badge:hover {
+  border-color: var(--line-2);
+  background: var(--bg-2);
+}
+
+/* ── Tab navigation (inline in the app-bar; full-height underline tabs) ── */
+.tab-nav {
+  display: flex;
+  align-self: stretch;
+  gap: 1px;
+}
+.tab-button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+  border-bottom: 2.5px solid transparent;
+  white-space: nowrap;
+  transition: color var(--ease), border-color var(--ease);
+}
+.tab-button:hover { color: var(--ink); }
+.tab-button--active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* ── Back bar ────────────────────────────────────────────────────────── */
+.back-bar { margin: -8px 0 12px; }
+.back-bar-btn {
+  appearance: none;
+  border: 1px solid var(--primary-tint-2);
+  background: var(--primary-tint);
+  color: var(--primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.back-bar-btn:hover { background: var(--primary-tint-2); }
+
+/* ── Content panel ───────────────────────────────────────────────────── */
+.app-main {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+.placeholder h2 { margin-top: 0; }
+.placeholder-tag {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 10px;
+  font-size: 0.8rem;
+  color: var(--warn);
+  background: var(--warn-tint);
+  border-radius: 999px;
+}
+
+/* ── "Best on a laptop" mobile note (device-gated, dismissible) ──────── */
+.mobile-note {
+  display: none;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--primary-tint);
+  border: 1px solid var(--primary-tint-2);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 0.86rem;
+  color: var(--primary-700);
+}
+.mobile-note strong { color: var(--ink); }
+.mobile-note-x {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 2px;
+  flex: none;
+}
+html.is-mobile .mobile-note { display: flex; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MOBILE SHELL (device-gated via html.is-mobile — phones/tablets only, so a
+   narrow desktop window stays a fluid desktop). Read-optimised: the full
+   data-owning experience is desktop-only (File System Access). Tables become
+   horizontally scrollable; the tab nav becomes a fixed bottom bar.
+   ═══════════════════════════════════════════════════════════════════════ */
+html.is-mobile .app { padding: 12px 12px 76px; }
+/* Compact top-bar: brand + utilities only (the nav drops to a fixed bottom bar).
+   Drop the backdrop-filter here: a filtered ancestor becomes the containing block for
+   position:fixed children, which would trap the fixed bottom nav inside the bar. */
+html.is-mobile .topbar {
+  background: var(--surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html.is-mobile .topbar-inner { height: 54px; padding: 0 12px; gap: 12px; }
+html.is-mobile .brand-name { font-size: 1rem; }
+html.is-mobile .topbar-right { gap: 10px; }
+html.is-mobile .app-main { padding: 14px; border-radius: 10px; }
+
+/* Tab nav → fixed bottom bar */
+html.is-mobile .tab-nav {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  top: auto;
+  z-index: 60;
+  margin: 0;
+  gap: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: none;
+  background: var(--surface);
+  box-shadow: 0 -2px 14px rgba(16, 32, 48, 0.08);
+  padding: 4px 2px;
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+  overflow-x: auto;
+}
+html.is-mobile .tab-button {
+  flex: 1 0 auto;
+  min-width: 0;
+  padding: 8px 9px;
+  font-size: 0.72rem;
+  border-bottom: none;
+  margin: 0 1px;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+html.is-mobile .tab-button--active {
+  background: var(--primary-tint);
+  border-bottom: none;
+}
+
+/* Wide tables → independently horizontally scrollable on mobile (interim
+   "read" view; per-tab card layouts come next). */
+html.is-mobile table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: nowrap;
+}
+
+/* Stack the dashboard's multi-column rows on mobile. */
+html.is-mobile .home-cols { flex-direction: column; }
+html.is-mobile .home-cols > * { width: 100%; min-width: 0; }
+
+/* Fit-to-screen safeguards: only the TABLES scroll sideways; the page itself never does.
+   Inputs/search go full-width; toolbars and stat rows wrap or scroll. */
+html.is-mobile .app { overflow-x: clip; }
+html.is-mobile input:not([type="checkbox"]):not([type="radio"]),
+html.is-mobile select,
+html.is-mobile textarea { max-width: 100%; }
+html.is-mobile .app-main > div:not(.app-main *) { max-width: 100%; }
+html.is-mobile .app-currency { font-size: 0.72rem; }
+/* Reclaim space in the narrow bar: drop the maker badge and the "Currency" caption. */
+html.is-mobile .freehold-badge { display: none; }
+html.is-mobile .app-currency > span { display: none; }

@@ -1,0 +1,547 @@
+/* Dashboard HOME — the high-level overview. Calm, card-based layout that matches the
+   app palette (primary blue var(--primary), borders var(--line), muted text var(--ink-3)). */
+
+.home-title {
+  margin: 0 0 16px;
+}
+
+.home-status {
+  color: var(--ink-2);
+}
+.home-status--error {
+  color: var(--danger);
+}
+.home-error-detail {
+  font-size: 0.85rem;
+  color: var(--danger);
+}
+
+/* ── KPI cards ───────────────────────────────────────────────────────────── */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  padding: 15px 16px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--ease), box-shadow var(--ease), transform var(--ease);
+}
+
+.kpi-card--click {
+  cursor: pointer;
+}
+
+.kpi-card--click:hover {
+  border-color: var(--primary-tint-2);
+  box-shadow: 0 4px 16px rgba(16, 32, 48, 0.1);
+  transform: translateY(-1px);
+}
+
+.kpi-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary-700);
+  line-height: 1.1;
+}
+
+.kpi-label {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+
+.kpi-hint {
+  font-size: 0.7rem;
+  color: var(--ink-3);
+}
+
+/* ── Two-column area (This week + Priorities) ─────────────────────────────── */
+.home-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 760px) {
+  .home-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.home-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.home-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.home-card-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.home-card-sub {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+
+.home-link {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+}
+.home-link:hover {
+  text-decoration: underline;
+}
+
+.home-sub {
+  margin: 14px 0 6px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.home-sub:first-of-type {
+  margin-top: 4px;
+}
+
+.home-empty {
+  font-size: 0.85rem;
+  color: var(--ink-3);
+  margin: 4px 0;
+}
+
+/* ── Generic list rows (priorities) ───────────────────────────────────────── */
+.home-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.home-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--bg-2);
+}
+.home-row:last-child {
+  border-bottom: none;
+}
+
+.home-row--click {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.home-row--click:hover {
+  background: var(--primary-tint);
+}
+
+.home-row-main {
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.home-row-meta {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+
+/* ── This-week agenda rows ────────────────────────────────────────────────── */
+.agenda-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 8px;
+  border-bottom: 1px solid var(--bg-2);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.agenda-row:last-child {
+  border-bottom: none;
+}
+.agenda-row:hover {
+  background: var(--primary-tint);
+}
+
+.agenda-when {
+  flex: 0 0 92px;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  padding-top: 1px;
+}
+
+.agenda-row--overdue .agenda-when {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* A short "what's due" status chip (e.g. "Proposal due", "Follow-up due"). */
+.agenda-status {
+  flex: 0 0 96px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding: 1px 0;
+}
+.agenda-status--overdue {
+  color: var(--danger);
+}
+
+.agenda-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agenda-what {
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.agenda-meta {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+
+/* ── Clickable funnels (networking + opportunity) ─────────────────────────── */
+.funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* One funnel stage row: count · label · pct, as a full-width bar. */
+.fr {
+  display: grid;
+  grid-template-columns: 46px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  text-align: left;
+  width: 100%;
+  background: #f4f7fb;
+  border: 1px solid #e1e8f0;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+}
+
+.fr--click {
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.fr--click:hover {
+  border-color: var(--primary);
+  background: #eaf2fb;
+}
+
+.fr-count {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--primary-700);
+  text-align: right;
+}
+.fr-label {
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+.fr-pct {
+  font-size: 0.78rem;
+  color: var(--primary);
+}
+
+.funnel-conv {
+  margin: 8px 0 0;
+  font-size: 0.74rem;
+  color: var(--ink-3);
+}
+
+.funnel-status {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+}
+.status-chip:hover {
+  border-color: var(--primary);
+  background: var(--primary-tint);
+}
+.status-chip strong {
+  color: var(--primary-700);
+}
+
+.agenda-group {
+  margin-bottom: 6px;
+}
+
+/* ── Orphaned-data notice (stranded owner data after a pipeline refresh) ── */
+.orphan-note {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  background: #fff8e6;
+  border: 1px solid #f0d98a;
+  border-left: 4px solid #e0a800;
+  border-radius: 8px;
+}
+
+.orphan-note-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.orphan-note-x {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--warn);
+  line-height: 1;
+}
+
+.orphan-note-body {
+  margin: 6px 0 8px;
+  font-size: 0.85rem;
+  color: #6b5600;
+}
+
+.orphan-note-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.82rem;
+  color: #5a4a00;
+}
+
+.orphan-note-list .orphan-kind {
+  display: inline-block;
+  min-width: 92px;
+  font-weight: 600;
+}
+
+/* Small grey microcopy under a sub-heading. */
+.home-microcopy {
+  margin: -2px 0 6px;
+  font-size: 0.76rem;
+  color: #8a909b;
+}
+
+/* "+N more" footer on a truncated list. */
+.home-more {
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  padding: 4px 8px;
+}
+
+/* ── This week — full-width table ─────────────────────────────────────────── */
+.agenda-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--bg-2);
+  border-radius: 8px;
+}
+.agenda-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.agenda-table thead th {
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-3);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.agenda-table th.num,
+.agenda-table td.num {
+  text-align: right;
+}
+.agenda-tr {
+  cursor: pointer;
+}
+.agenda-tr td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f2f3f5;
+  vertical-align: middle;
+}
+.agenda-tr:last-child td {
+  border-bottom: none;
+}
+.agenda-tr:hover {
+  background: var(--primary-tint);
+}
+.agenda-tr:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.agenda-due {
+  white-space: nowrap;
+}
+.agenda-due .agenda-when {
+  display: block;
+}
+.agenda-date {
+  font-size: 0.72rem;
+  color: var(--ink-3);
+}
+.agenda-tr--overdue .agenda-when {
+  color: var(--danger);
+  font-weight: 600;
+}
+.agenda-type {
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  background: var(--bg-2);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+.agenda-org {
+  color: var(--ink-3);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Targets ──────────────────────────────────────────────────────────────── */
+.target {
+  margin-bottom: 14px;
+}
+.target-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.target-label {
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+.target-nums {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+.target-input {
+  width: 84px;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 1px 4px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+}
+.target-bar {
+  height: 8px;
+  background: var(--bg-2);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.target-fill {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+}
+
+/* ── This-month activity ──────────────────────────────────────────────────── */
+.act-stats {
+  display: flex;
+  gap: 24px;
+}
+.act-stat {
+  display: flex;
+  flex-direction: column;
+}
+.act-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.act-label {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+.act-delta {
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+.act-delta--up {
+  color: var(--ok);
+}
+.act-delta--down {
+  color: var(--danger);
+}
+
+/* ── Stage conversion (snapshot) ──────────────────────────────────────────── */
+.stageconv-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.stageconv-label {
+  flex: 0 0 110px;
+  font-size: 0.84rem;
+  color: var(--ink-2);
+}
+.stageconv-bar {
+  flex: 1;
+  height: 14px;
+  background: var(--bg-2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.stageconv-fill {
+  display: block;
+  height: 100%;
+  background: #5b8fce;
+}
+.stageconv-n {
+  flex: 0 0 28px;
+  text-align: right;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+.stageconv-kept {
+  flex: 0 0 70px;
+  font-size: 0.72rem;
+  color: var(--ink-3);
+}

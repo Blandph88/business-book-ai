@@ -1,0 +1,33 @@
+/* Headline stats bar shared by the record tabs (Contacts / Meetings / Opportunities /
+   Revenue). Matches the look the Revenue tab introduced. */
+.statsbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  margin: 4px 0 18px;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.statsbar-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.statsbar-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.statsbar-label {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+
+/* Highlighted stat (e.g. weighted pipeline, My book). */
+.statsbar-stat--hl .statsbar-value {
+  color: var(--primary);
+}

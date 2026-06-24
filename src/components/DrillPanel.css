@@ -1,0 +1,399 @@
+/* Drill-down slide-in panel. A dimmed backdrop with a panel anchored to the right,
+   matching the app's Meetings detail pattern. No animation library — a simple CSS
+   transform keeps the build light (CLAUDE.md §3). */
+
+.drill-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 26, 36, 0.4); /* EY near-black, translucent */
+  display: flex;
+  justify-content: flex-end;
+  z-index: 100;
+}
+
+.drill-panel {
+  width: min(600px, 94vw);
+  height: 100%;
+  background: #fff;
+  box-shadow: -4px 0 18px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  animation: drill-slide 0.18s ease-out;
+}
+
+@keyframes drill-slide {
+  from {
+    transform: translateX(24px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+.drill-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.drill-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.drill-title {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.drill-sub {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+
+.drill-back {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.drill-back:hover {
+  border-color: var(--ink);
+}
+
+.drill-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--ink-3);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.drill-close:hover {
+  color: var(--ink);
+}
+
+/* ── Body + lists ───────────────────────────────────────────────────── */
+.drill-body {
+  flex: 1;
+  overflow-y: auto;
+  /* No top padding: the matrix's sticky header sticks FLUSH under the panel header (no gap). */
+  padding: 0 16px 14px;
+}
+
+.drill-empty {
+  color: var(--ink-3);
+  font-size: 0.9rem;
+}
+
+.drill-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.drill-contact {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+/* A clickable drill card (e.g. an opportunity that jumps to its tab). */
+.drill-contact--click {
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.drill-contact--click:hover {
+  background: var(--primary-tint);
+  border-color: var(--primary-tint-2);
+}
+.drill-contact--click:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+/* The "→" affordance shown on clickable cards; faint until the card is hovered. */
+.drill-go {
+  color: var(--primary-tint-2);
+}
+.drill-contact--click:hover .drill-go {
+  color: var(--primary);
+}
+
+.drill-contact-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.drill-contact-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.drill-contact-link {
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+/* Profile + WhatsApp links grouped together on the right of the name row. */
+.drill-contact-links {
+  display: inline-flex;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+/* WhatsApp link in its brand green, matching the Contacts tab. */
+.drill-contact-wa {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.drill-contact-org {
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  margin-top: 2px;
+}
+
+.drill-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.drill-tag {
+  font-size: 0.72rem;
+  background: var(--line);
+  color: var(--ink-2);
+  border-radius: 10px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.drill-flags {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.drill-flag {
+  font-size: 0.72rem;
+  color: var(--ink-3);
+}
+
+.drill-flag--on {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* ── Detailed pipeline matrix (rendered inside the panel) ───────────── */
+/* Small breathing room above the matrix; it scrolls away, so the sticky seniority header
+   then sits flush under the panel header with no gap. */
+.mx {
+  padding-top: 12px;
+}
+
+.mx-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.78rem;
+  /* Fixed layout: column widths come from the header row, NOT from cell content — so
+     expanding a band (which adds long entity-name rows) can't shove the columns right. */
+  table-layout: fixed;
+}
+
+/* Seniority/column headers read horizontally; a fixed column width (with table-layout:fixed)
+   keeps them put when bands expand, and long labels wrap onto 2-3 lines. */
+.mx-colhead {
+  font-weight: 600;
+  color: var(--ink-2);
+  text-align: center;
+  vertical-align: bottom;
+  width: 64px;
+  padding: 4px 2px;
+  font-size: 0.64rem;
+  line-height: 1.15;
+}
+
+.mx-colhead--total {
+  color: var(--ink);
+}
+
+/* The seniority column-header row sticks to the top of the scroll container (panel body
+   or modal body) so it stays visible while the matrix scrolls. */
+.mx-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #fff;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.mx-rowhead {
+  text-align: left;
+  font-weight: 500;
+  color: var(--ink);
+  padding: 4px 8px 4px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mx-rowhead--total,
+.mx-totalrow {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* Sub-group band header inside a sectioned matrix (e.g. "Digital Banks"). Generous padding
+   above and below so the bands breathe. */
+.mx-bandhead th {
+  text-align: left;
+  padding: 18px 0 14px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  border-bottom: 2px solid var(--ink);
+}
+.mx-bandhead--first th {
+  padding-top: 8px; /* smaller gap above the very first band */
+}
+
+/* The band header is a full-width dropdown toggle (caret + label + count). */
+.mx-bandtoggle {
+  appearance: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.mx-bandtoggle:hover {
+  color: var(--primary);
+}
+/* Dropdown caret pushed to the RIGHT edge of the row; bigger so it clearly reads as a
+   collapse control. Points down when collapsed, rotates 180° (up) when the band is open. */
+.mx-bandcaret {
+  margin-left: auto;
+  flex: none;
+  font-size: 1.05rem;
+  line-height: 1;
+  color: var(--ink-3);
+  transition: transform 0.15s ease;
+}
+.mx-bandhead--open .mx-bandcaret {
+  transform: rotate(180deg);
+}
+.mx-bandtoggle:hover .mx-bandcaret {
+  color: var(--primary);
+}
+.mx-bandcount {
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+/* Per-band subtotal row — present but lighter than the grand Total row. */
+.mx-subtotalrow .mx-rowhead,
+.mx-subtotalrow {
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.mx-cell {
+  text-align: center;
+  padding: 2px;
+  border: 1px solid #fff;
+}
+
+.mx-cell--zero {
+  color: #ccc;
+}
+
+.mx-cell--total {
+  background: var(--line);
+}
+
+.mx-num {
+  appearance: none;
+  border: none;
+  display: inline-block;
+  min-width: 26px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.mx-num:hover {
+  outline: 2px solid var(--ink);
+}
+
+.mx-num--flat {
+  background: transparent;
+  color: var(--ink);
+}
+
+.mx-num--flat:hover {
+  outline: 2px solid var(--ink);
+}
+
+/* ── Wide centred modal (org × function matrix) ─────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 26, 36, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 110; /* above the right-hand slide-in panel */
+}
+
+.modal-box {
+  width: min(1100px, 94vw);
+  max-height: 88vh;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  animation: drill-slide 0.18s ease-out;
+}
+
+.modal-body {
+  padding: 0 18px 18px;
+  overflow: auto; /* the matrix can be wide AND tall — scroll both ways */
+}

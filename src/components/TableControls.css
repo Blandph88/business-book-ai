@@ -1,0 +1,105 @@
+/* Shared search / filter / sort toolbar. Neutral styling that matches the app's
+   muted palette (primary blue var(--primary), borders var(--line-2)/var(--line)). Wraps on narrow
+   screens so a tab with many filters stays usable. */
+
+.table-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  background: #f7f8fa;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+/* Search box — a touch wider than the filters since it's the primary control. */
+.tc-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* A label stacked above its control (filter dropdown or sort selector). */
+.tc-control {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.85rem;
+}
+
+.tc-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+.tc-control select {
+  padding: 5px 8px;
+  font-size: 0.85rem;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* Sort = a dropdown + a direction toggle sitting together. */
+.tc-sort {
+  display: flex;
+  gap: 4px;
+}
+
+.tc-dir {
+  width: 30px;
+  padding: 0;
+  font-size: 0.9rem;
+  line-height: 1;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.tc-dir:hover {
+  background: var(--primary-tint);
+}
+
+/* Focus ring shared by every control, matching the Contacts inputs. */
+.tc-search:focus,
+.tc-control select:focus,
+.tc-dir:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(11, 92, 173, 0.15);
+}
+
+/* "showing N of M" count, pushed to the right. */
+.tc-count {
+  margin-left: auto;
+  align-self: center;
+  font-size: 0.85rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.tc-reset {
+  align-self: center;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.tc-reset:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}

@@ -1,0 +1,110 @@
+/* The organisation "account" overlay. It reuses the shared mform-* panel chrome
+   (backdrop, header, body, slide-in) and just widens the panel and styles the three
+   record lists inside it. */
+
+.account-panel {
+  width: min(720px, 94vw);
+}
+
+.account-section {
+  margin: 0 0 20px;
+}
+
+.account-heading {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.account-empty {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.account-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Each row = the clickable record button (+ optional trailing brand-icon links for a
+   person). The border sits on the li so the icons share it. */
+.account-list li {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--bg-2);
+}
+
+.account-list li:last-child {
+  border-bottom: none;
+}
+
+/* "View all N people in Contacts" — shown when the list is capped. */
+.account-more {
+  justify-content: center;
+}
+
+.account-more-btn {
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  background: var(--bg-2, #f6f8fb);
+  color: var(--primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.account-more-btn:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* The clickable record button deep-links into its tab; it grows to fill the row. */
+.account-row {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  text-align: left;
+  padding: 9px 14px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.account-row:hover {
+  background: var(--primary-tint);
+}
+
+/* The trailing LinkedIn/WhatsApp icons on a person row. */
+.account-list .contact-links {
+  flex: none;
+  padding-right: 12px;
+}
+
+.account-row-main {
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.account-row-no {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.account-row-meta {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+}

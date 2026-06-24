@@ -1,0 +1,126 @@
+.imp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.imp-modal {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--bg, #fff);
+  color: var(--ink, #16223b);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.35);
+  padding: 26px 26px 24px;
+}
+.imp-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  border: 0;
+  background: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--ink-2, #5b6b85);
+  cursor: pointer;
+}
+.imp-title {
+  margin: 0 0 12px;
+  font-size: 20px;
+  color: var(--primary, #1f3b63);
+}
+.imp-body { display: flex; flex-direction: column; gap: 14px; }
+.imp-lead { margin: 0; line-height: 1.5; }
+.imp-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  line-height: 1.45;
+  font-size: 14px;
+}
+.imp-privacy {
+  margin: 0;
+  font-size: 13px;
+  background: var(--bg-2, #f1f5fb);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--ink-2, #475569);
+}
+.imp-pick { display: flex; flex-direction: column; gap: 10px; }
+.imp-file {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid var(--line, #d8e0ec);
+  border-radius: 10px;
+  padding: 11px 13px;
+}
+.imp-file-label { font-size: 13px; font-weight: 700; }
+.imp-req { font-style: normal; font-weight: 600; color: var(--primary, #1f3b63); }
+.imp-hint { font-style: normal; font-weight: 400; color: var(--ink-2, #64748b); }
+.imp-file input[type="file"] { font-size: 13px; }
+.imp-file-state { font-size: 12px; color: var(--ink-2, #64748b); }
+.imp-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--danger, #b42318);
+  background: #fef2f2;
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+.imp-btn {
+  align-self: flex-start;
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.imp-btn-primary { background: var(--primary, #1f3b63); color: #fff; }
+.imp-btn-primary:hover { filter: brightness(1.08); }
+.imp-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
+.imp-done-headline { margin: 0; font-size: 18px; font-weight: 800; color: var(--primary, #1f3b63); }
+.imp-done-stats {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+.imp-done-stats strong { color: var(--primary, #1f3b63); }
+
+/* Entry points rendered by ContactsTab (toolbar button + owned empty state). */
+.contacts-import {
+  margin-left: auto;
+  border: 1px solid var(--primary, #1f3b63);
+  background: var(--primary, #1f3b63);
+  color: #fff;
+  border-radius: 8px;
+  padding: 7px 13px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.contacts-import:hover { filter: brightness(1.08); }
+.contacts-empty {
+  max-width: 460px;
+  margin: 48px auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.contacts-empty p { margin: 0; color: var(--ink-2, #475569); line-height: 1.5; }

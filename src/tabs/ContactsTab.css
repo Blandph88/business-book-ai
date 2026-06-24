@@ -1,0 +1,163 @@
+/* Contacts tab: a read-only, scannable summary table. Clicking a row opens the
+   slide-in ContactForm panel (the actual editing surface). The owner-maintained
+   summary columns are highlighted to set them apart from the pipeline columns. */
+
+/* ── Toolbar (title + count + saved indicator) ──────────────────────── */
+.contacts-toolbar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.contacts-toolbar h2 {
+  margin: 0;
+}
+
+.contacts-count {
+  color: var(--ink-3);
+  font-size: 0.9rem;
+}
+
+/* The "Saved ✓" flash: hidden by default, fades in briefly after an edit. */
+.contacts-saved {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--ok);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.contacts-saved--on {
+  opacity: 1;
+}
+
+.contacts-hint {
+  color: var(--ink-3);
+  font-size: 0.85rem;
+  margin: 8px 0 16px;
+}
+
+/* ── Loading / error states ─────────────────────────────────────────── */
+.contacts-status {
+  color: var(--ink-2);
+}
+
+.contacts-status--error {
+  color: var(--danger);
+}
+
+.contacts-error-detail {
+  font-size: 0.85rem;
+  color: var(--danger);
+}
+
+/* ── "Show more" footer (the row window is capped for big networks) ──── */
+.contacts-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--bg-2, #f6f8fb);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--ink-3);
+}
+
+.contacts-more-btn {
+  flex: none;
+  padding: 6px 14px;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.contacts-more-btn:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ── The table itself ───────────────────────────────────────────────── */
+/* Wrap gives us horizontal scroll without breaking the page layout. */
+.contacts-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.contacts-table {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.contacts-table th,
+.contacts-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--bg-2);
+  text-align: left;
+  vertical-align: middle;
+}
+
+/* Sticky header so column names stay visible while scrolling the rows. */
+.contacts-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  color: var(--ink-2);
+  font-weight: 600;
+  border-bottom: 2px solid var(--line);
+  z-index: 1;
+}
+
+.contacts-table tbody tr:hover {
+  background: var(--surface);
+}
+
+/* Each row is a button that opens the slide-in panel (mirrors .meetings-row). */
+.contacts-row {
+  cursor: pointer;
+}
+
+.contacts-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+/* Funnel boolean cells: centred, lightly de-emphasised. */
+.cell-bool {
+  text-align: center;
+  color: var(--ink-2);
+}
+
+/* ── WhatsApp link (Contacts row + contact panel "Profile" field) ───── */
+/* WhatsApp brand green, so it reads as a distinct "message them" action. */
+.wa-link {
+  color: var(--ok);
+  font-weight: 600;
+  text-decoration: none;
+}
+.wa-link:hover {
+  text-decoration: underline;
+}
+/* The Profile field shows LinkedIn + WhatsApp side by side. */
+.mform-links {
+  display: inline-flex;
+  gap: 12px;
+}
+/* The compact variant shown next to a name in the Contacts table row. */
+.wa-link--row {
+  margin-left: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+}

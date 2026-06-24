@@ -1,0 +1,61 @@
+/* Interactive table column header: a click-to-sort label + optional filter dropdown. */
+
+.ch {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+}
+
+/* The sortable label is a borderless button so it reads as a normal header. */
+.ch-label {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.ch-label--plain {
+  cursor: default;
+}
+
+.ch-label:not(.ch-label--plain):hover {
+  color: var(--primary);
+}
+
+.ch-label--sorted {
+  color: var(--primary);
+}
+
+.ch-arrow {
+  font-size: 0.8em;
+  margin-left: 2px;
+  min-width: 0.7em;
+}
+
+/* The per-column filter dropdown. Compact, muted until a value is chosen. */
+.ch-filter {
+  font-size: 0.72rem;
+  max-width: 130px;
+  padding: 1px 2px;
+  border: 1px solid #d7dbe2;
+  border-radius: 3px;
+  background: #fff;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.ch-filter--active {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-tint);
+  font-weight: 600;
+}

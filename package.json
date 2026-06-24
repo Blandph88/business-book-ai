@@ -1,0 +1,30 @@
+{
+  "name": "business-book",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Business Book — local-first BD pipeline & network CRM. Import your LinkedIn connections, segment them by industry, function and seniority, and work the pipeline. Data stays in a file you own.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "gen-demo": "npx --yes tsx scripts/gen-demo.mts"
+  },
+  "dependencies": {
+    "papaparse": "^5.5.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.9"
+  }
+}

@@ -1,0 +1,441 @@
+/* Dashboard: the funnel + breakdown charts. Bars are plain divs sized by % width
+   (no chart library — see CLAUDE.md §3 "keep the build simple"). Colours follow
+   the app's blue accent (var(--primary)). */
+
+/* ── Toolbar + status ───────────────────────────────────────────────── */
+.dash-toolbar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dash-toolbar h2 {
+  margin: 0;
+}
+
+.dash-count {
+  color: var(--ink-3);
+  font-size: 0.9rem;
+}
+
+.dash-status {
+  color: var(--ink-3);
+}
+
+.dash-status--error {
+  color: var(--danger);
+}
+
+.dash-error-detail {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+/* ── Cards ──────────────────────────────────────────────────────────── */
+.dash-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  background: #fff;
+}
+
+.dash-card h3 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.dash-card-note {
+  margin: 0 0 14px;
+  color: var(--ink-3);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+/* ── Headline stat figures (commercial card) ────────────────────────── */
+.dash-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+}
+
+.dash-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dash-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-stat-label {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+
+/* ── Networking funnel ──────────────────────────────────────────────── */
+.funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.funnel-stage {
+  display: grid;
+  grid-template-columns: 130px 1fr 90px;
+  align-items: center;
+  gap: 12px;
+}
+
+.funnel-label {
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+.funnel-track {
+  background: var(--bg-2);
+  border-radius: 4px;
+  height: 22px;
+  overflow: hidden;
+}
+
+.funnel-fill {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.funnel-value {
+  text-align: right;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.funnel-pct {
+  display: inline-block;
+  margin-left: 8px;
+  color: var(--ink-3);
+  min-width: 36px;
+}
+
+/* ── Population toggle ──────────────────────────────────────────────── */
+.dash-pop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 16px;
+  flex-wrap: wrap;
+}
+
+/* The nested step-filter row sits tucked under its phase row, slightly indented and
+   lighter so the hierarchy reads. */
+.dash-pop--nested {
+  margin: -8px 0 16px 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+}
+.dash-pop--nested .dash-pop-btn {
+  padding: 2px 10px;
+  font-size: 0.78rem;
+}
+
+.dash-pop-label {
+  font-size: 0.82rem;
+  color: var(--ink-3);
+  margin-right: 4px;
+}
+
+.dash-pop-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 14px;
+  padding: 4px 12px;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.dash-pop-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.dash-pop-btn--active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* ── Breakdown grid + bars ──────────────────────────────────────────── */
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bar-row {
+  display: grid;
+  /* Value column grows to fit its content (e.g. "SAR 250,000") instead of wrapping,
+     while a plain count still only takes ~34px. */
+  grid-template-columns: 150px 1fr minmax(34px, max-content);
+  align-items: center;
+  gap: 10px;
+}
+
+.bar-label {
+  font-size: 0.8rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar-track {
+  background: var(--bg-2);
+  border-radius: 4px;
+  height: 16px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  background: #4a90d9;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.bar-value {
+  text-align: right;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* De-emphasised "Other Functions" catch-all (§6 rule 3): muted label + the
+   darkest bar, so real functions visually lead even when this bucket is large. */
+.bar-row--muted .bar-label {
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+.bar-row--muted .bar-fill {
+  background: #2a3a4a;
+}
+
+/* Clickable bars (drill-down). Reset button styling so the grid layout holds. */
+.bar-row--clickable {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bar-row--clickable:hover .bar-fill {
+  filter: brightness(1.08);
+}
+
+.bar-row--clickable:hover .bar-label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.bar-row--clickable:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.bar-pct {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--ink-3);
+  font-size: 0.72rem;
+}
+
+/* ── Sector-group colour legend (funnel + summary) ──────────────────── */
+.dash-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.dash-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  color: var(--ink-2);
+}
+
+.dash-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+/* ── Stacked funnel ─────────────────────────────────────────────────── */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stack-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 90px;
+  align-items: center;
+  gap: 12px;
+}
+
+.stack-label {
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+.stack-track {
+  display: flex;
+  background: var(--bg-2);
+  border-radius: 4px;
+  height: 24px;
+  overflow: hidden;
+}
+
+.stack-seg {
+  appearance: none;
+  border: none;
+  padding: 0;
+  height: 100%;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.stack-seg:hover {
+  filter: brightness(1.12);
+}
+
+.stack-seg:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.stack-value {
+  text-align: right;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.stack-pct {
+  display: inline-block;
+  margin-left: 8px;
+  color: var(--ink-3);
+  min-width: 32px;
+}
+
+/* ── Reconciliation self-check (§6 rule 2/5) ────────────────────────── */
+.dash-reconcile {
+  margin: 12px 0 0;
+  font-size: 0.78rem;
+}
+
+.dash-reconcile--ok {
+  color: var(--ok);
+}
+
+.dash-reconcile--bad {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* ── Follow-up action lists (Section B) ─────────────────────────────── */
+/* "Show list" toggle that reveals the (collapsed-by-default) scrollable list. */
+.action-toggle {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 4px;
+  padding: 4px 12px;
+  margin-top: 10px;
+  font-size: 0.82rem;
+  color: var(--primary);
+  cursor: pointer;
+}
+.action-toggle:hover {
+  background: var(--primary-tint);
+}
+
+/* A scroll cap so a long list (e.g. ~1000 awaiting-reply contacts) can't
+   blow up the page height. */
+.action-scroll {
+  max-height: 460px;
+  overflow-y: auto;
+  margin-top: 8px;
+  border: 1px solid #ececf1;
+  border-radius: 8px;
+}
+
+/* "Not yet connected" — name (LinkedIn link) + when the invite was sent. */
+.pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pending-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f4;
+}
+
+.pending-row:last-child {
+  border-bottom: none;
+}
+
+.pending-name {
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.pending-name:hover {
+  text-decoration: underline;
+}
+
+.pending-when {
+  color: var(--ink-3);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+/* Sub-heading inside a split card (e.g. opportunities "By count" / "By weighted value"). */
+.mp-sub {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}

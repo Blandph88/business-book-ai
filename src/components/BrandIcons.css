@@ -1,0 +1,61 @@
+/* The two far-left icon-link columns (LinkedIn / WhatsApp) on every table. */
+.cell-icon {
+  width: 26px;
+  text-align: center;
+  padding: 0 2px;
+  white-space: nowrap;
+}
+
+.cell-icon a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.cell-icon a:hover {
+  opacity: 1;
+  transform: scale(1.12);
+}
+
+.cell-icon svg {
+  display: block;
+}
+
+/* Inline LinkedIn/WhatsApp links that sit right after a contact's name (form headers,
+   list items). Nudged to align with the text baseline. */
+.contact-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 7px;
+  vertical-align: middle;
+}
+
+.contact-links a {
+  display: inline-flex;
+  opacity: 0.85;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.contact-links a:hover {
+  opacity: 1;
+  transform: scale(1.12);
+}
+
+.contact-links svg {
+  display: block;
+}
+
+/* Muted brand icon used as the column header (a visual label, not a link). */
+.cell-icon-head {
+  width: 26px;
+  text-align: center;
+  padding: 0 2px;
+}
+.cell-icon-head svg {
+  display: inline-block;
+  vertical-align: middle;
+  opacity: 0.55;
+}
