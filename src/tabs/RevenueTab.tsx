@@ -16,7 +16,6 @@ import {
   pctRecognised,
   totalContractedRevenue,
   totalRecognised,
-  myBook,
   sowFromOpportunity,
 } from "../data/revenue";
 import { formatMoney, formatPct } from "../data/format";
@@ -121,14 +120,12 @@ export function RevenueTab({
     [opps],
   );
 
-  // Headline figures: total contracted, total recognised, and YOUR book (recognised
-  // revenue on work credited to you — the number the whole app builds toward).
+  // Headline figures: total contracted and total recognised across all contracts.
   const totalContracted = useMemo(() => totalContractedRevenue(rows), [rows]);
   const totalRec = useMemo(() => totalRecognised(rows), [rows]);
-  const book = useMemo(() => myBook(rows, opps), [rows, opps]);
 
   // The money totals above are aggregates (not list subsets), so they stay display-only.
-  // Below them, a chip per SoW status acts as a one-click filter; "All" clears it.
+  // Below them, a chip per status acts as a one-click filter; "All" clears it.
   const statusCounts = useMemo(() => {
     const m: Record<string, number> = {};
     for (const s of rows) m[s.status] = (m[s.status] ?? 0) + 1;
@@ -175,14 +172,14 @@ export function RevenueTab({
   return (
     <section className="rev">
       <div className="rev-toolbar">
-        <h2>Revenue &amp; SoW</h2>
-        <span className="rev-count">{rows.length} SoWs</span>
+        <h2>Contracts</h2>
+        <span className="rev-count">{rows.length} contracts</span>
         <button
           type="button"
           className="rev-add"
           onClick={() => setFormTarget({ mode: "new" })}
         >
-          + Add SoW
+          + Add contract
         </button>
         <span className={justSaved ? "rev-saved rev-saved--on" : "rev-saved"}>
           Saved ✓
@@ -190,17 +187,16 @@ export function RevenueTab({
       </div>
 
       <p className="rev-hint">
-        Signed statements of work. Contracted revenue (chargeable hours ÷ 8 × day
-        rate) and % recognised are calculated automatically. Click any row to edit.
+        Your signed contracts. Contracted revenue and % recognised are calculated
+        automatically from each contract's pricing. Click any row to edit.
       </p>
 
       {rows.length > 0 && (
         <>
           <StatsBar
             stats={[
-              { label: "My book (recognised, credited to me)", value: formatMoney(book), highlight: true },
-              { label: "Recognised (all)", value: formatMoney(totalRec) },
-              { label: "Contracted (all)", value: formatMoney(totalContracted) },
+              { label: "Recognised", value: formatMoney(totalRec), highlight: true },
+              { label: "Contracted", value: formatMoney(totalContracted) },
             ]}
           />
           <StatsBar variant="chips" stats={statusChips} />
@@ -209,13 +205,13 @@ export function RevenueTab({
 
       {rows.length === 0 ? (
         <p className="rev-empty">
-          No signed work yet. Add a SoW when an opportunity converts.
+          No signed contracts yet. Add one when an opportunity converts.
         </p>
       ) : (
         <>
           <TableControls {...controlsProps} />
           {filtered.length === 0 ? (
-            <p className="rev-empty">No SoWs match these filters.</p>
+            <p className="rev-empty">No contracts match these filters.</p>
           ) : (
             <div className="rev-table-wrap">
               <table className="rev-table">
@@ -293,7 +289,7 @@ export function RevenueTab({
                     <button
                       type="button"
                       className="rev-remove"
-                      title="Remove this SoW"
+                      title="Remove this contract"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDelete(sow.id);

@@ -14,7 +14,6 @@ import { todayISO, daysBetween } from "../data/agenda";
 import {
   SERVICE_LINE,
   OPPORTUNITY_STEPS,
-  ORIGINATION_CREDIT,
   CONSULTING_FIRMS,
   WON_STEP,
   stepDef,
@@ -54,7 +53,6 @@ const EMPTY: Opportunity = {
   primary_contact: "",
   service_line: "Strategy",
   current_step: "meeting",
-  origination_credit: "Self-originated",
 };
 
 export function OpportunityForm({
@@ -323,7 +321,7 @@ export function OpportunityForm({
                       className="mform-inline-btn"
                       onClick={() => onOpenSow(linkedSowId)}
                     >
-                      View SoW →
+                      View contract →
                     </button>
                   )}
                 </p>
@@ -425,7 +423,7 @@ export function OpportunityForm({
                     title="Create a Statement of Work pre-filled from this opportunity"
                     onClick={onCreateSow}
                   >
-                    + Create SoW
+                    + Create contract
                   </button>
                 )}
             </div>
@@ -617,20 +615,6 @@ export function OpportunityForm({
           </fieldset>
 
           {/* ── Attribution ──────────────────────────────────────────────── */}
-          <fieldset className="mform-section">
-            <legend>Attribution</legend>
-            <p className="mform-note">
-              How the deal was originated — set early. Revenue credited to your book is
-              totalled from recognised revenue on deals credited to you.
-            </p>
-            <Field label="Origination credit">
-              <Select
-                value={draft.origination_credit}
-                options={ORIGINATION_CREDIT}
-                onChange={(v) => set("origination_credit", v || undefined)}
-              />
-            </Field>
-          </fieldset>
         </div>
 
         <footer className="mform-footer">

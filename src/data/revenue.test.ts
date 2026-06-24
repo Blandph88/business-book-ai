@@ -4,7 +4,6 @@ import {
   pctRecognised,
   totalContractedRevenue,
   totalRecognised,
-  myBook,
   sowFromOpportunity,
   sowForOpportunity,
 } from "./revenue";
@@ -161,38 +160,6 @@ describe("totalRecognised", () => {
   });
 });
 
-// ── myBook ────────────────────────────────────────────────────────────────────
-describe("myBook", () => {
-  it("counts recognised revenue only on self/co-originated linked opps", () => {
-    const oppsById: Record<string, Opportunity> = {
-      self: opp({ id: "self", origination_credit: "Self-originated" }),
-      co: opp({ id: "co", origination_credit: "Co-originated" }),
-      ref: opp({ id: "ref", origination_credit: "Referral" }),
-    };
-    const sows = [
-      sow({ id: "a", linked_opportunity_id: "self", recognised_to_date: 1000 }),
-      sow({ id: "b", linked_opportunity_id: "co", recognised_to_date: 2000 }),
-      sow({ id: "c", linked_opportunity_id: "ref", recognised_to_date: 9999 }), // excluded
-      sow({ id: "d", recognised_to_date: 9999 }), // no link → excluded
-    ];
-    expect(myBook(sows, oppsById)).toBe(3000);
-  });
-
-  it("excludes a SoW whose opp has no origination credit", () => {
-    const oppsById = { o1: opp({ id: "o1" }) };
-    const sows = [sow({ linked_opportunity_id: "o1", recognised_to_date: 500 })];
-    expect(myBook(sows, oppsById)).toBe(0);
-  });
-
-  it("excludes a SoW linked to an opp that does not exist", () => {
-    const sows = [sow({ linked_opportunity_id: "gone", recognised_to_date: 500 })];
-    expect(myBook(sows, {})).toBe(0);
-  });
-
-  it("is 0 for no SoWs", () => {
-    expect(myBook([], {})).toBe(0);
-  });
-});
 
 // ── sowFromOpportunity ────────────────────────────────────────────────────────
 describe("sowFromOpportunity", () => {

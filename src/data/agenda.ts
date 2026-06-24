@@ -19,11 +19,16 @@
 
 import { type MeetingRow, meetingMissingFields } from "./meetings";
 import type { Opportunity } from "../storage/opportunities";
+import type { Sow } from "../storage/revenue";
 import { nextStepInfo } from "./timeline";
 import type { TabId } from "../components/TabNav";
 
 // How far ahead the agenda looks, in days.
 export const AGENDA_WINDOW_DAYS = 7;
+// How far BACK an overdue item still counts as "this week". Older items aren't dropped from
+// the app — they surface in the Dashboard's "Reconnect" / "Going cold" lists — so the agenda
+// stays a focused set of recent + upcoming actions rather than an ever-growing overdue pile.
+export const AGENDA_OVERDUE_DAYS = 9;
 
 // One thing to do, with enough context to show it and to deep-link to the right record.
 export type AgendaItem = {
@@ -34,7 +39,8 @@ export type AgendaItem = {
     | "Meeting write-up"
     | "Meeting follow-up"
     | "Scheduled meeting"
-    | "Opportunity next step";
+    | "Opportunity next step"
+    | "Contract next step";
   who: string; // contact / opportunity name
   what: string; // the action / note text
   statusLabel: string; // a short (≤2 word) "what's due" label for the agenda column
@@ -63,7 +69,7 @@ export function daysBetween(fromISO: string, toISO: string): number {
 
 // Is this date within the agenda window (overdue OR within the next N days)?
 function inWindow(daysUntil: number): boolean {
-  return daysUntil <= AGENDA_WINDOW_DAYS;
+  return daysUntil >= -AGENDA_OVERDUE_DAYS && daysUntil <= AGENDA_WINDOW_DAYS;
 }
 
 // Build the agenda from the loaded data. `today` is injected for testability. Contact-
@@ -73,6 +79,7 @@ export function buildAgenda(
   meetingRows: MeetingRow[],
   opps: Opportunity[],
   today: string,
+  sows: Sow[] = [],
 ): AgendaItem[] {
   const items: AgendaItem[] = [];
 
@@ -159,6 +166,26 @@ export function buildAgenda(
       value: o.est_value,
       tab: "opportunities",
       openId: o.id,
+    });
+  }
+
+  // 5) Contract next steps → Contracts. Each signed contract can carry a next action
+  //    (invoice a milestone, deliver a phase, chase payment) with a due date.
+  for (const s of sows) {
+    if (!s.next_action_date) continue;
+    const daysUntil = daysBetween(today, s.next_action_date);
+    if (!inWindow(daysUntil)) continue;
+    items.push({
+      date: s.next_action_date,
+      daysUntil,
+      overdue: daysUntil < 0,
+      kind: "Contract next step",
+      who: s.engagement_name || s.organisation || "(contract)",
+      what: s.next_action?.trim() || "Next step on this contract",
+      statusLabel: "Contract due",
+      org: s.organisation,
+      tab: "revenue",
+      openId: s.id,
     });
   }
 

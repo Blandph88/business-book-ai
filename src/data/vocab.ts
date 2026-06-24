@@ -217,22 +217,13 @@ export function stepsByPhase(phase: OpportunityPhase): OpportunityStepDef[] {
   return OPPORTUNITY_STEPS.filter((s) => s.phase === phase);
 }
 
-// Origination credit — how the opportunity came to the owner (attribution toward their
-// book). A single dropdown on the form; defaults to "Self-originated".
-export const ORIGINATION_CREDIT = [
-  "Self-originated",
-  "Co-originated",
-  "Referral",
-  "Firm / RFP-sourced",
-  "Inherited",
-] as const;
-
-// Rival advisory/consulting firms active in Riyadh — the searchable options for an
-// opportunity's Competitors field (EY excluded as the owner's firm). Free-text additions
-// are allowed in the picker, so this is a starter list, not a closed vocabulary.
+// Major advisory/consulting firms — the searchable options for an opportunity's
+// Competitors field. Free-text additions are allowed in the picker, so this is a starter
+// list, not a closed vocabulary.
 export const CONSULTING_FIRMS = [
   "Deloitte",
   "PwC",
+  "EY",
   "Strategy&",
   "KPMG",
   "McKinsey",

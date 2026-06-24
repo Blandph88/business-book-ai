@@ -238,7 +238,7 @@ export function AccountView({
           {orgSows.length > 0 && (
             <section className="account-section">
               <h4 className="account-heading">
-                Statements of work ({orgSows.length})
+                Contracts ({orgSows.length})
               </h4>
               <ul className="account-list">
                 {orgSows.map((s) => (

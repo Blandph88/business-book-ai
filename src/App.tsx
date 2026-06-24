@@ -113,7 +113,7 @@ export default function App() {
     contacts: "Contacts",
     meetings: "Meetings",
     opportunities: "Opportunities",
-    revenue: "Revenue & SoW",
+    revenue: "Contracts",
   };
 
   return (

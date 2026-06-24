@@ -75,7 +75,7 @@ export const TOUR_STEPS: TourStep[] = [
     body: (
       <>
         Your four KPIs: what <strong>needs attention</strong>, your <strong>weighted pipeline</strong>,{" "}
-        <strong>My book</strong> (recognised revenue credited to you), and <strong>win rate</strong>.
+        your <strong>recognised revenue</strong>, and <strong>win rate</strong>.
         Click any card to jump to the work behind it.
       </>
     ),
@@ -136,7 +136,7 @@ export const TOUR_STEPS: TourStep[] = [
     title: "Loose ends & staying warm",
     body: (
       <>
-        Data-hygiene nudges: won work with no SoW, deals missing a value, decision-makers to log —
+        Data-hygiene nudges: won work with no contract, deals missing a value, decision-makers to log —
         plus (further down) <strong>Reconnect</strong> for warm contacts going quiet and{" "}
         <strong>Going cold</strong> for stalling deals.
       </>
@@ -313,16 +313,16 @@ export const TOUR_STEPS: TourStep[] = [
     body: <>Click a deal to move it through the phases, set its value and probability, and record win/loss.</>,
   },
 
-  // ── Revenue & SoW ───────────────────────────────────────────────────────
+  // ── Contracts ───────────────────────────────────────────────────────────
   {
     id: "rev-stats",
     tab: "revenue",
     target: ".statsbar",
-    title: "Revenue & SoW — the money",
+    title: "Contracts — the money",
     body: (
       <>
-        Your headline totals — <strong>My book</strong>, recognised and contracted — with status
-        chips below (Active / Completed / …) that filter the list.
+        Your headline totals — <strong>recognised</strong> and <strong>contracted</strong> revenue —
+        with status chips below (Active / Completed / …) that filter the list.
       </>
     ),
   },

@@ -21,7 +21,7 @@ import {
   opportunityStatus,
   opportunityPhase,
 } from "../data/opportunities";
-import { myBook, totalRecognised } from "../data/revenue";
+import { totalRecognised } from "../data/revenue";
 import { computeFunnelStacked } from "../data/metrics";
 import { detectOrphans } from "../data/orphans";
 import { buildAgenda, todayISO, type AgendaItem } from "../data/agenda";
@@ -120,13 +120,7 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
   const weightedPipeline = useMemo(() => openWeightedPipeline(opps), [opps]);
   const winLoss = useMemo(() => winLossStats(opps), [opps]);
 
-  // "My book": recognised revenue on work credited to me (self/co-originated) — the
-  // number the whole app builds toward. Shown against the firm-wide recognised total.
-  const oppsById = useMemo(
-    () => Object.fromEntries(opps.map((o) => [o.id, o])),
-    [opps],
-  );
-  const book = useMemo(() => myBook(sows, oppsById), [sows, oppsById]);
+  // Recognised revenue across all signed contracts.
   const recognised = useMemo(() => totalRecognised(sows), [sows]);
 
   // The most recent held date per contact ("last met"), shared by the agenda's Reconnect.
@@ -134,8 +128,8 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
 
   // This-week agenda (overdue + next 7 days), one chronological list (most overdue first).
   const agenda = useMemo(
-    () => buildAgenda(meetingRows, opps, today),
-    [meetingRows, opps, today],
+    () => buildAgenda(meetingRows, opps, today, sows),
+    [meetingRows, opps, today, sows],
   );
 
   const orphans = useMemo(
@@ -255,7 +249,7 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
       <div className="kpi-grid">
         <KpiCard label="Needs attention" value={agenda.length} hint="overdue + this week" />
         <KpiCard label="Weighted pipeline" value={formatMoney(weightedPipeline)} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Open" } })} />
-        <KpiCard label="My book" value={formatMoney(book)} hint={`of ${formatMoney(recognised)} recognised`} onClick={() => onNavigate("revenue")} />
+        <KpiCard label="Recognised" value={formatMoney(recognised)} hint="across signed contracts" onClick={() => onNavigate("revenue")} />
         <KpiCard label="Win rate" value={winRateLabel} hint={`${winLoss.won}W · ${winLoss.lost}L`} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Won" } })} />
       </div>
 
@@ -665,7 +659,11 @@ function AgendaTable({
 }) {
   // Each item's record type, for the Type column (contacts no longer produce items).
   const typeLabel = (kind: AgendaItem["kind"]) =>
-    kind === "Opportunity next step" ? "Opportunity" : "Meeting";
+    kind === "Opportunity next step"
+      ? "Opportunity"
+      : kind === "Contract next step"
+        ? "Contract"
+        : "Meeting";
   return (
     <div className="agenda-table-wrap">
       <table className="agenda-table">

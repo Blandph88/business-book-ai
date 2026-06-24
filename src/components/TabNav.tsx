@@ -42,7 +42,7 @@ export const TABS: { id: TabId; label: string }[] = [
   { id: "contacts", label: "Contacts" },
   { id: "meetings", label: "Meetings" },
   { id: "opportunities", label: "Opportunities" },
-  { id: "revenue", label: "Revenue & SoW" },
+  { id: "revenue", label: "Contracts" },
 ];
 
 type TabNavProps = {

@@ -65,6 +65,11 @@ export type Sow = {
   // Recognised revenue to date (a single number; % recognised is derived from it).
   recognised_to_date?: number;
 
+  // The next thing to do on this contract (e.g. "Invoice milestone 2", "Deliver phase 1",
+  // "Chase final payment") + its due date — surfaces in the Dashboard's "This week" agenda.
+  next_action?: string;
+  next_action_date?: string; // ISO "YYYY-MM-DD"
+
   status: RevenueStatus;
 };
 

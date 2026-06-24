@@ -140,13 +140,13 @@ export function RevenueForm({
       <aside
         className="mform-panel"
         role="dialog"
-        aria-label="SoW details"
+        aria-label="Contract details"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="mform-header">
           <div>
             <h3 className="mform-title">
-              {isNew ? "New SoW" : draft.engagement_name || "SoW"}
+              {isNew ? "New contract" : draft.engagement_name || "Contract"}
             </h3>
             {draft.linked_opportunity_id && onOpenOpportunity && (
               <p className="mform-links">
@@ -251,6 +251,26 @@ export function RevenueForm({
             </div>
           </fieldset>
 
+          {/* ── Next step (surfaces in the Dashboard's "This week") ───────── */}
+          <fieldset className="mform-section">
+            <legend>Next step</legend>
+            <div className="mform-grid">
+              <Field label="Next action">
+                <TextField
+                  value={draft.next_action}
+                  onChange={(v) => set("next_action", v)}
+                  placeholder="e.g. Invoice milestone 2, deliver phase 1…"
+                />
+              </Field>
+              <Field label="Due">
+                <DateInput
+                  value={draft.next_action_date}
+                  onChange={(v) => set("next_action_date", v)}
+                />
+              </Field>
+            </div>
+          </fieldset>
+
           {/* ── Commercials ──────────────────────────────────────────────── */}
           <fieldset className="mform-section">
             <legend>Commercials</legend>
@@ -335,7 +355,7 @@ export function RevenueForm({
               className="mform-delete"
               onClick={() => onDelete(target.sow.id)}
             >
-              Delete SoW
+              Delete contract
             </button>
           )}
           <span className="mform-footer-spacer" />

@@ -40,24 +40,6 @@ export function totalRecognised(sows: Sow[]): number {
   return sows.reduce((sum, sow) => sum + (sow.recognised_to_date ?? 0), 0);
 }
 
-// "Your book" — recognised revenue on work whose opportunity is credited to YOU
-// (self- or co-originated). This is the number the whole app points at: the personal
-// book you're building, not the firm-wide total.
-const MY_CREDIT = new Set(["Self-originated", "Co-originated"]);
-export function myBook(
-  sows: Sow[],
-  oppsById: Record<string, Opportunity>,
-): number {
-  return sows
-    .filter((s) => {
-      const opp = s.linked_opportunity_id
-        ? oppsById[s.linked_opportunity_id]
-        : undefined;
-      return opp && MY_CREDIT.has(opp.origination_credit ?? "");
-    })
-    .reduce((sum, s) => sum + (s.recognised_to_date ?? 0), 0);
-}
-
 // Build a SoW pre-filled from a won opportunity, so signing a deal flows straight into
 // the revenue record (org / name / service line / signed date / link), no retyping.
 export function sowFromOpportunity(opp: Opportunity): Sow {

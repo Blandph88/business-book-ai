@@ -40,12 +40,7 @@ import {
 } from "../storage/opportunities";
 import { loadAllMeetings, type MeetingsById } from "../storage/meetings";
 import { heldContactUrls, meetingId } from "../data/meetings";
-import {
-  loadFunnelSummary,
-  loadPendingInvites,
-  type FunnelSummary,
-  type PendingInvite,
-} from "../data/funnel";
+import { loadFunnelSummary, type FunnelSummary } from "../data/funnel";
 import {
   pipelineByPhase,
   opportunitiesForPhase,
@@ -87,10 +82,9 @@ const POPULATIONS: { id: Population; label: string }[] = [
 
 // The three "Follow-up actions" lists — the gaps between consecutive funnel stages,
 // each a list of people worth a specific next action.
-type ActionTab = "pending" | "unmessaged" | "noreply";
+type ActionTab = "unmessaged" | "noreply";
 
 const ACTION_TABS: { id: ActionTab; label: string }[] = [
-  { id: "pending", label: "Not yet connected" },
   { id: "unmessaged", label: "Not yet messaged" },
   { id: "noreply", label: "Awaiting reply" },
 ];
@@ -117,7 +111,6 @@ type Drill =
       display?: "panel" | "modal"; // inherit the parent matrix's container
     }
   | { kind: "opps"; title: string; opps: Opportunity[] }
-  | { kind: "pending"; invites: PendingInvite[] } // invited, not yet accepted
   | null;
 
 // Colours for the stacked funnel segments: the five sector groups + the two special
@@ -154,10 +147,8 @@ export function MetricsTab({
   // Funnel totals (top two stages) + the set of contacts actually met (Held meetings).
   const [summary, setSummary] = useState<FunnelSummary | null>(null);
   const [heldUrls, setHeldUrls] = useState<Set<string>>(new Set());
-  // People invited who haven't accepted yet (the "Not yet connected" action list).
-  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   // Which follow-up action list is showing.
-  const [actionTab, setActionTab] = useState<ActionTab>("pending");
+  const [actionTab, setActionTab] = useState<ActionTab>("unmessaged");
   // Which opportunity phase the opportunity breakdowns are filtered to ("all" = every
   // phase). Mirrors the contact `population` toggle, but for the commercial pipeline.
   const [oppPhase, setOppPhase] = useState<"all" | OpportunityPhase | "Lost">("all");
@@ -177,7 +168,6 @@ export function MetricsTab({
     setMeetings(savedMeetings);
     setHeldUrls(heldContactUrls(savedMeetings));
     loadFunnelSummary().then(setSummary).catch(() => setSummary(null));
-    loadPendingInvites().then(setPendingInvites).catch(() => setPendingInvites([]));
     loadConnections().then(setConnections).catch(() => setConnections([]));
     loadContacts()
       .then((rows) => {
@@ -207,10 +197,9 @@ export function MetricsTab({
       computeFunnelStacked(effectiveContacts, {
         summary,
         connections,
-        pendingCount: pendingInvites.length,
         metUrls: heldUrls,
       }),
-    [effectiveContacts, summary, connections, pendingInvites, heldUrls],
+    [effectiveContacts, summary, connections, heldUrls],
   );
   const seniority = useMemo(
     () => computeSeniorityBars(effectiveContacts, population),
@@ -451,10 +440,6 @@ export function MetricsTab({
   // contacts at the matching population. The "Pending" invitations segment has no
   // profiles, so it opens the name list instead.
   const onFunnelSegment = (stage: FunnelStage, group: string) => {
-    if (group === PENDING_GROUP) {
-      setDrill({ kind: "pending", invites: pendingInvites });
-      return;
-    }
     const title = `${stage.label} · ${group}`;
     switch (stage.label) {
       case "Your network":
@@ -599,14 +584,6 @@ export function MetricsTab({
           ))}
         </div>
 
-        {actionTab === "pending" && (
-          <ActionListWrap
-            count={pendingInvites.length}
-            caption="People in your network you haven't messaged or actioned yet — a good place to start outreach."
-          >
-            <PendingInviteList invites={pendingInvites} />
-          </ActionListWrap>
-        )}
         {actionTab === "unmessaged" && (
           <ActionListWrap
             count={notMessaged.length}
@@ -944,33 +921,6 @@ function ActionListWrap({
 }
 
 // The "Not yet connected" list: people we invited who haven't accepted. We only have
-// name + profile URL + when the invite was sent, so we list them oldest-first (most
-// overdue to chase) with a link out to their LinkedIn profile.
-function PendingInviteList({ invites }: { invites: PendingInvite[] }) {
-  const sorted = [...invites].sort((a, b) => {
-    const ta = Date.parse(a.sent_at);
-    const tb = Date.parse(b.sent_at);
-    return (Number.isNaN(ta) ? Infinity : ta) - (Number.isNaN(tb) ? Infinity : tb);
-  });
-  return (
-    <ul className="pending-list">
-      {sorted.map((p) => (
-        <li key={p.url} className="pending-row">
-          <a
-            className="pending-name"
-            href={p.url}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {p.name || "(unknown)"} ↗
-          </a>
-          {p.sent_at && <span className="pending-when">Invited {p.sent_at}</span>}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 // The §6 rule 2/5 self-check, shown so a broken total is visible not papered over.
 function ReconcileNote({ ok, total }: { ok: boolean; total: number }) {
   return (
@@ -1035,19 +985,6 @@ function DrillPanelContent({
     );
   }
 
-  if (drill.kind === "pending") {
-    return (
-      <DrillPanel
-        title="Not yet connected"
-        subtitle={`${drill.invites.length} pending invite${
-          drill.invites.length === 1 ? "" : "s"
-        }`}
-        onClose={onClose}
-      >
-        <PendingInviteList invites={drill.invites} />
-      </DrillPanel>
-    );
-  }
 
   if (drill.kind === "opps") {
     return (

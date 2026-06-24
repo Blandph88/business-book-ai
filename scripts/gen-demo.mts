@@ -110,7 +110,7 @@ type SeedMinute = Record<string, unknown> & { contact_url: string; meeting_no: n
 const seedMinutes: SeedMinute[] = [];
 type Deliverable = { id: string; name: string; category: string; price?: number };
 type RateLine = { grade: string; rate_per_hour?: number; hours?: number };
-type Sow = { id: string; linked_opportunity_id?: string; organisation: string; engagement_name: string; signed_date?: string; start_date?: string; end_date?: string; service_line: string; project_type?: string; deliverables?: Deliverable[]; rate_card?: RateLine[]; recognised_to_date?: number; status: string };
+type Sow = { id: string; linked_opportunity_id?: string; organisation: string; engagement_name: string; signed_date?: string; start_date?: string; end_date?: string; service_line: string; project_type?: string; deliverables?: Deliverable[]; rate_card?: RateLine[]; recognised_to_date?: number; next_action?: string; next_action_date?: string; status: string };
 const sows: Sow[] = [];
 const TM_GRADES = ["Associate", "Senior", "Manager", "Senior Manager", "Director", "Partner"];
 const DL_CATS = ["Diagnostic & Assessment", "Strategy & Roadmap", "Operating Model & Org Design", "Process Design & Improvement", "Implementation & Delivery", "Programme & Project Management", "Change Management & Training", "Data & Analytics", "Advisory & Ongoing Support"];
@@ -124,7 +124,7 @@ const STEPS_SPREAD = ["pursuit", "pursuit", "scoping", "scoping", "clearance", "
   const stage = r < 0.6 ? "Held" : r < 0.85 ? "Scheduled" : "Agreed - not scheduled";
   if (stage === "Held") heldSet.add(url);
   const mAgreed = isoDay(-(20 + (i % 70)));       // agreed a few weeks–months ago
-  const mSched = isoDay((i % 28) - 4);            // scheduled = UPCOMING (a few just overdue)
+  const mSched = isoDay((i % 75) + 1);            // scheduled = UPCOMING, spread out so few land in "this week"
   const mHeld = isoDay(-(6 + (i % 60)));          // held recently
   const pain = pick(PAINS);
   // Held meetings mostly spot an opportunity; scheduled ones sometimes carry a pre-identified one.
@@ -154,7 +154,7 @@ const STEPS_SPREAD = ["pursuit", "pursuit", "scoping", "scoping", "clearance", "
         deliverables = Array.from({ length: n }, (_, di) => ({ id: `sow-${i}-d${di}`, name: `${["Phase", "Workstream", "Stage"][di % 3]} ${di + 1} — ${DL_CATS[(i + di) % DL_CATS.length]}`, category: DL_CATS[(i + di) % DL_CATS.length], price: pick([25000, 40000, 60000, 80000, 120000, 150000]) }));
         contracted = deliverables.reduce((s, d) => s + (d.price ?? 0), 0);
       }
-      sows.push({ id: `sow-${i}`, linked_opportunity_id: `opp:meeting:${url}#1`, organisation: c.company, engagement_name: `${sl} engagement`, signed_date: mHeld, start_date: isoDay(-(5 + (i % 60))), end_date: isoDay((i % 150) - 25), service_line: sl, project_type: isTM ? "Time & materials" : "Fixed price", deliverables, rate_card, recognised_to_date: Math.round(contracted * (completed ? 1 : pick([0.2, 0.4, 0.6]))), status: completed ? "Completed" : "Active" });
+      sows.push({ id: `sow-${i}`, linked_opportunity_id: `opp:meeting:${url}#1`, organisation: c.company, engagement_name: `${sl} engagement`, signed_date: mHeld, start_date: isoDay(-(5 + (i % 60))), end_date: isoDay((i % 150) - 25), service_line: sl, project_type: isTM ? "Time & materials" : "Fixed price", deliverables, rate_card, recognised_to_date: Math.round(contracted * (completed ? 1 : pick([0.2, 0.4, 0.6]))), next_action: completed ? undefined : pick(["Invoice milestone 2", "Deliver phase 1", "Send the status report", "Chase the deposit", "Confirm scope for next phase", "Book the close-out review"]), next_action_date: completed ? undefined : isoDay((i % 40) + 1), status: completed ? "Completed" : "Active" });
     }
   }
   seedMinutes.push({
@@ -170,7 +170,7 @@ const STEPS_SPREAD = ["pursuit", "pursuit", "scoping", "scoping", "clearance", "
     actions_mine: stage === "Held" ? pick(["Send follow-up + relevant case study", "Draft a one-pager", "Introduce a colleague"]) : undefined,
     actions_theirs: stage === "Held" ? "Share more detail on the current setup" : undefined,
     followup: stage === "Held" ? "Reconnect in two weeks" : undefined,
-    followup_date: stage === "Held" ? isoDay((i % 18) + 2) : undefined,
+    followup_date: stage === "Held" ? isoDay((i % 45) + 4) : undefined,
     sentiment: pick(SENTIMENT),
     opportunity: opp,
   });
