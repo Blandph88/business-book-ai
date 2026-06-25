@@ -5,8 +5,7 @@
      button, expanding into an accordion drawer of the nav items.
    - Device-gated mobile (html.is-mobile): untouched — it keeps its fixed bottom bar. */
 
-.sidenav,
-.sidenav-backdrop {
+.sidenav {
   display: none;
 }
 
@@ -96,17 +95,14 @@
     box-shadow: 6px 0 26px rgba(12, 24, 38, 0.16);
   }
 
-  /* Keep page content clear of the collapsed rail. */
+  /* Page content clears the collapsed rail, and slides right when the drawer opens — it PUSHES
+     content rather than overlaying, and stays open until the toggle closes it (no dimming
+     backdrop). `.app` is a following sibling of the `.sidenav` aside, so `~` can target it. */
   html:not(.is-mobile) .app {
     padding-left: 58px;
+    transition: padding-left 0.2s ease;
   }
-
-  /* Dim the content behind the open drawer (click to collapse). */
-  html:not(.is-mobile) .sidenav-backdrop {
-    display: block;
-    position: fixed;
-    inset: 61px 0 0 0;
-    z-index: 44;
-    background: rgba(12, 24, 38, 0.35);
+  html:not(.is-mobile) .sidenav--open ~ .app {
+    padding-left: 262px;
   }
 }

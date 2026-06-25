@@ -28,7 +28,9 @@ const TUTORIAL_SEEN_KEY = "bob.tutorialSeen.v1";
 // yet, because everything is one local page. We pass setActiveTab down to the
 // Dashboard so its KPI cards and agenda items can jump straight to the relevant tab.
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  // The nameless Overview (the `metrics` network-charts view) is the default home — reached via
+  // the brand logo. "Dashboard" is the first visible tab.
+  const [activeTab, setActiveTab] = useState<TabId>("metrics");
   // The deep-link payload for the tab we're switching to (a filter/search to preset and/or
   // a record to open). Cleared to null on a plain tab click. Since tabs are only mounted
   // while active, each consumes its intent fresh on mount.
@@ -67,9 +69,10 @@ export default function App() {
   // The responsive left nav (narrow widths): open/closed accordion. Selecting an item or
   // importing collapses it.
   const [navOpen, setNavOpen] = useState(false);
+  // Keep the side nav OPEN after picking a tab — it pushes the content right rather than
+  // overlaying, and stays put until the user explicitly closes it with the toggle.
   const selectTabFromNav = (tab: TabId) => {
     selectTab(tab);
-    setNavOpen(false);
   };
   const openImport = () => {
     setShowImport(true);
@@ -109,7 +112,7 @@ export default function App() {
 
   const TAB_LABEL: Record<TabId, string> = {
     dashboard: "Dashboard",
-    metrics: "Metrics",
+    metrics: "Home",
     contacts: "Contacts",
     meetings: "Meetings",
     opportunities: "Opportunities",
@@ -122,7 +125,7 @@ export default function App() {
           On narrow screens the inline nav is hidden and the SideNav drawer takes over. */}
       <header className="topbar">
         <div className="topbar-inner">
-          <Brand />
+          <Brand onClick={() => selectTab("metrics")} />
           <TabNav activeTab={activeTab} onSelect={selectTab} />
           <div className="topbar-right">
             <button
@@ -167,13 +170,20 @@ export default function App() {
       <div className="app">
         <MobileNote />
 
-        {/* Back bar: shown after a deep-link out of the Dashboard/Metrics overview, so you
-            can return to exactly where you came from. */}
-        {returnTo && (
+        {/* Back-to-home bar: shown on every tab except the home Overview. When you deep-linked
+            out of an overview it returns to exactly where you came from; otherwise it goes Home
+            (the network Overview), so there's always a one-click way back from any tab. */}
+        {activeTab !== "metrics" && (
           <div className="back-bar">
-            <button type="button" className="back-bar-btn" onClick={returnToOrigin}>
-              ← Back to {TAB_LABEL[returnTo]}
-            </button>
+            {returnTo ? (
+              <button type="button" className="back-bar-btn" onClick={returnToOrigin}>
+                ← Back to {TAB_LABEL[returnTo]}
+              </button>
+            ) : (
+              <button type="button" className="back-bar-btn" onClick={() => selectTab("metrics")}>
+                ← Home
+              </button>
+            )}
           </div>
         )}
 

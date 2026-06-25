@@ -1,8 +1,9 @@
 // The top navigation bar.
 //
-// "Dashboard" is the high-level home (KPIs, this week, priorities, pipeline snapshot);
-// "Metrics" is the detailed analytical view (funnel matrices, drill-downs) — what used
-// to be the Dashboard. The CRM tabs follow the data model in CLAUDE.md §4.
+// The OVERVIEW (the network charts/funnels — the `metrics` view id) is the nameless HOME:
+// you reach it by clicking the brand logo, and it's the default landing. It is intentionally
+// NOT in the tab list. "Dashboard" (KPIs, this week, priorities) is the first visible tab.
+// The CRM tabs follow the data model in CLAUDE.md §4.
 
 // A union of the valid tab ids — using a string-literal type means TypeScript
 // will catch any typo'd tab id at compile time.
@@ -36,9 +37,10 @@ export type Navigate = (tab: TabId, intent?: TabIntent) => void;
 
 // The label shown to the user for each tab id, in display order.
 // Exported so the responsive SideNav (narrow screens) renders the same items + order.
+// NB: the `metrics` overview is deliberately omitted — it's the nameless home reached via the
+// brand logo, not a tab. Keep `metrics` in the TabId union (it's still a valid view + nav target).
 export const TABS: { id: TabId; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
-  { id: "metrics", label: "Metrics" },
   { id: "contacts", label: "Contacts" },
   { id: "meetings", label: "Meetings" },
   { id: "opportunities", label: "Opportunities" },

@@ -34,15 +34,31 @@ export function BusinessBookLogo({ size = 30 }: { size?: number }) {
   );
 }
 
-export function Brand() {
-  return (
-    <div className="brand">
+// The brand doubles as the HOME button: clicking it returns to the nameless Overview (the
+// network charts). When `onClick` is provided it renders as a button; otherwise a plain div.
+export function Brand({ onClick }: { onClick?: () => void }) {
+  const inner = (
+    <>
       <BusinessBookLogo size={32} />
       <span className="brand-name">
         Business<span className="brand-name-thin">Book</span>
       </span>
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className="brand"
+        onClick={onClick}
+        title="Home — your network overview"
+        style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer" }}
+      >
+        {inner}
+      </button>
+    );
+  }
+  return <div className="brand">{inner}</div>;
 }
 
 // The Freehold brand mark (matches the top-left of the Freehold website): the app-tile

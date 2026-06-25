@@ -4,6 +4,7 @@ import { loadContacts, loadConnections, type Contact } from "../data/contacts";
 import { BarRow } from "../components/BarRow";
 import { StackedBarRow } from "../components/StackedBarRow";
 import { PipelineMatrix } from "../components/PipelineMatrix";
+import { WeekStrip } from "../components/WeekStrip";
 import {
   DrillPanel,
   Modal,
@@ -467,9 +468,12 @@ export function MetricsTab({
   return (
     <section className="dash">
       <div className="dash-toolbar">
-        <h2>Dashboard</h2>
+        <h2>Your network</h2>
         <span className="dash-count">{contacts.length} contacts</span>
       </div>
+
+      {/* Slim agenda strip → keeps the daily action list one click away from the home charts. */}
+      <WeekStrip onNavigate={onNavigate} />
 
       {/* ── Networking funnel, stacked by sector group (§4, EY report) ───── */}
       <div className="dash-card" data-tour="met-funnel">
