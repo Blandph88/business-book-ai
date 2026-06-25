@@ -1,7 +1,9 @@
 // "Import your LinkedIn" modal. Mode-aware:
 //   • demo  → explains the LinkedIn export + on-device privacy promise ("real importer once you own it").
 //   • owned → a real file picker for Connections.csv (+ optional messages.csv), parses + classifies +
-//             saves the buyer's network entirely in the browser, then reloads into the owned app.
+//             saves the buyer's network entirely in the browser, then re-renders the app onto it
+//             (via onImported — NOT a page reload; under the seal a reload replays the stale
+//             pre-import seed, so we remount in-place to read the data just written this session).
 
 import { useState } from "react";
 import { getAppMode } from "../lib/appMode";
@@ -35,7 +37,7 @@ function FilePick({
   );
 }
 
-export function ImportModal({ onClose }: { onClose: () => void }) {
+export function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const demo = getAppMode() === "demo";
   const [conn, setConn] = useState<File | null>(null);
   const [msgs, setMsgs] = useState<File | null>(null);
@@ -94,7 +96,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
               <li><strong>{result.counts.agreed.toLocaleString()}</strong> agreed to meet</li>
             </ul>
             <p className="imp-privacy">🔒 Everything stayed on this computer — nothing was uploaded.</p>
-            <button className="imp-btn imp-btn-primary" onClick={() => location.reload()}>Open my book of business</button>
+            <button className="imp-btn imp-btn-primary" onClick={onImported}>Open my book of business</button>
           </div>
         ) : (
           <div className="imp-body">

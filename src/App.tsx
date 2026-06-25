@@ -79,6 +79,20 @@ export default function App() {
     setNavOpen(false);
   };
 
+  // After a real import (owned), the buyer's network is now live in the in-frame store this
+  // session. We must NOT reload the page to show it: the app runs inside Freehold's sealed iframe
+  // whose seed data is embedded once at launch (empty, pre-import), so location.reload() would just
+  // replay that stale empty seed and show nothing. Instead bump a nonce that remounts the active
+  // tab — so it re-reads the freshly imported data straight from the store — and drop the buyer on
+  // the network Home so their book looks alive. (The data also persists to the buyer's vault, so a
+  // genuine full relaunch re-seeds it too.)
+  const [dataNonce, setDataNonce] = useState(0);
+  const onImported = () => {
+    setShowImport(false);
+    setActiveTab("metrics");
+    setDataNonce((n) => n + 1);
+  };
+
   // A deep-link navigation (from Dashboard/Metrics content, or a cross-tab form link).
   // Leaving an overview tab for a record tab records where to return to.
   const navigate = (tab: TabId, next?: TabIntent) => {
@@ -187,7 +201,7 @@ export default function App() {
           </div>
         )}
 
-        <main className="app-main">
+        <main className="app-main" key={dataNonce}>
           {activeTab === "dashboard" && <DashboardTab onNavigate={navigate} />}
           {activeTab === "metrics" && <MetricsTab onNavigate={navigate} onOpenAccount={openAccount} />}
           {activeTab === "contacts" && <ContactsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} onImport={() => setShowImport(true)} />}
@@ -214,7 +228,7 @@ export default function App() {
       {tutorialOpen && <Tutorial onTab={selectTab} onClose={closeTutorial} />}
 
       {/* Global "Import your LinkedIn" modal (opened from the top bar / side nav / Contacts). */}
-      {showImport && <ImportModal onClose={() => setShowImport(false)} />}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}
     </div>
   );
 }
