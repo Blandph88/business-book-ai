@@ -9,6 +9,9 @@ export type TourStep = {
   id: string;
   tab?: TabId;
   target?: string; // CSS selector to spotlight on that tab
+  // A selector for a list row to CLICK when this step activates — opens its slide-in form (and
+  // closes it again on leaving the step), so a step can spotlight an element inside a form.
+  openRow?: string;
   title: string;
   body: ReactNode;
   illustration?: ReactNode;
@@ -66,17 +69,90 @@ export const TOUR_STEPS: TourStep[] = [
     ),
   },
 
-  // ── Dashboard ───────────────────────────────────────────────────────────
+  // ── Overview (the home — your network charts; reached via the logo) ───────
+  {
+    id: "met-funnel",
+    tab: "metrics",
+    target: '[data-tour="met-funnel"]',
+    title: "Your network — the funnel by segment",
+    body: (
+      <>
+        This <strong>Overview</strong> is your home — come back any time by clicking the{" "}
+        <strong>Business&nbsp;Book</strong> logo. Your funnel, each stage stacked by{" "}
+        <strong>sector group</strong> so you can see which industries you convert best. Click a
+        segment to drill into those contacts.
+      </>
+    ),
+  },
+  {
+    id: "met-segments",
+    tab: "metrics",
+    target: '[data-tour="met-segments"]',
+    title: "Seniority & function",
+    body: (
+      <>
+        Who your network actually is — broken down by <strong>seniority</strong> (left) and{" "}
+        <strong>function</strong> (right). Use the “Breakdowns show” toggle above to switch the
+        population (whole network vs Responded / Agreed / Met).
+      </>
+    ),
+  },
+  {
+    id: "met-penetration",
+    tab: "metrics",
+    target: '[data-tour="met-penetration"]',
+    title: "Market penetration",
+    body: (
+      <>
+        How deep you are in each industry. Click any number to open a company-by-company{" "}
+        <strong>matrix</strong> — entities × seniority — to see exactly who you know where.
+      </>
+    ),
+  },
+  {
+    id: "met-followups",
+    tab: "metrics",
+    target: '[data-tour="met-followups"]',
+    title: "Follow-up actions",
+    body: (
+      <>
+        Your worklists for moving the funnel along — who you haven’t messaged yet, and who you’re
+        still awaiting a reply from.
+      </>
+    ),
+  },
+  {
+    id: "met-opp-phase",
+    tab: "metrics",
+    target: '[data-tour="met-opp-phase"]',
+    title: "Opportunities by phase",
+    body: <>The full pipeline as a bar per phase, including Lost, with counts that reconcile to your total.</>,
+  },
+  {
+    id: "met-opp-breakdowns",
+    tab: "metrics",
+    target: '[data-tour="met-opp-breakdowns"]',
+    title: "Opportunity breakdowns",
+    body: (
+      <>
+        Pipeline value sliced by service line, sector and function — each shown by count and by
+        weighted value. Use the phase/step buttons to narrow it down.
+      </>
+    ),
+  },
+
+  // ── Dashboard (the action view — reached from the "This week" strip / its tab) ──
   {
     id: "dash-kpis",
     tab: "dashboard",
     target: ".kpi-grid",
-    title: "Dashboard — the headline numbers",
+    title: "The Dashboard tab — your headline numbers",
     body: (
       <>
-        Your four KPIs: what <strong>needs attention</strong>, your <strong>weighted pipeline</strong>,{" "}
-        your <strong>recognised revenue</strong>, and <strong>win rate</strong>.
-        Click any card to jump to the work behind it.
+        Your daily action view — the <strong>This week</strong> strip on the Overview links straight
+        here. Four KPIs: what <strong>needs attention</strong>, your <strong>weighted pipeline</strong>,{" "}
+        your <strong>recognised revenue</strong>, and <strong>win rate</strong>. Click any card to
+        jump to the work behind it.
       </>
     ),
   },
@@ -139,76 +215,6 @@ export const TOUR_STEPS: TourStep[] = [
         Data-hygiene nudges: won work with no contract, deals missing a value, decision-makers to log —
         plus (further down) <strong>Reconnect</strong> for warm contacts going quiet and{" "}
         <strong>Going cold</strong> for stalling deals.
-      </>
-    ),
-  },
-
-  // ── Metrics ─────────────────────────────────────────────────────────────
-  {
-    id: "met-funnel",
-    tab: "metrics",
-    target: '[data-tour="met-funnel"]',
-    title: "Metrics — funnel by segment",
-    body: (
-      <>
-        The same funnel, but each stage is stacked by <strong>sector group</strong> so you can see
-        which industries you convert best. Click a segment to drill into those contacts.
-      </>
-    ),
-  },
-  {
-    id: "met-segments",
-    tab: "metrics",
-    target: '[data-tour="met-segments"]',
-    title: "Seniority & function",
-    body: (
-      <>
-        Who your network actually is — broken down by <strong>seniority</strong> (left) and{" "}
-        <strong>function</strong> (right). Use the “Breakdowns show” toggle above to switch the
-        population (whole network vs Responded / Agreed / Met).
-      </>
-    ),
-  },
-  {
-    id: "met-penetration",
-    tab: "metrics",
-    target: '[data-tour="met-penetration"]',
-    title: "Market penetration",
-    body: (
-      <>
-        How deep you are in each industry. Click any number to open a company-by-company{" "}
-        <strong>matrix</strong> — entities × seniority — to see exactly who you know where.
-      </>
-    ),
-  },
-  {
-    id: "met-followups",
-    tab: "metrics",
-    target: '[data-tour="met-followups"]',
-    title: "Follow-up actions",
-    body: (
-      <>
-        Your worklists for moving the funnel along — who you haven’t messaged yet, and who you’re
-        still awaiting a reply from.
-      </>
-    ),
-  },
-  {
-    id: "met-opp-phase",
-    tab: "metrics",
-    target: '[data-tour="met-opp-phase"]',
-    title: "Opportunities by phase",
-    body: <>The full pipeline as a bar per phase, including Lost, with counts that reconcile to your total.</>,
-  },
-  {
-    id: "met-opp-breakdowns",
-    tab: "metrics",
-    target: '[data-tour="met-opp-breakdowns"]',
-    title: "Opportunity breakdowns",
-    body: (
-      <>
-        Pipeline value sliced by service line, sector and function — each shown by count and by
-        weighted value. Use the phase/step buttons to narrow it down.
       </>
     ),
   },
@@ -345,6 +351,20 @@ export const TOUR_STEPS: TourStep[] = [
       </>
     ),
   },
+  {
+    id: "rev-form",
+    tab: "revenue",
+    openRow: ".rev-table-wrap tbody tr",
+    target: '[data-tour="contract-pricing"]',
+    title: "Price it your way",
+    body: (
+      <>
+        Here’s a contract open. Set its <strong>Commercials</strong>: <strong>fixed-price</strong>{" "}
+        deliverables, each with a value — or switch <strong>Project type</strong> to a{" "}
+        <strong>time &amp; materials</strong> rate card by grade. Recognised revenue updates as you go.
+      </>
+    ),
+  },
 
   // ── Finish ──────────────────────────────────────────────────────────────
   {
@@ -385,6 +405,22 @@ export function Tutorial({
   // Switch to the step's tab (if any) when the step changes.
   useEffect(() => {
     if (step.tab) onTab(step.tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [i]);
+
+  // Steps with `openRow` open a representative row's slide-in form on enter (so the step can
+  // spotlight an element inside the form), and close it on leave. We click the row to open and the
+  // form's ✕ (.mform-close) to close — NOT Esc, which would close the whole tour.
+  useEffect(() => {
+    if (!step.openRow) return;
+    const sel = step.openRow;
+    const t = window.setTimeout(() => {
+      (document.querySelector(sel) as HTMLElement | null)?.click(); // let the tab mount, then open
+    }, 90);
+    return () => {
+      window.clearTimeout(t);
+      (document.querySelector(".mform-close") as HTMLElement | null)?.click();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [i]);
 

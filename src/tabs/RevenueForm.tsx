@@ -272,7 +272,7 @@ export function RevenueForm({
           </fieldset>
 
           {/* ── Commercials ──────────────────────────────────────────────── */}
-          <fieldset className="mform-section">
+          <fieldset className="mform-section" data-tour="contract-pricing">
             <legend>Commercials</legend>
             <Field label="Project type">
               <Select
