@@ -8,6 +8,7 @@
 // the Esc key, or a backdrop click.
 
 import { useEffect, useMemo } from "react";
+import { StageTracker } from "./StageTracker";
 import type { Contact } from "../data/contacts";
 import type { Opportunity } from "../storage/opportunities";
 import { weightedValue, opportunityStatus, opportunityPhase } from "../data/opportunities";
@@ -250,11 +251,13 @@ export function ContactList({
             <span className="drill-tag">{c.seniority}</span>
             <span className="drill-tag">{c.function}</span>
           </div>
-          <div className="drill-flags">
-            <Flag on={c.messaged} label="Messaged" />
-            <Flag on={c.two_way} label="Responded" />
-            <Flag on={c.agreed_to_meet} label="Agreed" />
-          </div>
+          <StageTracker
+            messaged={c.messaged}
+            responded={c.two_way}
+            agreed={c.agreed_to_meet}
+            met={c.met}
+            className="stage-track--form"
+          />
             </li>
             );
           })}
@@ -264,13 +267,6 @@ export function ContactList({
   );
 }
 
-function Flag({ on, label }: { on: boolean; label: string }) {
-  return (
-    <span className={on ? "drill-flag drill-flag--on" : "drill-flag"}>
-      {on ? "✓" : "–"} {label}
-    </span>
-  );
-}
 
 // ── Opportunity list ─────────────────────────────────────────────────────────
 // Used when a pipeline-stage / breakdown bar is clicked. Weighted value is computed,

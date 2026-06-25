@@ -181,8 +181,11 @@ function normCompany(name: string): string {
 // ── Lookup tables, built once from the dictionary ─────────────────────────────────────────
 type Hit = { group: string; sub: string; entity: string };
 
-// EXACT map: normalised name AND every normalised alias → its company. If two DIFFERENT companies
-// claim the same key (an ambiguous alias/ticker), it's set to null so the lookup ignores it.
+// EXACT map: normalised name AND every normalised alias → its company. A key is nulled out ONLY on
+// a genuine SECTOR ambiguity — two entries that classify DIFFERENTLY claiming the same key (an
+// ambiguous alias/ticker). Two entries for the SAME firm (e.g. the marquee "BCG" and the alias
+// "BCG" on "Boston Consulting Group") classify identically, so they must NOT collide — otherwise a
+// well-known acronym silently falls through to "Other".
 // FUZZY list: canonical names only (deduped), for "<name> + extra words" company strings.
 const EXACT = new Map<string, Hit | null>();
 const FUZZY: { norm: string; hit: Hit }[] = [];
@@ -200,7 +203,9 @@ const FUZZY: { norm: string; hit: Hit }[] = [];
       if (!k) continue;
       if (EXACT.has(k)) {
         const cur = EXACT.get(k);
-        if (cur && cur.entity !== hit.entity) EXACT.set(k, null); // collision → ambiguous
+        // Only a TRUE ambiguity (same key → DIFFERENT sector) nulls the key. Same-sector duplicates
+        // (the same firm listed twice / via an alias) keep the first hit.
+        if (cur && (cur.group !== hit.group || cur.sub !== hit.sub)) EXACT.set(k, null);
       } else {
         EXACT.set(k, hit);
       }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { StageTracker } from "../components/StageTracker";
 import type { Contact } from "../data/contacts";
 import type { Meeting } from "../storage/meetings";
 import type { MeetingRow } from "../data/meetings";
@@ -159,6 +160,8 @@ export function MeetingForm({
   const info = isNew
     ? deriveContactInfo(contacts.find((c) => c.url === contactUrl))
     : target.row.contactInfo;
+  // The linked contact (for the funnel stage tracker under the header).
+  const whoContact = contacts.find((c) => c.url === (isNew ? contactUrl : target.row.contact_url));
   const meetingNo = isNew ? undefined : target.row.meeting_no;
 
   // Save is only blocked in new mode until a contact is chosen.
@@ -255,6 +258,15 @@ export function MeetingForm({
                   ? ` · ${info.seniority}`
                   : ""}
               </p>
+            )}
+            {whoContact && (
+              <StageTracker
+                messaged={whoContact.messaged}
+                responded={whoContact.two_way}
+                agreed={whoContact.agreed_to_meet}
+                met={whoContact.met}
+                className="stage-track--form"
+              />
             )}
             {/* Cross-tab record links, in the same header position as the contact and
                 opportunity forms (the linked opportunity used to sit at the bottom). */}

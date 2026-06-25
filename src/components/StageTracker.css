@@ -1,0 +1,27 @@
+/* The Messaged → Responded → Agreed to meet → Met funnel flags. Green tick when reached,
+   grey cross when not. Used on the drill list and atop the Contact + Meeting forms. */
+.stage-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stage-flag {
+  font-size: 0.72rem;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+
+.stage-flag--on {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.stage-flag--off {
+  color: var(--ink-3);
+}
+
+/* When it sits under a header (forms / drill cards), give it a little breathing room. */
+.stage-track--form {
+  margin-top: 8px;
+}

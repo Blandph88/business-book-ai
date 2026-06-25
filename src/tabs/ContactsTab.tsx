@@ -48,9 +48,10 @@ const RENDER_BASE = 150;
 const RENDER_STEP = 350;
 
 // What the Contacts list can be searched, filtered, and sorted by. Every column header is
-// click-to-sort; categorical dimensions are filtered from the toolbar dropdowns (the funnel
-// booleans are `toolbar: false` — they filter from the headline stat bar instead). Filter
-// options reuse the shared vocab constants so they can't drift.
+// click-to-sort; categorical dimensions are filtered from the toolbar dropdowns. Messaged /
+// Responded / Agreed-to-meet appear BOTH as toolbar dropdowns and as headline stat-bar
+// quick-filters (shared keys, so they stay in sync); only "Met" is stat-bar-only (toolbar:
+// false). Filter options reuse the shared vocab constants so they can't drift.
 // (`ContactRow` = a contact merged with its owner edits, defined in ./ContactForm.)
 const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
   searchPlaceholder: "Search name, organisation, position…",
@@ -60,11 +61,12 @@ const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
     { key: "sector_group", label: "Sector group", options: SECTOR_GROUPS, get: (c) => c.sector_group },
     { key: "relationship", label: "Relationship", options: RELATIONSHIP_STRENGTH, get: (c) => c.relationship_strength ?? "" },
     { key: "priority", label: "Priority", options: PRIORITY, get: (c) => c.priority ?? "" },
-    // The funnel booleans are filtered from the headline stat bar, so they're hidden from
-    // the toolbar dropdowns (toolbar: false) — they still filter via the same keys.
-    { key: "messaged", label: "Messaged", options: YESNO, get: (c) => yn(c.messaged), toolbar: false },
-    { key: "responded", label: "Responded", options: YESNO, get: (c) => yn(c.two_way), toolbar: false },
-    { key: "agreed", label: "Agreed", options: YESNO, get: (c) => yn(c.agreed_to_meet), toolbar: false },
+    // Messaged / Responded / Agreed-to-meet also get toolbar dropdowns (they share the same keys
+    // as the headline stat-bar quick-filters, so a stat click and a dropdown stay in sync). Only
+    // "Met" stays stat-bar-only (toolbar: false) to keep the toolbar from getting crowded.
+    { key: "messaged", label: "Messaged", options: YESNO, get: (c) => yn(c.messaged) },
+    { key: "responded", label: "Responded", options: YESNO, get: (c) => yn(c.two_way) },
+    { key: "agreed", label: "Agreed to meet", options: YESNO, get: (c) => yn(c.agreed_to_meet) },
     { key: "met", label: "Met", options: YESNO, get: (c) => yn(c.met), toolbar: false },
   ],
   // Sort getters for EVERY column (clickable headers). Categorical orders follow §5.

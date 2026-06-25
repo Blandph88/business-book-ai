@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { StageTracker } from "../components/StageTracker";
 import type { Contact } from "../data/contacts";
 import type { OwnerEdits } from "../storage/ownerEdits";
 import type { MeetingRow } from "../data/meetings";
@@ -166,6 +167,13 @@ export function ContactForm({
               )}
               {contact.seniority ? ` · ${contact.seniority}` : ""}
             </p>
+            <StageTracker
+              messaged={contact.messaged}
+              responded={contact.two_way}
+              agreed={contact.agreed_to_meet}
+              met={contact.met}
+              className="stage-track--form"
+            />
             {(onOpenMeetings || onOpenOpportunities) && (
               <p className="mform-links">
                 {onOpenMeetings && (
