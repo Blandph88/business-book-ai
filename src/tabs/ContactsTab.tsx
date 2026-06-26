@@ -58,6 +58,11 @@ const RENDER_STEP = 350;
 const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
   searchPlaceholder: "Search name, organisation, position…",
   searchText: (c) => `${c.first} ${c.last} ${c.organisation} ${c.position}`,
+  searchFields: [
+    { key: "name", label: "Name", get: (c) => `${c.first} ${c.last}` },
+    { key: "company", label: "Company", get: (c) => c.organisation ?? "" },
+    { key: "title", label: "Title", get: (c) => c.position ?? "" },
+  ],
   filters: [
     { key: "seniority", label: "Seniority", options: SENIORITY, get: (c) => c.seniority },
     { key: "sector_group", label: "Sector group", options: SECTOR_GROUPS, get: (c) => c.sector_group },
@@ -242,6 +247,7 @@ export function ContactsTab({
       intent
         ? {
             query: intent.search,
+            searchField: intent.searchField,
             filters: intent.filter
               ? { [intent.filter.key]: intent.filter.value }
               : undefined,

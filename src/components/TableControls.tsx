@@ -12,6 +12,9 @@ export function TableControls(props: ControlsProps) {
     query,
     setQuery,
     searchPlaceholder,
+    searchFields,
+    searchField,
+    setSearchField,
     filterDefs,
     filterValues,
     setFilter,
@@ -23,13 +26,22 @@ export function TableControls(props: ControlsProps) {
 
   return (
     <div className="table-controls">
-      <input
-        className="tc-search"
-        type="search"
-        placeholder={searchPlaceholder ?? "Search…"}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
+      <div className="tc-searchwrap">
+        <input
+          className="tc-search"
+          type="search"
+          placeholder={searchPlaceholder ?? "Search…"}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {searchFields.length > 0 && (
+          <select className="tc-scope" value={searchField} onChange={(e) => setSearchField(e.target.value)} aria-label="Search in">
+            {searchFields.map((f) => (
+              <option key={f.key} value={f.key}>{f.key === "all" ? "All" : `in ${f.label}`}</option>
+            ))}
+          </select>
+        )}
+      </div>
 
       {filterDefs.map((f) => (
         <label key={f.key} className="tc-control">

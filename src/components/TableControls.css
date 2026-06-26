@@ -103,3 +103,18 @@
   border-color: var(--primary);
   color: var(--primary);
 }
+
+/* Search box + "search in <field>" scope selector */
+.tc-searchwrap { display: inline-flex; align-items: stretch; }
+.tc-searchwrap .tc-search { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.tc-scope {
+  border: 1px solid var(--line);
+  border-left: none;
+  border-top-right-radius: var(--r-xs);
+  border-bottom-right-radius: var(--r-xs);
+  background: var(--bg-2);
+  color: var(--ink-2);
+  font-size: 13px;
+  padding: 0 8px;
+  cursor: pointer;
+}

@@ -161,6 +161,7 @@ export type NlResult = {
   tab?: "contacts" | "meetings" | "opportunities" | "revenue" | "metrics" | "dashboard" | null;
   filters?: Record<string, string> | null;
   search?: string | null;
+  searchField?: string | null; // scope the search: "company" | "name" | "title" | null
 };
 export function nlQueryPrompt(query: string, vocab: string): PromptArgs {
   return {
@@ -169,7 +170,8 @@ export function nlQueryPrompt(query: string, vocab: string): PromptArgs {
       `App tabs: contacts, meetings, opportunities, revenue, metrics, dashboard.\n` +
       `Contact filter fields and their allowed values:\n${vocab}\n\n` +
       `Return JSON with keys exactly:\n` +
-      `{"answer": string (one line), "tab": one of the tabs or null, "filters": object mapping a contact filter field to one allowed value (or null), "search": string or null}\n\n` +
+      `{"answer": string (one line), "tab": one of the tabs or null, "filters": object mapping a contact filter field to one allowed value (or null), "search": string or null, "searchField": "company"|"name"|"title"|null}\n` +
+      `IMPORTANT: when the user asks who works AT or is FROM a company/firm, set search to the COMPANY name and searchField to "company" (so it matches people at that firm, not people whose name contains it). When searching a person by name, use searchField "name".\n\n` +
       `Request: ${query}`,
   };
 }

@@ -59,3 +59,15 @@
 .copilot-web-label { display: block; font-size: 11px; font-weight: 700; color: #9a6a1f; margin: 2px 4px 4px; }
 .copilot-web-hit { display: flex; flex-direction: column; gap: 1px; padding: 7px 8px; border-radius: var(--r-xs); text-decoration: none; }
 .copilot-web-hit:hover { background: #f5ead6; }
+
+/* Grouped results (People / Companies / Meetings / …) */
+.copilot-group { padding: 2px 0; }
+.copilot-group + .copilot-group { border-top: 1px solid var(--line); margin-top: 2px; }
+.copilot-group-head {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+  padding: 8px 12px 4px;
+}

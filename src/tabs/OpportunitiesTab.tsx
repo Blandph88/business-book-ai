@@ -63,6 +63,11 @@ import { StatsBar } from "../components/StatsBar";
 const OPPS_CONTROLS_BASE: ControlsConfig<Opportunity> = {
   searchPlaceholder: "Search opportunity or organisation…",
   searchText: (o) => `${o.opportunity_name} ${o.organisation} ${o.primary_contact}`,
+  searchFields: [
+    { key: "name", label: "Name", get: (o) => o.opportunity_name ?? "" },
+    { key: "company", label: "Company", get: (o) => o.organisation ?? "" },
+    { key: "contact", label: "Contact", get: (o) => o.primary_contact ?? "" },
+  ],
   filters: [
     { key: "service_line", label: "Service line", options: SERVICE_LINE, get: (o) => o.service_line },
     // Phase = the roll-up bucket (used by the Dashboard funnel deep-link); Step = the
@@ -203,6 +208,7 @@ export function OpportunitiesTab({
       intent
         ? {
             query: intent.search,
+            searchField: intent.searchField,
             filters: intent.filter
               ? { [intent.filter.key]: intent.filter.value }
               : undefined,

@@ -22,6 +22,7 @@ export type TabId =
 // a contact url, a meeting id, or an opportunity id.
 export type TabIntent = {
   search?: string;
+  searchField?: string; // scope the preset search to one field (a tab's searchFields key, e.g. "company")
   filter?: { key: string; value: string };
   openId?: string;
   // Open a NEW record's form pre-filled for this contact (its LinkedIn url) — used by the

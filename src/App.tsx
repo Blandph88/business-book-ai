@@ -251,7 +251,7 @@ export default function App() {
 
       {/* Global "Import your LinkedIn" modal (opened from the top bar / side nav / Contacts). */}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}
-      {copilotOpen && <CopilotBar onNavigate={navigate} onClose={() => setCopilotOpen(false)} />}
+      {copilotOpen && <CopilotBar onNavigate={navigate} onOpenAccount={openAccount} onClose={() => setCopilotOpen(false)} />}
     </div>
   );
 }

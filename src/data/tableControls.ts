@@ -40,8 +40,12 @@ export type SortDir = "asc" | "desc";
 // The per-list configuration. Only `searchText` is required; a list can offer search
 // only, filters only, sorts only, or any mix.
 export type ControlsConfig<T> = {
-  searchText: (row: T) => string; // concatenated text the search box matches against
+  searchText: (row: T) => string; // concatenated text the search box matches against ("All" scope)
   searchPlaceholder?: string;
+  // Optional named search SCOPES. When present, the toolbar shows a "search in" selector so a query
+  // can target one field (e.g. Company) instead of the whole row — which is what makes "who works at
+  // EY" return people AT EY, not people NAMED ey. "All" (searchText) is always the default.
+  searchFields?: { key: string; label: string; get: (row: T) => string }[];
   filters?: FilterDef<T>[];
   sorts?: SortDef<T>[];
   defaultSortKey?: string; // preselected sort (e.g. Opportunities → weighted)
@@ -52,6 +56,7 @@ export type ControlsConfig<T> = {
 // (e.g. the Dashboard sends "filter Agreed = Yes"). Applied once on mount only.
 export type ControlsInitial = {
   query?: string;
+  searchField?: string; // which named scope to search in (a searchFields key, or "all")
   filters?: Record<string, string>;
   sortKey?: string;
   sortDir?: SortDir;
@@ -62,6 +67,9 @@ export type ControlsProps = {
   query: string;
   setQuery: (q: string) => void;
   searchPlaceholder?: string;
+  searchFields: { key: string; label: string }[]; // [] when the list has no scope selector
+  searchField: string;
+  setSearchField: (key: string) => void;
   filterDefs: { key: string; label: string; options: readonly string[] }[];
   filterValues: Record<string, string>;
   setFilter: (key: string, value: string) => void;
@@ -87,6 +95,7 @@ export function useTableControls<T>(
 ) {
   // Lazy initial state so a deep-link's preset search/filter/sort applies on mount.
   const [query, setQuery] = useState(() => initial?.query ?? "");
+  const [searchField, setSearchField] = useState(() => initial?.searchField ?? "all");
   const [filterValues, setFilterValues] = useState<Record<string, string>>(
     () => initial?.filters ?? {},
   );
@@ -100,17 +109,22 @@ export function useTableControls<T>(
   // Filter then sort. Recomputed when the rows or any control changes. (At a couple
   // of hundred rows this is instant, so we keep it simple and don't memoise harder.)
   const filtered = useMemo(() => {
-    // Normalise whitespace (collapse any run of spaces/tabs to one) as well as case.
-    // The LinkedIn export leaves stray leading/trailing/double spaces in some names
-    // and orgs, so without this a contact like "Mohammed  M Alqahtani" (two spaces)
-    // would never match a typed "Mohammed M Alqahtani". We apply the SAME squashing to
-    // both the query and the row text so they line up.
-    const squash = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
-    const q = squash(query);
+    // Match by WORD PREFIX, not raw substring: each typed term must begin a word in the haystack.
+    // So "EY" matches the firm EY (and "EY Parthenon") but NOT "Foley"/"Disney"/"Berkeley"; "morg"
+    // still matches "Morgan" (prefix); "ernst" matches "Ernst & Young". Tokenise on any
+    // non-alphanumeric so spaces, "&", "-", "/" all act as word breaks — this also folds the old
+    // double-space normalisation in (a run of separators collapses to one boundary).
+    const tokenize = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const qTokens = tokenize(query);
 
+    // Which haystack the query searches: a specific named field, or the whole row ("all").
+    const scope = searchField !== "all" ? config.searchFields?.find((f) => f.key === searchField) : undefined;
     const out = rows.filter((row) => {
-      // Free-text search: case-insensitive substring over the row's searchable text.
-      if (q && !squash(config.searchText(row)).includes(q)) return false;
+      // Free-text search: every typed term must be a word-prefix in the chosen scope.
+      if (qTokens.length) {
+        const hay = tokenize(scope ? scope.get(row) : config.searchText(row));
+        if (!qTokens.every((qt) => hay.some((ht) => ht.startsWith(qt)))) return false;
+      }
       // Every active filter must match exactly. A blank filter ("") is ignored.
       for (const f of config.filters ?? []) {
         const chosen = filterValues[f.key];
@@ -134,7 +148,7 @@ export function useTableControls<T>(
     return out;
     // config is rebuilt each render (inline object); including it is correct and the
     // cost is negligible at this data size.
-  }, [rows, query, filterValues, sortKey, sortDir, config]);
+  }, [rows, query, searchField, filterValues, sortKey, sortDir, config]);
 
   function setFilter(key: string, value: string) {
     setFilterValues((prev) => ({ ...prev, [key]: value }));
@@ -153,6 +167,7 @@ export function useTableControls<T>(
   }
   function reset() {
     setQuery("");
+    setSearchField("all");
     setFilterValues({});
     setSortKey(config.defaultSortKey ?? "");
     setSortDir(config.defaultSortDir ?? "asc");
@@ -165,6 +180,9 @@ export function useTableControls<T>(
     query,
     setQuery,
     searchPlaceholder: config.searchPlaceholder,
+    searchFields: config.searchFields ? [{ key: "all", label: "All" }, ...config.searchFields.map((f) => ({ key: f.key, label: f.label }))] : [],
+    searchField,
+    setSearchField,
     // Only filters with toolbar !== false render as toolbar dropdowns (the rest stay
     // filterable via the stat-bar quick-filters, which set the same keys).
     filterDefs: (config.filters ?? [])

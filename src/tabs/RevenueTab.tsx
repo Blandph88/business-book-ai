@@ -33,6 +33,10 @@ import { StatsBar } from "../components/StatsBar";
 const REVENUE_CONTROLS: ControlsConfig<Sow> = {
   searchPlaceholder: "Search engagement or organisation…",
   searchText: (s) => `${s.engagement_name} ${s.organisation}`,
+  searchFields: [
+    { key: "engagement", label: "Engagement", get: (s) => s.engagement_name ?? "" },
+    { key: "company", label: "Company", get: (s) => s.organisation ?? "" },
+  ],
   filters: [
     { key: "service_line", label: "Service line", options: SERVICE_LINE, get: (s) => s.service_line },
     { key: "status", label: "Status", options: REVENUE_STATUS, get: (s) => s.status, toolbar: false },

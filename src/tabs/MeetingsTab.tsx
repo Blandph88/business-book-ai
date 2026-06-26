@@ -55,6 +55,10 @@ const YESNO = ["Yes", "No"] as const;
 const MEETINGS_CONTROLS: ControlsConfig<MeetingRow> = {
   searchPlaceholder: "Search contact or organisation…",
   searchText: (m) => `${m.contactInfo.name} ${m.contactInfo.organisation}`,
+  searchFields: [
+    { key: "contact", label: "Contact", get: (m) => m.contactInfo.name },
+    { key: "company", label: "Company", get: (m) => m.contactInfo.organisation ?? "" },
+  ],
   filters: [
     { key: "sector_group", label: "Sector group", options: SECTOR_GROUPS, get: (m) => m.contactInfo.sector_group },
     { key: "stage", label: "Stage", options: MEETING_STAGE, get: (m) => m.meeting_stage ?? "" },
@@ -167,6 +171,7 @@ export function MeetingsTab({
       intent
         ? {
             query: intent.search,
+            searchField: intent.searchField,
             filters: intent.filter
               ? { [intent.filter.key]: intent.filter.value }
               : undefined,
