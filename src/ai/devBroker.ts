@@ -76,6 +76,42 @@ function stubPrompt(input: string, opts?: PromptArgs): string {
   return `[dev-stub AI] No model/key configured. This is placeholder text so the UI is testable.\n\n(prompt was: ${input.slice(0, 160)}…)`;
 }
 
+// ── web search (dev) — free Wikipedia, or a BYO key from localStorage ──────────────────────────
+async function wikiSearch(query: string, max = 5): Promise<{ title: string; snippet: string; url: string }[]> {
+  const u = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=${max}`;
+  const r = await fetch(u);
+  if (!r.ok) return [];
+  const d = await r.json();
+  return (d?.query?.search ?? []).map((s: { title: string; snippet?: string }) => ({ title: s.title, snippet: String(s.snippet || "").replace(/<[^>]+>/g, ""), url: `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title)}` }));
+}
+async function wikiEntity(name: string): Promise<{ found: boolean; title?: string; description?: string; extract?: string }> {
+  const top = await wikiSearch(name, 1);
+  if (!top.length) return { found: false };
+  const title = top[0].title;
+  try {
+    const r = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+    if (!r.ok) return { found: true, title, extract: top[0].snippet };
+    const d = await r.json();
+    return { found: true, title: d.title || title, description: d.description, extract: d.extract };
+  } catch {
+    return { found: true, title, extract: top[0].snippet };
+  }
+}
+async function searchHandler(method: string, args: { query?: string; name?: string; max?: number }): Promise<unknown> {
+  if (method === "availability") return { ok: true, provider: "wikipedia" };
+  if (method === "entity") {
+    const n = (args?.name ?? "").trim();
+    if (!n) throw new Error("Empty name.");
+    return wikiEntity(n);
+  }
+  if (method === "web" || method === "query") {
+    const q = (args?.query ?? "").trim();
+    if (!q) throw new Error("Empty query.");
+    return { results: await wikiSearch(q, args?.max) };
+  }
+  throw new Error("Unknown search method '" + method + "'.");
+}
+
 async function aiHandler(method: string, args: PromptArgs): Promise<unknown> {
   if (method === "availability") {
     const onDevice = builtinFactory() ? "available" : "unavailable";
@@ -97,11 +133,12 @@ export function installDevBroker(): void {
   const w = window as unknown as { freehold?: { request?: unknown } };
   if (w.freehold && typeof w.freehold.request === "function") return; // sealed marketplace already provides it
   w.freehold = Object.freeze({
-    capabilities: ["ai"],
+    capabilities: ["ai", "search"],
     request: (capability: string, method: string, args: PromptArgs) => {
-      if (capability !== "ai") return Promise.reject(new Error("Freehold(dev): capability '" + capability + "' not available"));
       try {
-        return Promise.resolve(aiHandler(method, args));
+        if (capability === "ai") return Promise.resolve(aiHandler(method, args));
+        if (capability === "search") return Promise.resolve(searchHandler(method, args as { query?: string; name?: string; max?: number }));
+        return Promise.reject(new Error("Freehold(dev): capability '" + capability + "' not available"));
       } catch (e) {
         return Promise.reject(e);
       }

@@ -47,6 +47,48 @@ export async function aiJson<T>(args: PromptArgs): Promise<T> {
   return JSON.parse(slice) as T;
 }
 
+// ── Brokered web search (network-egress capability) ───────────────────────────────────────────
+export type EntityFacts = { found: boolean; title?: string; description?: string; extract?: string };
+export type WebResult = { title: string; snippet: string; url: string };
+
+export async function searchAvailable(): Promise<boolean> {
+  const f = broker();
+  if (!f) return false;
+  const caps = (f as unknown as { capabilities?: string[] }).capabilities;
+  if (Array.isArray(caps) && !caps.includes("search")) return false;
+  try {
+    const a = (await f.request("search", "availability")) as { ok?: boolean } | null;
+    return !!a?.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Grounded facts about an organisation/thing (Wikipedia). Used to classify companies accurately.
+export async function searchEntity(name: string): Promise<EntityFacts> {
+  const f = broker();
+  if (!f) throw new Error("Search isn't available here.");
+  return (await f.request("search", "entity", { name })) as EntityFacts;
+}
+
+// General web results (Wikipedia by default, or the buyer's own search key).
+export async function searchWeb(query: string, max = 5): Promise<WebResult[]> {
+  const f = broker();
+  if (!f) throw new Error("Search isn't available here.");
+  const out = (await f.request("search", "web", { query, max })) as { results?: WebResult[] } | null;
+  return out?.results ?? [];
+}
+
+export function useSearchAvailable(): boolean | null {
+  const [ok, setOk] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    searchAvailable().then((v) => { if (live) setOk(v); });
+    return () => { live = false; };
+  }, []);
+  return ok;
+}
+
 // React hook: null while checking, then true/false. AI affordances render only when true.
 export function useAiAvailable(): boolean | null {
   const [ok, setOk] = useState<boolean | null>(null);

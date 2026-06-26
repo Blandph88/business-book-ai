@@ -256,9 +256,13 @@ export function MeetingForm({
       setDraft((d) => ({
         ...d,
         notes: d.notes?.trim() ? `${d.notes}\n\n${j.summary ?? ""}`.trim() : (j.summary ?? "").trim() || d.notes,
+        purpose: j.purpose?.trim() || d.purpose,
         actions_mine: j.actions_mine?.trim() || d.actions_mine,
         actions_theirs: j.actions_theirs?.trim() || d.actions_theirs,
         pain_points: j.pain_points?.trim() || d.pain_points,
+        org_insights: j.org_insights?.trim() || d.org_insights,
+        followup: j.followup?.trim() || d.followup,
+        followup_date: j.followup_days > 0 ? addDaysISO(today, j.followup_days) : d.followup_date,
         sentiment: (SENTIMENT as readonly string[]).includes(j.sentiment) ? (j.sentiment as Meeting["sentiment"]) : d.sentiment,
         opportunity_spotted: j.opportunity_spotted === "Yes" ? "Yes" : j.opportunity_spotted === "No" ? "No" : d.opportunity_spotted,
       }));

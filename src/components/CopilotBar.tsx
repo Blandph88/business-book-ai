@@ -11,7 +11,7 @@ import { loadAllMeetings } from "../storage/meetings";
 import { buildMeetingRows, type MeetingRow } from "../data/meetings";
 import { loadAllOpportunities, type Opportunity } from "../storage/opportunities";
 import { loadAllSows, type Sow } from "../storage/revenue";
-import { useAiAvailable, aiJson } from "../ai/ai";
+import { useAiAvailable, useSearchAvailable, aiJson, searchWeb, type WebResult } from "../ai/ai";
 import { nlQueryPrompt, type NlResult } from "../ai/prompts";
 import type { Navigate, TabId, TabIntent } from "./TabNav";
 import "./CopilotBar.css";
@@ -27,7 +27,10 @@ type Hit = { tab: TabId; id: string; main: string; meta: string };
 
 export function CopilotBar({ onNavigate, onClose }: { onNavigate: Navigate; onClose: () => void }) {
   const aiReady = useAiAvailable();
+  const searchReady = useSearchAvailable();
   const [q, setQ] = useState("");
+  const [web, setWeb] = useState<WebResult[] | null>(null);
+  const [webBusy, setWebBusy] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [meetingRows, setMeetingRows] = useState<MeetingRow[]>([]);
   const [opps, setOpps] = useState<Opportunity[]>([]);
@@ -89,6 +92,19 @@ export function CopilotBar({ onNavigate, onClose }: { onNavigate: Navigate; onCl
     }
   }
 
+  async function webSearch() {
+    if (!q.trim() || webBusy || !searchReady) return;
+    setWebBusy(true);
+    setWeb(null);
+    try {
+      setWeb(await searchWeb(q));
+    } catch {
+      setWeb([]);
+    } finally {
+      setWebBusy(false);
+    }
+  }
+
   function applyAnswer() {
     if (!answer) return;
     const intent: TabIntent = {};
@@ -112,10 +128,11 @@ export function CopilotBar({ onNavigate, onClose }: { onNavigate: Navigate; onCl
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") ask(); }}
         />
-        {aiReady && (
+        {(aiReady || searchReady) && (
           <div className="copilot-askrow">
-            <button type="button" className="copilot-ask" disabled={!q.trim() || asking} onClick={ask}>{asking ? "Thinking…" : "Ask AI"}</button>
-            <span className="copilot-hint">Enter to ask · results update as you type</span>
+            {aiReady && <button type="button" className="copilot-ask" disabled={!q.trim() || asking} onClick={ask}>{asking ? "Thinking…" : "Ask AI"}</button>}
+            {searchReady && <button type="button" className="copilot-web" disabled={!q.trim() || webBusy} onClick={webSearch} title="Search the web — your query is sent to Wikipedia/your search provider">{webBusy ? "Searching…" : "Search web ↗"}</button>}
+            <span className="copilot-hint">{aiReady ? "Enter to ask · " : ""}results update as you type</span>
           </div>
         )}
 
@@ -124,6 +141,22 @@ export function CopilotBar({ onNavigate, onClose }: { onNavigate: Navigate; onCl
             <p>{answer.answer}</p>
             {(answer.tab || answer.search || answer.filters) && (
               <button type="button" className="copilot-show" onClick={applyAnswer}>Show me →</button>
+            )}
+          </div>
+        )}
+
+        {web && (
+          <div className="copilot-web-results">
+            <span className="copilot-web-label">Web ↗</span>
+            {web.length === 0 ? (
+              <p className="copilot-empty">No web results.</p>
+            ) : (
+              web.map((r) => (
+                <a key={r.url} className="copilot-web-hit" href={r.url} target="_blank" rel="noreferrer">
+                  <span className="copilot-hit-main">{r.title}</span>
+                  {r.snippet && <span className="copilot-hit-meta">{r.snippet.slice(0, 120)}</span>}
+                </a>
+              ))
             )}
           </div>
         )}

@@ -111,6 +111,10 @@ export default function App() {
     }
     setIntent(next ?? null);
     setActiveTab(tab);
+    // Tabs consume their intent only on mount. If we're navigating to the tab we're ALREADY on
+    // (e.g. a second copilot "Show me" into Contacts), remount it so the new filter/search/openId
+    // is actually applied instead of leaving the previous one stuck.
+    if (tab === activeTab) setDataNonce((n) => n + 1);
   };
 
   // A plain tab-bar click is a fresh, manual navigation: drop any return context.

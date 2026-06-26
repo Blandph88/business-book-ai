@@ -120,10 +120,14 @@ export function accountSummaryPrompt(org: string, contactLines: string[], meetin
 // ── Transcript → structured notes + opportunity (#9) ───────────────────────────────────────────
 export type TranscriptExtract = {
   summary: string;
+  purpose: string;
   sentiment: string;
   actions_mine: string;
   actions_theirs: string;
   pain_points: string;
+  org_insights: string;
+  followup: string;
+  followup_days: number;
   opportunity_spotted: "Yes" | "No";
   opportunity_name: string;
 };
@@ -132,8 +136,13 @@ export function transcriptPrompt(transcript: string): PromptArgs {
     system: "You turn a raw call/meeting transcript into structured CRM notes for a consultant. Be faithful; never invent. Reply with ONLY a JSON object.",
     prompt:
       `From this transcript, return JSON with keys exactly:\n` +
-      `{"summary": string (3-5 sentences), "sentiment": "Very Positive"|"Positive"|"Neutral"|"Cautious"|"Negative", ` +
-      `"actions_mine": string, "actions_theirs": string, "pain_points": string, "opportunity_spotted": "Yes"|"No", "opportunity_name": string}\n\n` +
+      `{"summary": string (3-5 sentences), "purpose": string (the meeting's objective in one short line), ` +
+      `"sentiment": "Very Positive"|"Positive"|"Neutral"|"Cautious"|"Negative", ` +
+      `"actions_mine": string (my action items), "actions_theirs": string (their action items), ` +
+      `"pain_points": string (their problems/challenges), "org_insights": string (facts learned about their organisation — structure, scale, targets, context), ` +
+      `"followup": string (one-line suggested next touch), "followup_days": number (days from today for the follow-up; 0 if none), ` +
+      `"opportunity_spotted": "Yes"|"No", "opportunity_name": string}\n` +
+      `Use "" or 0 where nothing applies.\n\n` +
       `Transcript:\n${transcript.slice(0, 12000)}`,
   };
 }
