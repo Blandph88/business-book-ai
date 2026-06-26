@@ -154,23 +154,27 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-inner">
           <Brand onClick={() => selectTab("metrics")} />
+          {/* TabNav stays rendered only for the device-gated mobile bottom bar; it's hidden on
+              every desktop width (CSS) where the right-hand side rail is the nav. */}
           <TabNav activeTab={activeTab} onSelect={selectTab} />
+          <button
+            type="button"
+            className="topbar-search"
+            title="Search or ask your book (⌘K)"
+            onClick={() => setCopilotOpen(true)}
+          >
+            <span className="topbar-search-ico" aria-hidden>⌕</span>
+            <span className="topbar-search-text">Search or ask…</span>
+            <span className="topbar-search-kbd">⌘K</span>
+          </button>
           <div className="topbar-right">
-            <button
-              type="button"
-              className="topbar-ask"
-              title="Ask or search your book (⌘K)"
-              onClick={() => setCopilotOpen(true)}
-            >
-              Ask
-            </button>
             <button
               type="button"
               className="topbar-import"
               title="Import your LinkedIn connections"
               onClick={() => setShowImport(true)}
             >
-              ⬆ Import
+              ⬆ Import LinkedIn
             </button>
             <label className="app-currency" title="Display currency">
               <span>Currency</span>

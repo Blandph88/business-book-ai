@@ -288,15 +288,33 @@ html.is-mobile .app-currency { font-size: 0.72rem; }
 html.is-mobile .freehold-badge { display: none; }
 html.is-mobile .app-currency > span { display: none; }
 
-/* Ask / copilot trigger in the top bar */
-.topbar-ask {
+/* Search / ask bar in the top bar — looks like a search field, opens the copilot overlay. */
+.topbar-search {
+  flex: 1 1 auto;
+  max-width: 520px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   border: 1px solid var(--line);
-  background: #fff;
-  color: var(--ink-2);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 7px 13px;
-  border-radius: var(--r-xs);
-  cursor: pointer;
+  background: var(--bg-2);
+  color: var(--ink-3);
+  font-size: 0.86rem;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: text;
+  transition: border-color var(--ease), background var(--ease);
 }
-.topbar-ask:hover { background: var(--bg-2); color: var(--ink); }
+.topbar-search:hover { border-color: var(--primary-tint-2, var(--line)); background: #fff; }
+.topbar-search-ico { font-size: 1rem; color: var(--ink-3); }
+.topbar-search-text { flex: 1; text-align: left; }
+.topbar-search-kbd {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  padding: 1px 6px;
+  background: #fff;
+}
+html.is-mobile .topbar-search { max-width: none; }
+html.is-mobile .topbar-search-text, html.is-mobile .topbar-search-kbd { display: none; }

@@ -3,7 +3,8 @@
   "tagline": "Your LinkedIn network as a private BD pipeline you own",
   "category": "Professional Services",
   "description": "The BD pipeline tool built for how consultants actually work. Export your LinkedIn connections, drop the file in, and Business Book maps your whole network by firm, sector, seniority and function — surfaces who's gone cold and who to chase this week — and tracks every conversation through to a signed contract. Built-in AI (on your machine, or your own key) drafts your outreach, summarises meetings and briefs you before a call. Unlike a cloud CRM (Clay, Dex, Folk…), your contacts and notes never leave your machine — so it's safe for the relationships you can't put in someone else's cloud. Bought once, yours forever, no subscription.",
-  "suggestedPrice": 299,
+  "suggestedPrice": 499,
+  "suggestedEditPrice": 9999,
   "emoji": "📓",
   "capabilities": {
     "ai": { "onDevice": true, "byok": true },

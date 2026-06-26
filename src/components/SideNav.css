@@ -70,39 +70,39 @@
   color: var(--primary);
 }
 
-@media (max-width: 1024px) {
-  /* Swap the horizontal top nav for the left rail. */
-  html:not(.is-mobile) .tab-nav {
-    display: none;
-  }
+/* The side rail is the nav on ALL non-mobile widths (the horizontal top nav is hidden everywhere
+   on desktop). On the device-gated mobile shell (html.is-mobile) the rail stays hidden — that
+   shell keeps its own fixed bottom bar instead. */
+html:not(.is-mobile) .tab-nav {
+  display: none;
+}
 
-  html:not(.is-mobile) .sidenav {
-    display: flex;
-    flex-direction: column;
-    position: fixed;
-    top: 61px; /* just below the 60px sticky top bar + its 1px border */
-    left: 0;
-    bottom: 0;
-    width: 46px;
-    z-index: 45;
-    background: var(--surface);
-    border-right: 1px solid var(--line);
-    overflow: hidden;
-    transition: width 0.2s ease, box-shadow 0.2s ease;
-  }
-  html:not(.is-mobile) .sidenav--open {
-    width: 250px;
-    box-shadow: 6px 0 26px rgba(12, 24, 38, 0.16);
-  }
+html:not(.is-mobile) .sidenav {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 61px; /* just below the 60px sticky top bar + its 1px border */
+  right: 0;
+  bottom: 0;
+  width: 46px;
+  z-index: 45;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  overflow: hidden;
+  transition: width 0.2s ease, box-shadow 0.2s ease;
+}
+html:not(.is-mobile) .sidenav--open {
+  width: 250px;
+  box-shadow: -6px 0 26px rgba(12, 24, 38, 0.16);
+}
 
-  /* Page content clears the collapsed rail, and slides right when the drawer opens — it PUSHES
-     content rather than overlaying, and stays open until the toggle closes it (no dimming
-     backdrop). `.app` is a following sibling of the `.sidenav` aside, so `~` can target it. */
-  html:not(.is-mobile) .app {
-    padding-left: 58px;
-    transition: padding-left 0.2s ease;
-  }
-  html:not(.is-mobile) .sidenav--open ~ .app {
-    padding-left: 262px;
-  }
+/* Page content clears the collapsed rail on the RIGHT, and slides left when the drawer opens — it
+   PUSHES content rather than overlaying, and stays open until the toggle closes it (no dimming
+   backdrop). `.app` is a following sibling of the `.sidenav` aside, so `~` can target it. */
+html:not(.is-mobile) .app {
+  padding-right: 58px;
+  transition: padding-right 0.2s ease;
+}
+html:not(.is-mobile) .sidenav--open ~ .app {
+  padding-right: 262px;
 }
