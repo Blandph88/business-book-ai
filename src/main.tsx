@@ -7,9 +7,14 @@ import { bootstrapSeedExtras } from "./data/seedExtras";
 import { resetDemoIfStale } from "./data/resetDemo";
 import { applyDeviceClass } from "./lib/device";
 import { getAppMode } from "./lib/appMode";
+import { installDevBroker } from "./ai/devBroker";
 
 // Device-gate the mobile shell (phones/tablets only) before first paint.
 applyDeviceClass();
+
+// Local dev only: install a window.freehold shim so AI features work without the Freehold host.
+// In the sealed marketplace the parent broker already provides window.freehold and this no-ops.
+if (import.meta.env.DEV) installDevBroker();
 
 // React entry point. Mounts <App /> into the #root div in index.html.
 // StrictMode is a dev-only helper that surfaces common mistakes early.

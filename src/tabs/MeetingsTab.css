@@ -599,3 +599,8 @@
 .mform-delete:hover {
   background: #fbf0ef;
 }
+
+/* AI affordances inside the slide-in forms */
+.mform-ai-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 10px; }
+.mform-ai-note { font-size: 12.5px; color: var(--primary-700); }
+.mform-ai-links { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -19,6 +19,9 @@ import {
 import { formatMoney } from "../data/format";
 import { ContactLinks } from "./BrandIcons";
 import type { Navigate } from "./TabNav";
+import { useAiAvailable, aiPrompt } from "../ai/ai";
+import { accountSummaryPrompt } from "../ai/prompts";
+import { AiSuggest } from "./AiSuggest";
 
 // A read-only "account" overlay for one organisation: everyone we know there, every
 // meeting held/planned with them, and every opportunity in their name — the institution
@@ -101,6 +104,16 @@ export function AccountView({
   // The open weighted pipeline for this account (Won/Lost excluded — see §6 rule 4).
   const pipeline = openWeightedPipeline(orgOpps);
 
+  // AI account summary (read-only brief), built from this org's people/meetings/opps.
+  const aiReady = useAiAvailable();
+  const [aiOpen, setAiOpen] = useState(false);
+  function summarise() {
+    const contactLines = people.map((c) => `${`${c.first} ${c.last}`.trim()} — ${[c.seniority, c.function].filter(Boolean).join(", ") || "role unknown"}`);
+    const meetingLines = meetingRows.map((m) => `${m.contactInfo.name} #${m.meeting_no}: ${m.meeting_stage || "?"} ${meetingDate(m)}${m.sentiment ? ` (${m.sentiment})` : ""}`);
+    const oppLines = orgOpps.map((o) => `${o.opportunity_name || "(unnamed)"}: ${opportunityPhase(o)} · ${opportunityStatus(o)} · ${formatMoney(weightedValue(o))}`);
+    return aiPrompt(accountSummaryPrompt(org, contactLines, meetingLines, oppLines));
+  }
+
   return (
     <div className="mform-backdrop" onClick={onClose}>
       <aside
@@ -120,6 +133,13 @@ export function AccountView({
               {orgOpps.length === 1 ? "opportunity" : "opportunities"}
               {pipeline > 0 ? ` · ${formatMoney(pipeline)} open pipeline` : ""}
             </p>
+            {aiReady && people.length > 0 && (
+              <p className="mform-links">
+                <button type="button" className="mform-inline-btn" onClick={() => setAiOpen(true)}>
+                  Summarise this account
+                </button>
+              </p>
+            )}
           </div>
           <button
             type="button"
@@ -262,6 +282,15 @@ export function AccountView({
           )}
         </div>
       </aside>
+
+      {aiOpen && (
+        <AiSuggest
+          title={`${org} — account summary`}
+          editable={false}
+          generate={summarise}
+          onClose={() => setAiOpen(false)}
+        />
+      )}
     </div>
   );
 }

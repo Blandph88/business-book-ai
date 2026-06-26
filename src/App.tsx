@@ -12,6 +12,7 @@ import { AccountView } from "./components/AccountView";
 import MobileNote from "./components/MobileNote";
 import { Brand, FreeholdBadge } from "./components/Brand";
 import { ImportModal } from "./components/ImportModal";
+import { CopilotBar } from "./components/CopilotBar";
 import { SideNav } from "./components/SideNav";
 import { CURRENCY_CODE, CURRENCY_OPTIONS, setCurrency } from "./data/format";
 
@@ -42,6 +43,15 @@ export default function App() {
   // remember which overview to return to. Drives the Back bar and the return-on-save:
   // null while browsing the record tabs normally (so those just stay put on save).
   const [returnTo, setReturnTo] = useState<TabId | null>(null);
+  // The global "Ask / search your book" copilot bar (⌘K / Ctrl+K, or the top-bar button).
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setCopilotOpen(true); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // The onboarding tour. Auto-opens on first run (no "seen" flag yet); re-openable any time
   // via the "?" button in the top bar.
@@ -144,6 +154,14 @@ export default function App() {
           <div className="topbar-right">
             <button
               type="button"
+              className="topbar-ask"
+              title="Ask or search your book (⌘K)"
+              onClick={() => setCopilotOpen(true)}
+            >
+              Ask
+            </button>
+            <button
+              type="button"
               className="topbar-import"
               title="Import your LinkedIn connections"
               onClick={() => setShowImport(true)}
@@ -229,6 +247,7 @@ export default function App() {
 
       {/* Global "Import your LinkedIn" modal (opened from the top bar / side nav / Contacts). */}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}
+      {copilotOpen && <CopilotBar onNavigate={navigate} onClose={() => setCopilotOpen(false)} />}
     </div>
   );
 }

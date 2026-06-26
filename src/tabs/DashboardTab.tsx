@@ -39,6 +39,7 @@ import { loadTargets, saveTargets, type Targets } from "../storage/targets";
 import { stepShort } from "../data/vocab";
 import { formatMoney } from "../data/format";
 import type { TabId, TabIntent, Navigate } from "../components/TabNav";
+import { YourDay } from "../components/YourDay";
 
 // The Dashboard HOME — a glance-and-go page where every number/item DEEP-LINKS to the
 // exact filtered list (and, for single records, the open slide-in form). Two clickable
@@ -208,6 +209,9 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
   return (
     <section className="home">
       <h2 className="home-title">Dashboard</h2>
+
+      {/* AI morning brief (separate from the deterministic dashboard below). */}
+      <YourDay />
 
       {/* ── Orphaned-data notice (after a pipeline refresh) ─────────────── */}
       {orphans.length > 0 && !orphansDismissed && (

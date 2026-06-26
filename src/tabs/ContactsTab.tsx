@@ -36,6 +36,8 @@ import {
   WhatsAppCell,
 } from "../components/BrandIcons";
 import { getAppMode } from "../lib/appMode";
+import { useAiAvailable } from "../ai/ai";
+import { enrichOtherCompanies, countUnclassified } from "../ai/enrich";
 
 const YESNO = ["Yes", "No"] as const;
 const yn = (b: boolean) => (b ? "Yes" : "No");
@@ -132,6 +134,28 @@ export function ContactsTab({
 
   // "Saved ✓" flash after a save, so the owner can see persistence happened.
   const [justSaved, setJustSaved] = useState(false);
+
+  // AI classification fallback (#1) — owned mode only: clean up the unclassified "Other" tail by
+  // classifying unique unknown firms with AI. Updates this tab's contacts in place on completion.
+  const aiReady = useAiAvailable();
+  const owned = getAppMode() === "owned";
+  const [enriching, setEnriching] = useState(false);
+  const [enrichNote, setEnrichNote] = useState<string | null>(null);
+  const unclassified = useMemo(() => countUnclassified(contacts), [contacts]);
+  async function runEnrich() {
+    if (enriching) return;
+    setEnriching(true);
+    setEnrichNote("Classifying unknown firms…");
+    try {
+      const res = await enrichOtherCompanies((done, total) => setEnrichNote(`Classifying unknown firms… ${done}/${total}`));
+      setContacts(res.contacts);
+      setEnrichNote(res.updated > 0 ? `Classified ${res.updated.toLocaleString()} more contacts across ${res.companies} firms.` : "Nothing new to classify.");
+    } catch {
+      setEnrichNote("Couldn't classify those — try again.");
+    } finally {
+      setEnriching(false);
+    }
+  }
 
   // The currently-open contact panel, or null when closed.
   const [formTarget, setFormTarget] = useState<ContactRow | null>(null);
@@ -322,6 +346,14 @@ export function ContactsTab({
         >
           Saved ✓
         </span>
+        {aiReady && owned && unclassified > 0 && (
+          <span className="contacts-enrich">
+            <button type="button" className="mform-secondary" disabled={enriching} onClick={runEnrich}>
+              {enriching ? "Classifying…" : `Classify ${unclassified.toLocaleString()} unknown with AI`}
+            </button>
+            {enrichNote && <span className="mform-ai-note">{enrichNote}</span>}
+          </span>
+        )}
       </div>
 
       <p className="contacts-hint">

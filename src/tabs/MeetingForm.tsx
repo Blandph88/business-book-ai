@@ -13,6 +13,9 @@ import {
   OPPORTUNITY_SPOTTED,
   OWNER_NAME,
 } from "../data/vocab";
+import { useAiAvailable, aiJson } from "../ai/ai";
+import { summarizeMeetingPrompt, transcriptPrompt, type MeetingExtract, type TranscriptExtract } from "../ai/prompts";
+import { TranscriptModal } from "../components/TranscriptModal";
 
 // Defaults filled into an empty meeting so the owner isn't retyping the obvious: us =
 // the owner, them = the contact, location = the usual city. All stay editable.
@@ -211,6 +214,62 @@ export function MeetingForm({
   // Completeness obligation: once a meeting has a held date, every write-up field must be
   // filled. Computed live off the draft, so the banner clears as fields are completed.
   const missing = draft.date_held ? meetingMissingFields(draft) : [];
+
+  // AI: turn raw notes into structured fields (actions / follow-up / sentiment / opportunity). It
+  // fills the form's own fields so the owner reviews and edits them in place, then Saves (A2).
+  const aiReady = useAiAvailable();
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null);
+  async function summarizeWithAi() {
+    if (!draft.notes?.trim() || aiBusy) return;
+    setAiBusy(true);
+    setAiNote(null);
+    try {
+      const j = await aiJson<MeetingExtract>(summarizeMeetingPrompt(draft.notes, draft.purpose, draft.org_insights, draft.pain_points));
+      setDraft((d) => ({
+        ...d,
+        actions_mine: j.actions_mine?.trim() || d.actions_mine,
+        actions_theirs: j.actions_theirs?.trim() || d.actions_theirs,
+        followup: j.followup?.trim() || d.followup,
+        followup_date: j.followup_days > 0 ? addDaysISO(today, j.followup_days) : d.followup_date,
+        sentiment: (SENTIMENT as readonly string[]).includes(j.sentiment) ? (j.sentiment as Meeting["sentiment"]) : d.sentiment,
+        opportunity_spotted: j.opportunity_spotted === "Yes" ? "Yes" : j.opportunity_spotted === "No" ? "No" : d.opportunity_spotted,
+      }));
+      setAiNote("Filled from your notes — review the fields below and Save.");
+    } catch {
+      setAiNote("Couldn't read that — try again, or fill the fields manually.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  // AI: dissect a pasted transcript into the write-up (#9). The escalation candidate — long context;
+  // runs on-device and falls through to BYOK automatically if the local model can't handle the length.
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [transcriptBusy, setTranscriptBusy] = useState(false);
+  async function extractTranscript(transcript: string) {
+    if (!transcript.trim() || transcriptBusy) return;
+    setTranscriptBusy(true);
+    setAiNote(null);
+    try {
+      const j = await aiJson<TranscriptExtract>(transcriptPrompt(transcript));
+      setDraft((d) => ({
+        ...d,
+        notes: d.notes?.trim() ? `${d.notes}\n\n${j.summary ?? ""}`.trim() : (j.summary ?? "").trim() || d.notes,
+        actions_mine: j.actions_mine?.trim() || d.actions_mine,
+        actions_theirs: j.actions_theirs?.trim() || d.actions_theirs,
+        pain_points: j.pain_points?.trim() || d.pain_points,
+        sentiment: (SENTIMENT as readonly string[]).includes(j.sentiment) ? (j.sentiment as Meeting["sentiment"]) : d.sentiment,
+        opportunity_spotted: j.opportunity_spotted === "Yes" ? "Yes" : j.opportunity_spotted === "No" ? "No" : d.opportunity_spotted,
+      }));
+      setTranscriptOpen(false);
+      setAiNote(j.opportunity_spotted === "Yes" && j.opportunity_name ? `Filled from transcript. Possible opportunity: ${j.opportunity_name} — review & Save.` : "Filled from transcript — review the fields and Save.");
+    } catch {
+      setAiNote("Couldn't read that transcript — it may be too long for the on-device model; try a shorter section or add an AI key in Settings.");
+    } finally {
+      setTranscriptBusy(false);
+    }
+  }
 
   return (
     // Backdrop: clicking it (but not the panel) cancels.
@@ -495,6 +554,28 @@ export function MeetingForm({
                 rows={6}
               />
             </Field>
+            {aiReady && (
+              <div className="mform-ai-row">
+                <button
+                  type="button"
+                  className="mform-secondary"
+                  title="Use your notes to fill actions, follow-up, sentiment and whether there's an opportunity"
+                  disabled={!draft.notes?.trim() || aiBusy}
+                  onClick={summarizeWithAi}
+                >
+                  {aiBusy ? "Reading notes…" : "Summarise notes with AI"}
+                </button>
+                <button
+                  type="button"
+                  className="mform-secondary"
+                  title="Paste a call/meeting transcript and let AI fill the write-up"
+                  onClick={() => setTranscriptOpen(true)}
+                >
+                  Dissect transcript
+                </button>
+                {aiNote && <span className="mform-ai-note">{aiNote}</span>}
+              </div>
+            )}
             <Field label="Org insights">
               <TextArea
                 value={draft.org_insights}
@@ -611,6 +692,10 @@ export function MeetingForm({
           </button>
         </footer>
       </aside>
+
+      {transcriptOpen && (
+        <TranscriptModal busy={transcriptBusy} onExtract={extractTranscript} onClose={() => setTranscriptOpen(false)} />
+      )}
     </div>
   );
 }
@@ -680,6 +765,13 @@ function daysBetween(fromISO: string, toISO: string): number {
   const a = new Date(`${fromISO}T00:00:00`).getTime();
   const b = new Date(`${toISO}T00:00:00`).getTime();
   return Math.round((b - a) / 86_400_000);
+}
+
+// Add N days to an ISO date, returning ISO (used by the AI summary to set a follow-up date).
+function addDaysISO(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 function Select({

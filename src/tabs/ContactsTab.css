@@ -161,3 +161,6 @@
   letter-spacing: 0.03em;
   vertical-align: middle;
 }
+
+/* AI classification action in the toolbar (owned mode) */
+.contacts-enrich { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }

@@ -287,3 +287,16 @@ html.is-mobile .app-currency { font-size: 0.72rem; }
 /* Reclaim space in the narrow bar: drop the maker badge and the "Currency" caption. */
 html.is-mobile .freehold-badge { display: none; }
 html.is-mobile .app-currency > span { display: none; }
+
+/* Ask / copilot trigger in the top bar */
+.topbar-ask {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 13px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+.topbar-ask:hover { background: var(--bg-2); color: var(--ink); }

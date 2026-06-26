@@ -13,6 +13,9 @@ import {
 } from "../data/vocab";
 import { Field, TextField, TextArea, Select } from "./formControls";
 import { ContactLinks } from "../components/BrandIcons";
+import { useAiAvailable, aiPrompt, aiJson } from "../ai/ai";
+import { draftMessagePrompt, briefContactPrompt, suggestCrmPrompt, type DraftKind, type CrmSuggest } from "../ai/prompts";
+import { AiSuggest } from "../components/AiSuggest";
 
 // Default home country until an org→country mapping is wired up.
 const DEFAULT_BASED_IN = "Saudi Arabia";
@@ -105,6 +108,39 @@ export function ContactForm({
   // The number used for the WhatsApp link: the owner's override wins, else the pipeline
   // number. (Blank override never hides the auto-detected one.)
   const effectivePhone = draft.phone?.trim() || pipelinePhone;
+
+  // AI affordances (draft a message / brief me) — only shown when the host can run inference.
+  const aiReady = useAiAvailable();
+  const [aiPanel, setAiPanel] = useState<"draft" | "brief" | null>(null);
+  const [draftKind, setDraftKind] = useState<DraftKind>("first-touch");
+  const [crmBusy, setCrmBusy] = useState(false);
+  const [crmNote, setCrmNote] = useState<string | null>(null);
+
+  // Auto-suggest CRM fields from what's known (relationship, priority, decision role, next action).
+  // Fills the form's own fields so the owner reviews and Saves (A2). next_action/date persist and
+  // surface in the table even though they have no input here, so we echo them in the note.
+  async function suggestCrm() {
+    if (crmBusy) return;
+    setCrmBusy(true);
+    setCrmNote(null);
+    try {
+      const j = await aiJson<CrmSuggest>(suggestCrmPrompt(contact, meetings, RELATIONSHIP_STRENGTH, PRIORITY, DECISION_ROLE));
+      const nextDate = j.next_action_days > 0 ? new Date(Date.now() + j.next_action_days * 86_400_000).toISOString().slice(0, 10) : undefined;
+      setDraft((d) => ({
+        ...d,
+        relationship_strength: (RELATIONSHIP_STRENGTH as readonly string[]).includes(j.relationship_strength) ? (j.relationship_strength as OwnerEdits["relationship_strength"]) : d.relationship_strength,
+        priority: (PRIORITY as readonly string[]).includes(j.priority) ? (j.priority as OwnerEdits["priority"]) : d.priority,
+        decision_role: (DECISION_ROLE as readonly string[]).includes(j.decision_role) ? (j.decision_role as OwnerEdits["decision_role"]) : d.decision_role,
+        next_action: j.next_action?.trim() || d.next_action,
+        next_action_date: nextDate ?? d.next_action_date,
+      }));
+      setCrmNote(j.next_action?.trim() ? `Suggested next action: ${j.next_action.trim()} — review & Save.` : "Filled the fields below — review & Save.");
+    } catch {
+      setCrmNote("Couldn't suggest those — try again or set them manually.");
+    } finally {
+      setCrmBusy(false);
+    }
+  }
 
   // Save, normalising a blank phone to "unset" so it never persists "" over the pipeline.
   function commit() {
@@ -200,6 +236,22 @@ export function ContactForm({
                     + Add opportunity
                   </button>
                 )}
+              </p>
+            )}
+            {aiReady && (
+              <p className="mform-links mform-ai-links">
+                <button type="button" className="mform-inline-btn" onClick={() => { setDraftKind("first-touch"); setAiPanel("draft"); }}>
+                  Draft: reach out
+                </button>
+                <button type="button" className="mform-inline-btn" onClick={() => { setDraftKind("follow-up"); setAiPanel("draft"); }}>
+                  Follow up
+                </button>
+                <button type="button" className="mform-inline-btn" onClick={() => { setDraftKind("reconnect"); setAiPanel("draft"); }}>
+                  Reconnect
+                </button>
+                <button type="button" className="mform-inline-btn" onClick={() => setAiPanel("brief")}>
+                  Brief me
+                </button>
               </p>
             )}
           </div>
@@ -314,6 +366,15 @@ export function ContactForm({
           {/* ── Owner-maintained CRM fields: the editable part ────────────── */}
           <fieldset className="mform-section">
             <legend>Your CRM fields</legend>
+            {aiReady && (
+              <div className="mform-ai-row">
+                <button type="button" className="mform-secondary" disabled={crmBusy} onClick={suggestCrm}
+                  title="Suggest relationship, priority, decision role and a next action from what's known">
+                  {crmBusy ? "Thinking…" : "Auto-suggest with AI"}
+                </button>
+                {crmNote && <span className="mform-ai-note">{crmNote}</span>}
+              </div>
+            )}
             <div className="mform-grid">
               <Field label="Based in">
                 <TextField
@@ -396,6 +457,29 @@ export function ContactForm({
           </button>
         </footer>
       </aside>
+
+      {aiPanel === "draft" && (
+        <AiSuggest
+          title="Draft a message"
+          subtitle={`To ${name || "this contact"} · ${draftKind === "first-touch" ? "first outreach" : draftKind === "follow-up" ? "follow-up" : "reconnect"}`}
+          generate={(tweak) => aiPrompt(draftMessagePrompt(contact, meetings, draftKind, tweak))}
+          tweaks={[
+            { label: "Shorter", instruction: "Make it shorter — 1–2 sentences." },
+            { label: "Warmer", instruction: "Make it warmer and more personal." },
+            { label: "More direct", instruction: "Make it more direct and to the point." },
+          ]}
+          onClose={() => setAiPanel(null)}
+        />
+      )}
+      {aiPanel === "brief" && (
+        <AiSuggest
+          title={`Brief: ${name || "contact"}`}
+          subtitle="Pre-outreach summary"
+          editable={false}
+          generate={() => aiPrompt(briefContactPrompt(contact, meetings))}
+          onClose={() => setAiPanel(null)}
+        />
+      )}
     </div>
   );
 }
