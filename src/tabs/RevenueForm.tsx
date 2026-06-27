@@ -17,6 +17,7 @@ import {
   NumberInput,
   Select,
 } from "./formControls";
+import { AiFill } from "../components/AiFill";
 
 // New deliverable / fresh rate card for the Commercials editor.
 const uid = () =>
@@ -89,6 +90,15 @@ export function RevenueForm({
 
   function set<K extends keyof Sow>(field: K, value: Sow[K]) {
     setDraft((d) => ({ ...d, [field]: value }));
+  }
+
+  // Apply an AI-extracted draft (from "Fill with AI") onto the form for review.
+  function applyAiFill(v: Record<string, string>) {
+    if (v.engagement_name) set("engagement_name", v.engagement_name);
+    if (v.organisation) set("organisation", v.organisation);
+    if (v.service_line) set("service_line", v.service_line as Sow["service_line"]);
+    if (v.status) set("status", v.status as Sow["status"]);
+    if (v.signed_date) set("signed_date", v.signed_date);
   }
 
   // Switching pricing model seeds the other editor on first switch (keeps both arrays so
@@ -171,6 +181,7 @@ export function RevenueForm({
         </header>
 
         <div className="mform-body">
+          {isNew && <div className="mform-aifill"><AiFill kind="contract" placeholder="e.g. Signed a fixed-price strategy engagement with Acme…" apply={applyAiFill} /></div>}
           {/* ── Identity ─────────────────────────────────────────────────── */}
           <fieldset className="mform-section">
             <legend>Engagement</legend>

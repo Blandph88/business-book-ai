@@ -155,6 +155,79 @@ export function yourDayPrompt(context: string): PromptArgs {
   };
 }
 
+// ── Ask-your-book chat (the copilot's analytical conversation) ─────────────────────────────────
+// Grounded in a compact book summary (counts/pipeline/activity). The model gives a helpful, specific
+// text answer and the user can keep chatting — it is NOT a record filter, so it never returns
+// "No matches"; for general questions ("what do you know about me?") it gives an interesting overview.
+export type ChatTurn = { role: "you" | "ai"; text: string };
+export function askBookPrompt(question: string, bookSummary: string, history: ChatTurn[] = [], webContext = ""): PromptArgs {
+  const convo = history.length
+    ? `\n\nConversation so far:\n${history.map((t) => `${t.role === "you" ? "User" : "You"}: ${t.text}`).join("\n")}`
+    : "";
+  const web = webContext
+    ? `\n\nWeb results I looked up for this question (use these for EXTERNAL facts only — news, public company info — and mention them naturally):\n${webContext}`
+    : "";
+  return {
+    system:
+      "You are the user's private Business Book analyst — a sharp, friendly chief-of-staff who knows their " +
+      "professional network and pipeline. Answer their question directly and specifically. For facts about the " +
+      "user's OWN network/pipeline use ONLY the book summary (real numbers from their data); never invent names " +
+      "or numbers not in it. If web results are provided, you may use them for EXTERNAL facts the book can't " +
+      "answer. When they ask a broad or vague question (e.g. \"what do you know about me?\"), give a concise, " +
+      "genuinely interesting overview of their book — network size, how the outreach funnel is converting, " +
+      "pipeline and recent momentum — and suggest one useful next step. Be warm and plain; short paragraphs or a " +
+      "few bullets; no preamble, no corporate jargon, no emoji.",
+    prompt: `My book summary (the facts about my own network):\n${bookSummary}${web}${convo}\n\nMy question: ${question}`,
+  };
+}
+
+// ── Conversational data-entry fills (the agentic copilot) ──────────────────────────────────────
+// Each returns a partial record as JSON from a free-text description — the copilot then shows it in a
+// review card for the user to confirm/edit. Never invent specifics; leave a field "" or 0 if unsure.
+export type OppFill = { opportunity_name: string; organisation: string; primary_contact: string; service_line: string; est_value: number; description: string };
+export function fillOpportunityPrompt(text: string, serviceLines: readonly string[]): PromptArgs {
+  return {
+    system: "You turn a consultant's quick description of a sales opportunity into structured fields. Only use what's stated; never invent names or numbers. Reply with ONLY a JSON object.",
+    prompt:
+      `Return JSON with keys exactly:\n` +
+      `{"opportunity_name": string (short, e.g. "Payments transformation"), "organisation": string, "primary_contact": string, ` +
+      `"service_line": one of ${JSON.stringify(serviceLines)} (best fit) , "est_value": number (0 if not stated), "description": string}\n` +
+      `Use "" or 0 where nothing applies.\n\nDescription: ${text}`,
+  };
+}
+export type ContractFill = { engagement_name: string; organisation: string; service_line: string; status: string };
+export function fillContractPrompt(text: string, serviceLines: readonly string[], statuses: readonly string[]): PromptArgs {
+  return {
+    system: "You turn a consultant's quick description of a signed engagement/contract into structured fields. Only use what's stated. Reply with ONLY a JSON object.",
+    prompt:
+      `Return JSON with keys exactly:\n` +
+      `{"engagement_name": string, "organisation": string, "service_line": one of ${JSON.stringify(serviceLines)}, "status": one of ${JSON.stringify(statuses)} (default "Active")}\n` +
+      `Use "" where nothing applies.\n\nDescription: ${text}`,
+  };
+}
+
+// ── Intent classifier (model fallback when the dictionary is unsure) ───────────────────────────
+export type IntentResult = {
+  kind: "query" | "search" | "create" | "update" | "workflow" | "draft" | "web" | "document" | "help";
+  entity?: "contact" | "meeting" | "opportunity" | "contract";
+  target?: string;
+  confidence?: "high" | "medium" | "low";
+};
+export function classifyIntentPrompt(text: string): PromptArgs {
+  return {
+    system:
+      "You classify a consultant's message to their CRM copilot into ONE intent. Reply with ONLY a JSON " +
+      "object. Intents: query (ask about their own book/network/pipeline), search (find a record), create " +
+      "(log a new meeting/opportunity/contract), update (change a contact/meeting/opportunity/contract), " +
+      "workflow (work through this week / loose ends), draft (write a message/brief), web (external/current " +
+      "info), document (about an uploaded file), help. If create/update, also give entity " +
+      "(contact|meeting|opportunity|contract). Give target (the person or company) if clear.",
+    prompt:
+      `Return JSON with keys exactly: {"kind": one intent, "entity": one of contact|meeting|opportunity|contract or omit, ` +
+      `"target": string or omit, "confidence": "high"|"medium"|"low"}\n\nMessage: ${text}`,
+  };
+}
+
 // ── NL query / copilot bar (#10) ───────────────────────────────────────────────────────────────
 export type NlResult = {
   answer: string;

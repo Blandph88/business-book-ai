@@ -43,11 +43,14 @@ export default function App() {
   // remember which overview to return to. Drives the Back bar and the return-on-save:
   // null while browsing the record tabs normally (so those just stay put on save).
   const [returnTo, setReturnTo] = useState<TabId | null>(null);
-  // The global "Ask / search your book" copilot bar (⌘K / Ctrl+K, or the top-bar button).
+  // The global "Ask / search your book" copilot bar (⌘K / Ctrl+K, or the top-bar buttons). It opens
+  // on the search view by default, or straight to the saved-chats list when launched from "Chats".
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [copilotView, setCopilotView] = useState<"search" | "history">("search");
+  const openCopilot = (view: "search" | "history" = "search") => { setCopilotView(view); setCopilotOpen(true); };
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setCopilotOpen(true); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openCopilot("search"); }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -161,11 +164,19 @@ export default function App() {
             type="button"
             className="topbar-search"
             title="Search or ask your book (⌘K)"
-            onClick={() => setCopilotOpen(true)}
+            onClick={() => openCopilot("search")}
           >
             <span className="topbar-search-ico" aria-hidden>⌕</span>
-            <span className="topbar-search-text">Search or ask…</span>
+            <span className="topbar-search-text">Search, ask or take action</span>
             <span className="topbar-search-kbd">⌘K</span>
+          </button>
+          <button
+            type="button"
+            className="topbar-chats"
+            title="Your saved chats about your book"
+            onClick={() => openCopilot("history")}
+          >
+            Chats
           </button>
           <div className="topbar-right">
             <button
@@ -255,7 +266,7 @@ export default function App() {
 
       {/* Global "Import your LinkedIn" modal (opened from the top bar / side nav / Contacts). */}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}
-      {copilotOpen && <CopilotBar onNavigate={navigate} onOpenAccount={openAccount} onClose={() => setCopilotOpen(false)} />}
+      {copilotOpen && <CopilotBar initialView={copilotView} onNavigate={navigate} onOpenAccount={openAccount} onClose={() => setCopilotOpen(false)} />}
     </div>
   );
 }

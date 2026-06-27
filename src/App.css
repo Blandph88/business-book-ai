@@ -101,6 +101,23 @@
   border-color: var(--primary-600);
 }
 
+/* Secondary top-bar button — opens the copilot straight to the saved-chats list. */
+.topbar-chats {
+  appearance: none;
+  flex: none;
+  padding: 6px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--ease), border-color var(--ease);
+}
+.topbar-chats:hover { background: var(--bg-2); color: var(--ink); }
+
 /* "Runs on Freehold" maker badge. */
 .freehold-badge {
   display: inline-flex;

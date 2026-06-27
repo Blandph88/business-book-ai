@@ -26,6 +26,7 @@ import {
 } from "../data/vocab";
 import { formatMoney } from "../data/format";
 import { Field, TextField, TextArea, DateInput, NumberInput, Select, MultiSelect } from "./formControls";
+import { AiFill } from "../components/AiFill";
 
 // The slide-in detail/edit panel for a single opportunity (CLAUDE.md §4), built on
 // the same buffer-and-save model as MeetingForm: all edits live in local `draft`
@@ -180,6 +181,17 @@ export function OpportunityForm({
 
   function set<K extends keyof Opportunity>(field: K, value: Opportunity[K]) {
     setDraft((d) => ({ ...d, [field]: value }));
+  }
+
+  // Apply an AI-extracted draft (from the "Fill with AI" affordance) onto the form for review.
+  function applyAiFill(v: Record<string, string>) {
+    if (v.opportunity_name) set("opportunity_name", v.opportunity_name);
+    if (v.organisation) set("organisation", v.organisation);
+    if (v.primary_contact) set("primary_contact", v.primary_contact);
+    if (v.service_line) set("service_line", v.service_line as Opportunity["service_line"]);
+    if (v.current_step) set("current_step", v.current_step as Opportunity["current_step"]);
+    if (v.est_value) set("est_value", Number(v.est_value));
+    if (v.description) set("description", v.description);
   }
 
   // ── Workflow edits ────────────────────────────────────────────────────────
@@ -428,6 +440,8 @@ export function OpportunityForm({
                 )}
             </div>
           )}
+
+          {target.mode === "new" && <div className="mform-aifill"><AiFill kind="opportunity" placeholder="e.g. Acme is keen on a strategy project, roughly £200k…" apply={applyAiFill} /></div>}
 
           {/* ── Identity ─────────────────────────────────────────────────── */}
           <fieldset className="mform-section">

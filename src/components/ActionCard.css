@@ -1,0 +1,44 @@
+/* In-chat action card — propose → confirm → undo. */
+.actc {
+  border: 1px solid var(--primary);
+  border-radius: var(--r-sm);
+  background: #fff;
+  box-shadow: 0 1px 0 var(--primary-tint);
+  padding: 12px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 4px;
+}
+.actc-head { display: flex; flex-direction: column; gap: 2px; }
+.actc-kind { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--primary-700); }
+.actc-title { font-size: 14px; color: var(--ink); }
+
+.actc-field { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 8px; }
+.actc-field > span { font-size: 12px; color: var(--ink-2); }
+.actc-field input, .actc-field select, .actc-field textarea {
+  width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-xs);
+  background: #fff; color: var(--ink); font: inherit; font-size: 13px;
+}
+.actc-field textarea { resize: vertical; }
+.actc-field--missing input, .actc-field--missing select { border-color: var(--danger, #c0392b); }
+.actc-field--missing > span { color: var(--danger, #c0392b); }
+
+.actc-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.actc-spacer { flex: 1; }
+.actc-more { border: none; background: none; color: var(--primary-700); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 0; }
+.actc-more:hover { text-decoration: underline; }
+.actc-btn {
+  padding: 6px 13px; border: 1px solid var(--line); background: #fff; color: var(--ink);
+  border-radius: var(--r-xs); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.actc-btn:hover { background: var(--bg-2); }
+.actc-btn:disabled { opacity: 0.5; cursor: default; }
+.actc-btn--primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.actc-btn--primary:not(:disabled):hover { background: var(--primary-600); }
+
+.actc--saved { flex-direction: row; align-items: center; gap: 9px; border-color: var(--success-line, #cde8d3); background: var(--success-tint, #f0f9f2); }
+.actc-tick { color: var(--success, #2e7d4f); font-weight: 800; }
+.actc-savedtext { flex: 1; font-size: 13.5px; color: var(--ink); }
+.actc-undo { border: 1px solid var(--line); background: #fff; color: var(--ink-2); border-radius: var(--r-xs); font: inherit; font-size: 12.5px; font-weight: 600; padding: 5px 11px; cursor: pointer; }
+.actc-undo:hover { background: var(--bg-2); }

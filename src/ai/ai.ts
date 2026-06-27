@@ -17,16 +17,25 @@ function broker(): Broker | null {
 
 export type PromptArgs = { prompt: string; system?: string; json?: boolean; temperature?: number };
 
+// The broker's AI availability report. `backend` + `contextTokens` (when the host provides them) let
+// the app SCALE how much of the book it sends as context to the active tier — a tiny on-device model
+// gets a focused slice, a BYOK frontier model can get everything. Older hosts only return willRun.
+export type AiAvailability = { willRun: boolean; backend?: string; contextTokens?: number; onDevice?: string; byok?: boolean };
+
+export async function aiAvailability(): Promise<AiAvailability> {
+  const f = broker();
+  if (!f) return { willRun: false };
+  try {
+    const a = (await f.request("ai", "availability")) as Partial<AiAvailability> | null;
+    return { willRun: !!a?.willRun, backend: a?.backend, contextTokens: a?.contextTokens, onDevice: a?.onDevice, byok: a?.byok };
+  } catch {
+    return { willRun: false };
+  }
+}
+
 // Is AI usable right now? (a model or key is reachable). Never throws.
 export async function aiAvailable(): Promise<boolean> {
-  const f = broker();
-  if (!f) return false;
-  try {
-    const a = (await f.request("ai", "availability")) as { willRun?: boolean } | null;
-    return !!a?.willRun;
-  } catch {
-    return false;
-  }
+  return (await aiAvailability()).willRun;
 }
 
 // Run one prompt through the broker and return the model's text.
