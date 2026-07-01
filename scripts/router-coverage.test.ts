@@ -152,12 +152,13 @@ check("Build me an account plan for JPMorgan: who I know there, where the relati
 check("Which of my cold contacts work at companies where I also have an active engagement, and how should I use the relationship?", null); // 'cold' + join + how-to
 check("Play devil's advocate on my pipeline — which deals are going nowhere?", null);
 
-// Sector / function CRITERIA → defer to the model + criteriaGrounding (a sector word must NOT be matched as
-// a company: "in banking" was wrongly hitting "Lloyds Banking Group" → 6 contacts instead of 304 in sector).
-check("Who are the 5 most important people I know in banking?", null);
-check("who do I know in finance leadership roles?", null);
-check("people I know in pharma", null);
-check("anyone in the energy sector?", null);
+// Sector / function CRITERIA → now a DETERMINISTIC sector-contacts table (ranked by seniority), so the model
+// interprets a real roster instead of inventing contacts (a sector word must NOT match a company: "in banking"
+// → the Financial Services subset, not "Lloyds Banking Group"). The interpret combo adds the "what to discuss".
+check("Who are the 5 most important people I know in banking?", ["financial services", "no contacts in"]);
+check("who do I know in finance leadership roles?", ["senior contacts in", "no contacts in"]);
+check("people I know in pharma", ["senior contacts in", "no contacts in"]);
+check("anyone in the energy sector?", ["senior contacts in", "no contacts in"]);
 // …but a REAL company whose NAME contains a sector word must STAY a deterministic account lookup.
 check("who do I know at Lloyds Banking Group?", ["lloyds banking group", "contacts at"]);
 check("who do I know at Accenture?", ["accenture", "contacts at"]);
@@ -200,6 +201,10 @@ check("open deals with no meeting logged against them at all?", ["no meeting", "
 // Regression: a REAL company still resolves, and value filters still work.
 check("who do I know at JPMorgan?", ["jpmorgan"]);
 check("open deals over 100000", ["opportunit", "no open"]);
+// Open opps by SECTOR → filtered (not all 20 dumped); first-name+company → disambiguate; overdue → agenda.
+check("which of my open deals are in financial services?", ["open opportunities in", "no open opportunities in"]);
+check("tell me about Karen at JPMorgan", ["which one", "which", "—"]);
+check("what's overdue right now that I've let slip?", ["due or overdue", "on top of it"]);
 // "average per engagement" follow-up (no "revenue" word) → the aggregate, not the engagements list.
 check("so what's the average per engagement?", ["average", "per engagement"], "how much revenue have I recognised across my engagements?");
 check("average recognised per engagement", ["average", "per engagement"]);

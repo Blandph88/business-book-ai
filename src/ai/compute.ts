@@ -63,11 +63,13 @@ function warmth(c: Contact, lm: Map<string, { date: string; sentiment: string }>
   }
   return s;
 }
+// £-prefixed (a UK consulting book) and CONSISTENT everywhere — the deterministic tables set the currency
+// so the model never introduces a stray "$" (the polish run had it saying "$800k" next to the tools' "800k").
 function money(n?: number): string {
   if (!n) return "—";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}m`;
-  if (n >= 1000) return `${Math.round(n / 1000)}k`;
-  return `${n}`;
+  if (n >= 1_000_000) return `£${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}m`;
+  if (n >= 1000) return `£${Math.round(n / 1000)}k`;
+  return `£${n}`;
 }
 // Opportunity status/weighting — inlined (keeps this module node-importable for the QA harness).
 const STEP_ORDER = ["meeting", "qualify", "pursuit", "scoping", "clearance", "proposal_build", "proposal_delivery", "procurement", "contracting", "setup", "delivery", "revenue"];
@@ -405,6 +407,45 @@ export function personalSnapshot(d: BookData, today: string): ComputeResult {
   return { intro: "Here's what I know about your book:", columns: ["What", "Detail"], rows };
 }
 
+// 8b. sectorContacts — the people you know in a SECTOR or FUNCTION, ranked by seniority. Deterministic on
+// purpose: "the most important people I know in banking" used to go free-form and the model INVENTED a
+// contact (an energy exec relabelled "CEO, National Bank of Canada"). Now code lists the real people and the
+// interpret combo adds the "what to discuss" — the model narrates, it doesn't fabricate the roster.
+const SENIORITY_ORDER: Record<string, number> = { "Executive Leadership": 5, "Head of / Director": 4, "VP / SM": 3, "Manager": 2, "Associate / Analyst": 1 };
+export function sectorContacts(d: BookData, field: "sector_group" | "function", value: string): ComputeResult {
+  const list = d.contacts
+    .filter((c) => ((c as unknown as Record<string, string>)[field] || "") === value)
+    .sort((a, b) => (SENIORITY_ORDER[(b as unknown as Record<string, string>).seniority] || 0) - (SENIORITY_ORDER[(a as unknown as Record<string, string>).seniority] || 0));
+  const label = field === "sector_group" ? value : `${value} roles`;
+  if (!list.length) return { intro: `Hmm, no contacts in ${label} in your book right now.`, columns: [], rows: [] };
+  const shown = list.slice(0, 40);
+  const res: ComputeResult = {
+    intro: `Your most senior contacts in ${label} (${list.length}${list.length > shown.length ? `, showing ${shown.length}` : ""}):`,
+    columns: ["Name", "Role", "Company", "Seniority"],
+    rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", (c as unknown as Record<string, string>).seniority || "—"], record: { tab: "contacts", id: c.url } })),
+  };
+  if (list.length > shown.length) res.more = { count: list.length, tab: "contacts", intent: {} };
+  return res;
+}
+
+// 8c. opportunitiesBySector — open opps filtered by the SECTOR of their company. Opps carry no sector field,
+// so we map org→sector from the contacts. Fixes "which deals are in financial services?" dumping ALL 20 and
+// the model then misclassifying companies / inventing values.
+export function opportunitiesBySector(d: BookData, value: string): ComputeResult {
+  const orgSector = new Map<string, string>();
+  for (const c of d.contacts) { const o = (c.organisation || "").toLowerCase(); const s = (c as unknown as Record<string, string>).sector_group; if (o && s && !orgSector.has(o)) orgSector.set(o, s); }
+  const open = d.opps
+    .filter((o) => oppStatus(o) === "Open" && orgSector.get((o.organisation || "").toLowerCase()) === value)
+    .sort((a, b) => (b.est_value ?? 0) - (a.est_value ?? 0));
+  if (!open.length) return { intro: `You've no open opportunities in ${value} right now.`, columns: [], rows: [] };
+  const total = open.reduce((s, o) => s + (o.est_value ?? 0), 0);
+  return {
+    intro: `Your open opportunities in ${value} (${open.length}) — ${money(total)} total:`,
+    columns: ["Opportunity", "Company", "Stage", "Est. value"],
+    rows: open.slice(0, 30).map((o) => ({ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), money(o.est_value)], record: { tab: "opportunities", id: o.id } })),
+  };
+}
+
 // 8. funnelBreakdown — counts of the network by a dimension (sector/function/seniority).
 export function funnelBreakdown(d: BookData, dim: "sector_group" | "function" | "seniority"): ComputeResult {
   const counts = new Map<string, number>();
@@ -607,7 +648,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   if (/\bmeetings?\b/.test(t) && /\b(last|past|recent(?:ly)?|this|upcoming|scheduled|coming up|next|today|tomorrow|week|month|quarter|fortnight|\d+\s*(?:day|week))\b/.test(t)) return findMeetings(d, today, t);
 
   // ── Weekly focus / priorities (deterministic agenda — never the model) ──────────────────────────
-  if (/what should i (?:focus on|do|prioriti[sz]e|work on|tackle)|what'?s? (?:my )?(?:focus|priorit|agenda|to-?dos?|action items?)|where should i focus|what'?s? (?:on )?my plate|what needs (?:my )?attention|plan my (?:day|week)|focus (?:for )?(?:this|the) (?:week|day)|what(?:'?s| is) (?:due|on) (?:this|next) (?:week|few days)|what'?s? next this week/.test(t)) return weeklyFocus(d, today);
+  if (/what should i (?:focus on|do|prioriti[sz]e|work on|tackle)|what'?s? (?:my )?(?:focus|priorit|agenda|to-?dos?|action items?)|where should i focus|what'?s? (?:on )?my plate|what needs (?:my )?attention|plan my (?:day|week)|focus (?:for )?(?:this|the) (?:week|day)|what(?:'?s| is) (?:due|on) (?:this|next) (?:week|few days)|what'?s? next this week|what'?s? (?:overdue|slipped|slipping|fallen through|been neglected)|what have i (?:let slip|missed|dropped|neglected)|anything overdue|what'?s? (?:gone )?overdue/.test(t)) return weeklyFocus(d, today);
   // "who's my next/top priority" (NOT scoped to a company — "highest priority at EY" is a filter) → the agenda.
   if ((/\b(?:next|top|highest|main|biggest) priorit/.test(t) || /who should i (?:prioriti[sz]e|focus on|chase|call|tackle)\b/.test(t)) && !/\bat\s+[a-z]/i.test(t)) return weeklyFocus(d, today);
 
@@ -674,6 +715,13 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   if (/\b(deals?|opportunit)/.test(t) && /\b(no|without|zero|haven'?t (?:had|logged)|not had)\b[^?]*\bmeeting/.test(t)) return openOppsWithoutMeeting(d);
   // (The JOIN+count "companies with an open opp AND ≥N contacts" runs at the top, before the reasoning-gate.)
 
+  // Open opps by SECTOR ("which of my open deals are in financial services / energy?") — filter by the
+  // company's sector, computed. Must precede the generic deals route (which ignored the sector and dumped all).
+  if (/\b(deals?|opportunit|pipeline)/.test(t)) {
+    const inm = t.match(/\b(?:in|within)\s+([a-z& ]+?)(?:\?|$|\s+(?:sector|space|industry|right now))/);
+    const sec = inm ? matchSector(inm[1].trim()) : null;
+    if (sec) return opportunitiesBySector(d, sec);
+  }
   // ── Opportunities / deals ───────────────────────────────────────────────────────────────────────
   if (/\bopportunit|\bdeals?\b/.test(t) && (LIST_VERB.test(t) || /\b(open|won|lost|any|all|my)\b/.test(t))) {
     const mv = t.match(/\b(?:over|above|more than|worth|>)\s*[£$€]?\s*(\d[\d,]*)\s*(k|m)?/i);
@@ -714,20 +762,39 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
     // as a literal name grabs the whole trailing clause ("her and what I'd open with") and reports it
     // not-found. Defer to the model, which carries the person named earlier in the thread via grounding.
     if (/^(?:her|him|them|it|that|this|they|he|she|us|those|these)\b/i.test(ref)) return null;
+    // "FirstName at Company" ("tell me about Karen at JPMorgan") — resolve first-name + company. One match →
+    // brief; several → DISAMBIGUATE (the old code took the whole phrase as a name and drew a blank, then
+    // wrongly denied a real COO existed). NB scope this to a bare first name so full names still brief directly.
+    const fc = ref.match(/^([A-Za-z][\w'’-]+)\s+(?:at|from|with|in)\s+(.+)$/i);
+    if (fc && !d.contacts.some((c) => fullName(c).toLowerCase() === ref.toLowerCase())) {
+      const first = fc[1].toLowerCase(), org = fc[2].trim();
+      const cands = d.contacts.filter((c) => c.first.toLowerCase() === first && orgMatches(c.organisation, org));
+      if (cands.length === 1) return contactBrief(d, fullName(cands[0]), today);
+      if (cands.length > 1) return {
+        intro: `You know ${cands.length} people called ${fc[1]} at ${cands[0].organisation} — which one?`,
+        columns: ["Name", "Role", "Stage"],
+        rows: cands.map((c) => ({ cells: [fullName(c), c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
+      };
+    }
     // If it resolves to a company (has contacts there) and not a person, summarise the account.
     if (d.contacts.some((c) => fullName(c).toLowerCase() === ref.toLowerCase()) || resolveContact(d, ref, today)) return contactBrief(d, ref, today);
     if (d.contacts.some((c) => orgMatches(c.organisation, ref))) return accountSummary(d, ref);
     return contactBrief(d, ref, today);
   }
   // "everyone at X" → contacts at a company. BUT if the scope word is a SECTOR or FUNCTION ("...people I
-  // know in banking", "...in finance leadership roles") and NOT a real org name in the book, this is a
-  // CRITERIA question — defer to the model, where criteriaGrounding injects the right sector/function subset
-  // (banking → all 304 Financial Services contacts, not just the company whose name contains "banking").
+  // know in banking", "...in finance leadership roles") and NOT a real org name in the book, list that
+  // sector/function's contacts DETERMINISTICALLY (ranked by seniority) — the interpret combo then adds the
+  // "what to discuss". Was deferred to the model, which invented contacts; code owns the roster now.
   if (at) {
     const scope = at[1].trim();
     const sl = scope.toLowerCase();
     const isExactOrg = d.contacts.some((c) => (c.organisation || "").toLowerCase() === sl);
-    if (!isExactOrg && (matchSector(sl) || matchFunction(sl))) return null;
+    if (!isExactOrg) {
+      const sec = matchSector(sl);
+      if (sec) return sectorContacts(d, "sector_group", sec);
+      const fn = matchFunction(sl);
+      if (fn) return sectorContacts(d, "function", fn);
+    }
     return findContacts(d, { company: scope });
   }
 
