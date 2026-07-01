@@ -17,9 +17,9 @@ import Papa from "papaparse";
 // bookContext/prompts may touch localStorage transitively — stub it so the Node harness doesn't crash.
 (globalThis as unknown as { localStorage: object }).localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
-import { computeForQuery, computeText } from "../../src/ai/compute.ts";
+import { computeForQuery, computeText, shouldInterpretResult } from "../../src/ai/compute.ts";
 import { assembleGrounding } from "../../src/ai/grounding.ts";
-import { askBookPrompt } from "../../src/ai/prompts.ts";
+import { askBookPrompt, interpretResultPrompt } from "../../src/ai/prompts.ts";
 import { routeIntent } from "../../src/ai/intents.ts";
 import { CONVERSATIONS } from "./conversations.mts";
 import { THREADS } from "./threads.mts";
@@ -150,8 +150,19 @@ for (const convo of SET.slice(0, LIMIT)) {
       const hijack = looksComplex(text);
       if (hijack) hijacks++;
       path = `deterministic-table${hijack ? "  ⚠️ HIJACK SUSPECT (complex prompt short-circuited)" : ""}`;
-      response = computeText(computed).split("\n").slice(0, 6).join("\n") + (computeText(computed).split("\n").length > 6 ? "\n…(table truncated in report)" : "");
-      history.push({ role: "you", text }, { role: "ai", text: computeText(computed) });
+      const tableText = computeText(computed);
+      response = tableText.split("\n").slice(0, 6).join("\n") + (tableText.split("\n").length > 6 ? "\n…(table truncated in report)" : "");
+      // compute→interpret combo: on a capable tier the app streams an LLM read of the computed table below
+      // it. Grade that here too — the table is ground truth, the interpretation is what the consultant sees.
+      let aiText = tableText;
+      if (AI_KEY && shouldInterpretResult(text, computed)) {
+        const { system, prompt } = interpretResultPrompt(text, tableText);
+        const interp = await callModel(system!, prompt);
+        response += `\n\n**+ INTERPRETATION (model):**\n\n${interp}`;
+        aiText = `${tableText}\n\n${interp}`;
+        await sleep(THROTTLE_MS);
+      }
+      history.push({ role: "you", text }, { role: "ai", text: aiText });
     } else {
       modelTurns++;
       // Recent context (last 2 turns) so entity resolution carries the person named earlier in the thread.
@@ -170,5 +181,10 @@ for (const convo of SET.slice(0, LIMIT)) {
 
 lines.push(`\n---\n## Summary\n- turns: ${turns}\n- deterministic: ${deterministic} (hijack suspects: ${hijacks})\n- actions: ${actionTurns}\n- model turns: ${modelTurns}`);
 mkdirSync(join(ROOT, "eval-output"), { recursive: true });
-writeFileSync(join(ROOT, "eval-output/report.md"), lines.join("\n"));
-console.log(`\n${hijacks} hijack suspect(s) of ${deterministic} deterministic turns · ${modelTurns} model turns · report → eval-output/report.md\n`);
+// Write a per-set file so runs of different sets don't clobber each other (report-critical.md,
+// report-core.md, …), plus report.md as a "latest run" copy for anything that reads the fixed name.
+const SET_NAME = EVAL_SET || "all";
+const report = lines.join("\n");
+writeFileSync(join(ROOT, `eval-output/report-${SET_NAME}.md`), report);
+writeFileSync(join(ROOT, "eval-output/report.md"), report);
+console.log(`\n${hijacks} hijack suspect(s) of ${deterministic} deterministic turns · ${modelTurns} model turns · report → eval-output/report-${SET_NAME}.md (+ report.md)\n`);

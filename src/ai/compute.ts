@@ -654,6 +654,22 @@ export function joinGroundingText(question: string, d: BookData, today: string):
   return `\n\nComputed join — your COLD contacts at companies where you ALSO have live work. These are warm-account/cold-person openings: use the existing engagement as the natural reason to reconnect.\n${rows.join("\n")}`;
 }
 
+// Should this computed result get a follow-on LLM INTERPRETATION (the compute→interpret combo)? The tool
+// already computed the ground-truth table; for anything analytical we then ask the model to read it and
+// add guidance. We DON'T interpret when there's nothing to add: an empty result (the intro already
+// explains the gap), or a bare count/lookup where the number IS the answer ("how many contacts do I
+// have?") and an essay would just be noise. Everything else — rankings, breakdowns, pipeline stats,
+// filtered lists, joins, aggregates, a person/account brief — gets the read. Shared by the app and the
+// eval harness so both decide identically. (Tier/speed gating lives at the call site — capable backends
+// only, so a slow on-device model never blocks the instant table.)
+export function shouldInterpretResult(question: string, r: ComputeResult): boolean {
+  if (!r.rows.length) return false;
+  const q = question.toLowerCase();
+  const analytical = /\b(at risk|priorit|warm|cold|biggest|largest|top|most|important|should|worth|why|analy|assess|doing enough|focus|next|strong|weak|gap|opportunit|pipeline|engaged|senior|expand)\b/.test(q);
+  if (/^\s*(?:how many|how much|number of|count of|count)\b/.test(q) && !analytical) return false;
+  return true;
+}
+
 // Flatten to Markdown — for persistence/history (rendered statically) and for deriving the chips.
 export function computeText(r: ComputeResult): string {
   if (!r.rows.length) return r.intro;

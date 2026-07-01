@@ -18,9 +18,9 @@ import { todayISO } from "../data/agenda";
 import { isCommonOrgToken } from "../data/orgTokens";
 import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searchAvailable, searchWeb, searchEntity, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
 import { BusinessBookLogo } from "./Brand";
-import { askBookPrompt, suggestionsPrompt, toolRouterPrompt, distilMemoryPrompt, type ChatTurn } from "../ai/prompts";
+import { askBookPrompt, suggestionsPrompt, toolRouterPrompt, distilMemoryPrompt, interpretResultPrompt, type ChatTurn } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeText, runTool, type ComputeResult, type ToolCall } from "../ai/compute";
+import { computeForQuery, computeText, runTool, shouldInterpretResult, type ComputeResult, type ToolCall } from "../ai/compute";
 import { searchBook, assembleGrounding, type Groups, type Hit } from "../ai/grounding";
 import { ComputeTable } from "./ComputeTable";
 import { AiSetupCard } from "./AiSetupCard";
@@ -641,6 +641,28 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     } catch { /* enrichment is best-effort — the table already rendered */ }
   }
 
+  // The compute→interpret combo: a tool has computed the ground-truth table (already on screen); now stream
+  // an ANALYSIS of it below — what stands out + one next move — so the answer reads like a partner, not a
+  // database. The figures stay code-computed and un-fabricatable (the model is told they're ground truth and
+  // never restates/alters them); this only ADDS insight. CAPABLE backends only — same speed gate as the
+  // tool-router/chips: a slow on-device model would block after the instant table, and the table already
+  // answers on its own. Best-effort and non-blocking; mirrors enrichCompany's append-after-table pattern.
+  async function interpretCompute(question: string, md: string, id: string, display: UITurn[], persisted: ChatTurn[]) {
+    try {
+      if (!isCapableBackend((await aiAvailability()).backend) || chatIdRef.current !== id) return;
+      let acc = "";
+      const streamed = await aiPromptStream(interpretResultPrompt(question, md), (full) => {
+        if (chatIdRef.current !== id) return;
+        acc = full;
+        setChat([...display, { role: "ai", text: full }]);
+      });
+      const finalText = (streamed || acc).trim();
+      if (!finalText || chatIdRef.current !== id) { setChat(display); return; }
+      setChat([...display, { role: "ai", text: finalText }]);
+      persistTo(id, [...persisted, { role: "ai", text: finalText }]);
+    } catch { /* best-effort — the table already answered on its own */ }
+  }
+
   // When a conversation is finished (the user leaves it), distil any DURABLE facts into the AI's long-term
   // memory (capable tiers only — it's a JSON extraction). Fire-and-forget; deduped; skips if nothing new
   // since the last distil of this chat. This is what makes the assistant remember across conversations.
@@ -729,9 +751,11 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       if (chatIdRef.current === id) setChat(display);
       setAsking(false);
       markDone(id);
-      // Blend in WORLD knowledge: for a company account, append what the org actually does (brokered
-      // Wikipedia/entity lookup). Instant table first, the description follows when it lands — best-effort.
+      // AFTER the instant table: add a follow-on read. A company account gets the factual "what they do"
+      // blurb (brokered Wikipedia/entity lookup); any other analytical result gets the compute→interpret
+      // read (what stands out + a next move). Mutually exclusive so the two never race on setChat.
       if (computed.enrich?.kind === "company") void enrichCompany(computed.enrich.name, id, display, persisted);
+      else if (shouldInterpretResult(text, computed)) void interpretCompute(text, md, id, display, persisted);
     };
     if (!docText && !isGenerate) {
       // 1. Keyword router (fast prior, every tier) — date-range / ranking / list queries → exact tables.

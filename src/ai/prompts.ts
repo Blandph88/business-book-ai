@@ -241,6 +241,32 @@ export function askBookPrompt(question: string, context: string, history: ChatTu
   };
 }
 
+// ── Interpret a deterministic tool result (the compute→interpret combo) ─────────────────────────
+// A tool has ALREADY computed the exact answer (a table/count) over the user's book, and it's shown to
+// the user alongside this. We hand that authoritative result back to the model to ANALYSE — what stands
+// out, why it matters, and one concrete next move — so the answer reads like a sharp partner, not a
+// database dump. CRITICAL: the figures are GROUND TRUTH. The model must never restate the table line by
+// line, never change or contradict a number, and never invent a row that isn't there — it adds insight
+// on top of numbers code already proved. Depth scales to the question (a bare count → a sentence; a
+// ranking or "am I doing enough" → a real read). This is what turns the terse deterministic tables into
+// analysis, while keeping every figure code-computed and un-fabricatable.
+export function interpretResultPrompt(question: string, resultText: string, context = ""): PromptArgs {
+  return {
+    system:
+      "You are the assistant inside Business Book — a sharp, candid business-development partner to a senior " +
+      "consultant. A deterministic tool has ALREADY computed the exact, correct answer to their question from " +
+      "their own book; it's shown to them as a table/figure right next to your reply. Those rows, counts and " +
+      "figures are GROUND TRUTH. Do NOT restate the table row by row, do NOT change or contradict any number, and " +
+      "do NOT introduce a person, company, deal or figure that isn't in the result. Your job is to INTERPRET it: " +
+      "in a few tight sentences say what actually stands out, why it matters for their pipeline or relationships, " +
+      "and end with ONE concrete next move phrased as an offer (\"Want me to…?\") naming only real entities from " +
+      "the result. Be specific and honest — push back where the data warrants; never hollow flattery. Match depth " +
+      "to the question: a bare count needs a sentence, a ranking or an \"am I doing enough\" needs a real read. " +
+      "Plain and warm — no headings, no preamble, no bullet-point recap of the table, no emoji.",
+    prompt: `Their question: ${question}\n\nThe computed result (ground truth, already shown to them):\n${resultText}${context ? `\n\nRelevant book context:\n${context}` : ""}\n\nGive your interpretation now — insight and a next move, not a recap.`,
+  };
+}
+
 // Generate the "what next?" chips shown under an answer. The trick to making them feel alive (not the
 // canned "A good next step would be…") is to base them on THE ANSWER just given and phrase each one in
 // the user's own first-person voice — a complete instruction they could tap to send verbatim. The model
