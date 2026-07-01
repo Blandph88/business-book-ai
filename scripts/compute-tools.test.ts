@@ -10,7 +10,7 @@ import {
   privacyResponse, shouldInterpretResult, computeForQuery,
 } from "../src/ai/compute.ts";
 import { conversationPath } from "../src/ai/grounding.ts";
-import { personalRegister, crisisSignal } from "../src/ai/intents.ts";
+import { personalRegister, crisisSignal, heavyDistress } from "../src/ai/intents.ts";
 
 const today = "2026-07-01";
 // Two contacts at Acme (which has held meetings + an open opp), one at Beta (open opp, NO meeting).
@@ -115,6 +115,24 @@ test("personalRegister / crisisSignal basics", () => {
   assert.equal(personalRegister("who do I know at Acme?"), false);
   assert.equal(crisisSignal("I want to end my life"), true);
   assert.equal(crisisSignal("kill that deal, it's going nowhere"), false); // "kill" a deal ≠ crisis
+});
+
+test("distress DIAL: acute → crisis floor; heavy → model (companion); ordinary → no support", () => {
+  // ACUTE (deterministic floor)
+  for (const q of ["I want to kill myself", "I've been thinking about ending it all", "I don't want to be here anymore", "I keep thinking about self-harm"])
+    assert.equal(crisisSignal(q), true, q);
+  // NOT acute — depression/bullying/situational must NOT hit the deterministic floor
+  for (const q of ["I've been really depressed for weeks", "the bullying at work is grinding me down", "I can't go on with this job", "I feel hopeless about everything", "I'm so burnt out"])
+    assert.equal(crisisSignal(q), false, q);
+  // …but they ARE heavy distress → the model should offer PROPORTIONAL support (not canned)
+  for (const q of ["I've been really depressed for weeks", "the constant belittling is wearing me down", "I feel completely hopeless", "I'm burnt out and can't cope"])
+    assert.equal(heavyDistress(q), true, q);
+  // ordinary low → NOT heavy (pure warmth, no support suggestion)
+  for (const q of ["rough day today", "I'm a bit tired and grumpy", "missed my flight, feeling sorry for myself"])
+    assert.equal(heavyDistress(q), false, q);
+  // routing: heavy distress still goes to the warm companion, never the crisis floor
+  assert.equal(conversationPath("I've been really depressed lately", d), "companion");
+  assert.equal(conversationPath("I can't go on with this job, it's draining me", d), "companion");
 });
 
 test("computeForQuery: filler never becomes a bogus company (no mis-parse)", () => {

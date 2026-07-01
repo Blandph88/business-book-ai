@@ -25,7 +25,7 @@ import { searchBook, assembleGrounding, conversationPath, type Groups, type Hit 
 import { ComputeTable } from "./ComputeTable";
 import { AiSetupCard } from "./AiSetupCard";
 import { retrievalCharBudget } from "../ai/contextBudget";
-import { routeIntent, isActionIntent } from "../ai/intents";
+import { routeIntent, isActionIntent, heavyDistress } from "../ai/intents";
 import { track, lenBucket } from "../lib/analytics";
 import { decide } from "../ai/decide";
 import { SPECS, matchContacts, matchOpportunity } from "../ai/actions/actionSpecs";
@@ -669,7 +669,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   // contact card (the old fallback dumping "Richard Singh" into an emotional chat was the worst offender).
   async function streamCompanion(text: string, prior: UITurn[], id: string, history: ChatTurn[], level: "small" | "mid" | "high") {
     let firstTok = true, bailed = false;
-    const streamP = aiPromptStream(companionPrompt(text, history, level), (full) => {
+    const streamP = aiPromptStream(companionPrompt(text, history, level, { heavy: heavyDistress(text) }), (full) => {
       if (bailed || chatIdRef.current !== id) return;
       if (firstTok) { firstTok = false; setAsking(false); setStreaming(true); }
       setChat([...prior, { role: "you", text }, { role: "ai", text: full }]);

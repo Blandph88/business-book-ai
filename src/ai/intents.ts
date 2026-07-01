@@ -227,12 +227,29 @@ export function personalRegister(text: string): boolean {
   );
 }
 
-// A serious-distress / CRISIS signal (self-harm, suicidal ideation, wanting to disappear). When this fires
-// the copilot must respond with care and point to real human help — it is NOT a counsellor. Handled
-// deterministically at the call site so a small model can't fumble the most important message a user sends.
+// ACUTE crisis ONLY — explicit self-harm / suicidal intent. This is the single case where the copilot
+// overrides the model with a deterministic, resource-bearing response (a weak model must never fumble this,
+// and the resources must be exact). Deliberately NARROW: sadness, depression, anxiety, being bullied,
+// "can't cope" are NOT this — those are heavyDistress (below), which the MODEL answers genuinely with a
+// PROPORTIONAL, non-canned suggestion of support. Harm-to-others is intentionally left to the model too
+// ("I could kill my boss" is an idiom a keyword floor would mis-fire on). Removed situational "can't go on".
 export function crisisSignal(text: string): boolean {
   const t = text.toLowerCase();
   return (
-    /\b(kill myself|end(?:ing)? (?:it all|my life)|take my (?:own )?life|suicid(?:e|al)|don'?t want to (?:live|be here|wake up|exist)|want to die|better off (?:dead|without me)|no reason to (?:live|go on|carry on)|can'?t go on (?:like this)?|hurt myself|harm myself|self[- ]harm|not want to be here)\b/.test(t)
+    /\b(kill(?:ing)? myself|end(?:ing)? (?:it all|my life|my own life)|take my (?:own )?life|suicid(?:e|al)|don'?t want to (?:live|be here|wake up|exist)|no longer want to (?:live|be here|be alive)|want to die|wanna die|better off (?:dead|without me)|no reason to (?:live|go on|carry on)|hurt(?:ing)? myself|harm(?:ing)? myself|self[- ]harm|cut(?:ting)? myself)\b/.test(t)
+  );
+}
+
+// HEAVY distress that is NOT an acute crisis — depression, hopelessness (without self-harm), being ground
+// down by bullying, "can't cope". NOT the deterministic floor: the model responds genuinely and, when the
+// weight warrants it, gently suggests support — proportional, never canned. This flag mainly helps a SMALL
+// model recognise a turn is heavy enough to offer that (a capable model can gauge it itself); it does not
+// change routing (these turns go to the warm companion either way).
+export function heavyDistress(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    /\b(depress(?:ed|ion|ing)|hopeless|despair(?:ing)?|can'?t cope|cannot cope|can'?t go on|falling apart|breaking down|at (?:my|an all[- ]time) lowest|really struggling|struggling (?:so much|a lot|badly|really)|burnt ?out|burned ?out|worthless|hate my life|hate myself|no point (?:in|to|any)|what'?s the point|too much to (?:handle|bear|take)|can'?t take (?:it|this) ?any ?more|drowning|rock bottom|dark place)\b/.test(t) ||
+    /\b(bullied|bullying|belittl(?:ed|ing|es)|harass(?:ed|ing|ment)|humiliat(?:ed|ing|es)|torment(?:ed|ing)|picked on)\b/.test(t) ||
+    /\bdon'?t know how much (?:more|longer) i can (?:take|cope|do this|keep going)\b/.test(t)
   );
 }

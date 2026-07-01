@@ -20,7 +20,7 @@ import Papa from "papaparse";
 import { computeForQuery, computeText, shouldInterpretResult, privacyResponse } from "../../src/ai/compute.ts";
 import { assembleGrounding, conversationPath } from "../../src/ai/grounding.ts";
 import { askBookPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE } from "../../src/ai/prompts.ts";
-import { routeIntent } from "../../src/ai/intents.ts";
+import { routeIntent, heavyDistress } from "../../src/ai/intents.ts";
 import { CONVERSATIONS } from "./conversations.mts";
 import { THREADS } from "./threads.mts";
 import { MEMORY_THREADS, SEED_MEMORY } from "./memory-threads.mts";
@@ -182,9 +182,10 @@ for (const convo of SET.slice(0, LIMIT)) {
         path = "crisis (deterministic safety floor)";
         history.push({ role: "you", text }, { role: "ai", text: response });
       } else if (cpath === "companion") {
-        const { system, prompt } = companionPrompt(text, history.slice(-8), COMPANION_LEVEL);
+        const heavy = heavyDistress(text);
+        const { system, prompt } = companionPrompt(text, history.slice(-8), COMPANION_LEVEL, { heavy });
         response = await callModel(system!, prompt);
-        path = `companion (model · ${COMPANION_LEVEL})`;
+        path = `companion (model · ${COMPANION_LEVEL}${heavy ? " · heavy" : ""})`;
         history.push({ role: "you", text }, { role: "ai", text: response });
         if (AI_KEY) await new Promise((r) => setTimeout(r, THROTTLE_MS));
       } else {
