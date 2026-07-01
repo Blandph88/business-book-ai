@@ -324,7 +324,7 @@ export const TOUR_STEPS: TourStep[] = [
     id: "rev-stats",
     tab: "revenue",
     target: ".statsbar",
-    title: "Contracts — the money",
+    title: "Engagements — the money",
     body: (
       <>
         Your headline totals — <strong>recognised</strong> and <strong>contracted</strong> revenue —

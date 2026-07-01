@@ -38,12 +38,18 @@ ok("pipeline question → Open opportunities listed (open deal present)", /Open 
 const c3 = assembleContext("what meetings have I had", data, 6000, today);
 ok("meetings question → recent meetings included", /Recent meetings/.test(c3) && /Jane Doe/.test(c3));
 
-// Always includes the summary header.
-ok("always includes the book summary", /Network size:/.test(c1));
+// Summary is now CONDITIONAL — included for broad/stats questions, NOT stat-dumped into specific ones.
+const cBroad = assembleContext("what do you know about me", data, 6000, today);
+ok("broad question → includes the book summary", /Network size:/.test(cBroad));
+ok("specific records question → does NOT stat-dump the summary", !/Network size:/.test(c1) && /Payments transformation/.test(c1));
 
-// Tiny budget still returns something (summary) without throwing.
+// Tiny budget still returns relevant grounding (the JPMorgan records) without throwing.
 const c4 = assembleContext("do JPMorgan have opportunities", data, 200, today);
-ok("tiny budget degrades gracefully", c4.length > 0 && /Network size:/.test(c4));
+ok("tiny budget degrades gracefully", c4.length > 0 && /JPMorgan|Jane Doe|Payments/.test(c4));
+
+// A vague question with no record matches falls back to the summary so there's always grounding.
+const c5 = assembleContext("hello", data, 6000, today);
+ok("no-match question → falls back to summary", /Network size:/.test(c5));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

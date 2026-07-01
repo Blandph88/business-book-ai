@@ -1,0 +1,10 @@
+/* The full-page Assistant tab. Gives the embedded CopilotBar (in fullPage mode) a tall, roomy
+   container so the conversation breathes — unlike the cramped quick-palette modal. */
+.chat-tab {
+  display: flex;
+  flex-direction: column;
+  /* Fill the main panel down to the viewport bottom (header + paddings accounted for). */
+  height: calc(100vh - 160px);
+  min-height: 420px;
+}
+.chat-tab .copilot { height: 100%; }

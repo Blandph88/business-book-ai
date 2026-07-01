@@ -13,6 +13,7 @@ import {
   OPPORTUNITY_SPOTTED,
   OWNER_NAME,
 } from "../data/vocab";
+import { SearchableSelect, type Option } from "./formControls";
 import { useAiAvailable, aiJson } from "../ai/ai";
 import { summarizeMeetingPrompt, transcriptPrompt, type MeetingExtract, type TranscriptExtract } from "../ai/prompts";
 import { TranscriptModal } from "../components/TranscriptModal";
@@ -165,6 +166,13 @@ export function MeetingForm({
     : target.row.contactInfo;
   // The linked contact (for the funnel stage tracker under the header).
   const whoContact = contacts.find((c) => c.url === (isNew ? contactUrl : target.row.contact_url));
+  // Searchable contact picker options (new mode), sorted by name.
+  const contactPickOptions = useMemo<Option[]>(
+    () => [...contacts]
+      .sort((a, b) => `${a.first} ${a.last}`.localeCompare(`${b.first} ${b.last}`))
+      .map((c) => ({ value: c.url, label: `${`${c.first} ${c.last}`.trim()}${c.organisation ? ` · ${c.organisation}` : ""}` })),
+    [contacts],
+  );
   const meetingNo = isNew ? undefined : target.row.meeting_no;
 
   // Save is only blocked in new mode until a contact is chosen.
@@ -454,19 +462,12 @@ export function MeetingForm({
           {/* New mode: choose the contact first. */}
           {isNew && (
             <Field label="Contact">
-              <select
-                className="mform-control"
+              <SearchableSelect
                 value={contactUrl}
-                onChange={(e) => setContactUrl(e.target.value)}
-              >
-                <option value="">Choose a contact…</option>
-                {contacts.map((c) => (
-                  <option key={c.url} value={c.url}>
-                    {`${c.first} ${c.last}`.trim()}
-                    {c.organisation ? ` — ${c.organisation}` : ""}
-                  </option>
-                ))}
-              </select>
+                options={contactPickOptions}
+                placeholder="Search a contact…"
+                onChange={(v) => setContactUrl(v)}
+              />
             </Field>
           )}
 

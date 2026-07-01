@@ -42,6 +42,14 @@ check("add a note to Jane", "update", "contact");
 check("remind me to send the proposal", "update", "contact");
 check("Priya is based in Dubai", "update", "contact");
 
+// create contact (someone not on LinkedIn) — explicit phrasings, must NOT clash with "I met X" → meeting
+check("add a new contact Jane Doe, CFO at Acme", "create", "contact");
+check("create a contact called Tom Smith at EY", "create", "contact");
+check("log a new contact: Priya Patel, Head of Risk at HSBC", "create", "contact");
+check("add Sara Lee to my contacts", "create", "contact");
+check("save Mike Brown as a new contact", "create", "contact");
+check("I just had a meeting with Ethan Rossi", "create", "meeting"); // still a meeting, not a contact
+
 // contract
 check("we signed Acme", "create", "contract");
 check("create a SoW for the EY deal", "create", "contract");

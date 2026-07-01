@@ -167,6 +167,14 @@
   color: var(--primary);
   border-bottom-color: var(--primary);
 }
+/* Per-tab line icon: sits just before the label, inherits the tab's text colour. */
+.tab-button-icon {
+  display: inline-flex;
+  width: 17px;
+  height: 17px;
+  margin-right: 7px;
+}
+.tab-button-icon svg { width: 100%; height: 100%; }
 
 /* ── Back bar ────────────────────────────────────────────────────────── */
 .back-bar { margin: -8px 0 12px; }
@@ -322,7 +330,7 @@ html.is-mobile .app-currency > span { display: none; }
   transition: border-color var(--ease), background var(--ease);
 }
 .topbar-search:hover { border-color: var(--primary-tint-2, var(--line)); background: #fff; }
-.topbar-search-ico { font-size: 1rem; color: var(--ink-3); }
+.topbar-search-ico { font-size: 1.3rem; color: var(--ink-3); }
 .topbar-search-text { flex: 1; text-align: left; }
 .topbar-search-kbd {
   font-size: 0.7rem;

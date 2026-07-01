@@ -42,9 +42,11 @@ const RULES: Rule[] = [
 
   // ── CAPTURE / CREATE MEETING ──
   { kind: "create", entity: "meeting", patterns: [
-    /\bi (?:just )?(?:had|did|finished|wrapped up|came (?:out|back) from)\s+(?:a |an |my )?(?:meeting|call|chat|catch[- ]?up|coffee|lunch|dinner|sync|conversation)\s+(?:with\s+)?(.+)/i,
+    // ADJ = a curated adjective run (not \w+, which would swallow "notes to my" and collide with update-notes).
+    // Lets "had a GREAT meeting" / "a really productive call" match while keeping the boundaries tight.
+    /\bi (?:just )?(?:had|did|finished|wrapped up|came (?:out|back) from)\s+(?:a |an |my )?(?:(?:great|good|quick|brief|nice|really|very|super|long|short|productive|positive|useful|helpful|initial|first|second|final|last|lovely|solid|proper|big|small|early|late|new)\s+){0,3}(?:meeting|call|chat|catch[- ]?up|coffee|lunch|dinner|sync|conversation)\s+(?:with\s+)?(.+)/i,
     /\b(?:just )?(?:met|spoke|talked|chatted|caught up|had coffee|had lunch|had a call)\s+with\s+(.+)/i,
-    /\blog (?:a |my )?(?:meeting|call|chat|coffee|catch[- ]?up|conversation)\s+(?:with\s+)?(.+)/i,
+    /\blog (?:a |my )?(?:(?:great|good|quick|brief|nice|really|very|super|long|short|productive|positive|useful|helpful|initial|first|second|final|last|lovely|solid|proper|big|small|early|late|new)\s+){0,3}(?:meeting|call|chat|coffee|catch[- ]?up|conversation)\s+(?:with\s+)?(.+)/i,
     /\b(?:record|capture|note|add)\s+(?:a |my )?(?:meeting|call|conversation)\s+(?:with\s+)?(.+)/i,
     /\b(.+?)\s+and i (?:just )?(?:spoke|met|talked|caught up)\b/i,
     /\bcreate (?:a |an )?(?:new )?meeting\b(?:\s+(?:with|for)\s+(.+))?/i,
@@ -57,14 +59,17 @@ const RULES: Rule[] = [
   { kind: "update", entity: "meeting", patterns: [
     /\b(?:add|update|edit|change)\s+(?:the )?(?:notes?|write[- ]?up|details?)\s+(?:to|on|for)\s+(?:my )?meeting\s+with\s+(.+)/i,
     /\bmark (?:the |my )?(.+?)\s+meeting\s+(?:as )?(?:held|done|complete|cancelled|no[- ]show)\b/i,
-    /\b(?:the |my )?meeting with (.+?)\s+(?:was|went)\b/i,
+    // Only an OUTCOME word after was/went (not "was weeks ago", and not inside a hypothetical "if … was …").
+    /(?<!\bif\b[^?]{0,60})\b(?:the |my )?meeting with (.+?)\s+(?:was|went)\s+(?:great|well|really|very|good|badly|poorly|positive|negative|productive|tough|hard|fine|ok|okay|terrible|amazing|useful|helpful|brilliant|disappointing|encouraging|a (?:success|disaster|waste))\b/i,
     /\bset (?:the )?follow[- ]?up\s+(?:for|on)\s+(?:my )?meeting\s+with\s+(.+)/i,
   ] },
 
   // ── CREATE OPPORTUNITY ──
   { kind: "create", entity: "opportunity", patterns: [
     /\b(?:there'?s|i (?:found|spotted|see)|we have)\s+(?:a |an )?(?:new )?opportunit(?:y|ies)\s+(?:at|with|for)\s+(.+)/i,
-    /\b(?:raise|create|add|log|open|start)\s+(?:a |an )?(?:new )?(?:opportunit(?:y|ies)|deal|pipeline item)\s+(?:at|with|for)?\s*(.+)?/i,
+    /\b(?:raise|create|add|log|start)\s+(?:a |an )?(?:new )?(?:opportunit(?:y|ies)|deal|pipeline item)\s+(?:at|with|for)?\s*(.+)?/i,
+    // "open" only with an article ("open a new deal") — never bare "open deal" (that's an ADJECTIVE: "my open deals").
+    /\bopen\s+(?:a |an )(?:new )?(?:opportunit(?:y|ies)|deal|pipeline item)\b\s*(?:at|with|for)?\s*(.+)?/i,
     /\b(.+?)\s+(?:is|are|might be|could be|seems?)\s+(?:interested|keen|looking)\s+(?:in|for)\b/i,
     /\b(?:new )?(?:deal|opportunity)\s+(?:from|out of)\s+(?:my )?meeting\s+with\s+(.+)/i,
     /\b(?:spotted|found|identified)\s+(?:a )?(?:deal|opportunity)\s+(?:with|at)\s+(.+)/i,
@@ -82,13 +87,24 @@ const RULES: Rule[] = [
   ] },
 
   // ── UPDATE CONTACT ──
+  // CREATE a brand-new contact (someone met who isn't in the LinkedIn import). Explicit phrasings only,
+  // so it never collides with the "I met/called X" → log-a-meeting signal above.
+  { kind: "create", entity: "contact", patterns: [
+    /\b(?:add|create|save|log|make)\s+(?:a\s+)?(?:new\s+)?contact\b\s*(?:called|named|for|:|-|–)?\s*(.+)?/i,
+    /\bnew contact\b\s*[:,-]?\s*(.+)?/i,
+    /\badd\s+(.+?)\s+(?:to|into)\s+my\s+(?:contacts|book|network)\b/i,
+    /\bsave\s+(.+?)\s+as\s+(?:a\s+)?(?:new\s+)?contact\b/i,
+  ] },
+
   { kind: "update", entity: "contact", patterns: [
     /\b(.+?)\s+is (?:now )?(?:a )?(?:champion|warm|strong|cold|high priority|low priority|the decision[- ]maker|a decision maker|an influencer|a gatekeeper)\b/i,
     /\bmark\s+(.+?)\s+as\s+(?:a )?(?:champion|warm|strong|cold|high|low|priority|decision[- ]?maker|influencer|gatekeeper)\b/i,
     /\bset (?:the )?(?:relationship|priority|decision role|next action|next step|reminder)\s+(?:for|on|with)\s+(.+)/i,
     /\b(.+?)\s+is based in\b/i,
     /\badd (?:a )?note\s+(?:to|on|for|about)\s+(.+)/i,
-    /\b(?:update|edit|change)\s+(.+?)'?s?\s+(?:relationship|priority|role|phone|notes?|details?)\b/i,
+    // Owner must be a NAME, not a pronoun/article — so "update — my priority has shifted" (a goal statement)
+    // isn't read as editing a contact's priority field.
+    /\b(?:update|edit|change)\s+(?!(?:my|the|your|his|her|their|our|a|an|this|that)\b)([A-Za-z][\w'’-]*(?:\s+[A-Za-z][\w'’-]*){0,2})'?s?\s+(?:relationship|priority|role|phone|notes?|details?)\b/i,
     /\bremind me to\s+(.+)/i,
   ] },
 
@@ -149,6 +165,19 @@ export function routeIntent(text: string, opts: { hasDoc?: boolean } = {}): Rout
   if (opts.hasDoc) {
     if (/\b(meeting|call|met|spoke|catch[- ]?up|coffee|transcript)\b/i.test(t)) return { kind: "create", entity: "meeting", op: "create", confidence: "high", source: "signal", target: cleanTarget(t.replace(/^.*\bwith\s+/i, "")) };
     return { kind: "document", confidence: "high", source: "signal" };
+  }
+
+  // Analytical / reporting requests are ANSWERS, never record writes. Guard up front so "create a sector
+  // contact report", "summarise…", "breakdown by sector" can't be mistaken for create/update-contact.
+  if (/\b(report|summary|summari[sz]e|breakdown|overview|analys(?:e|is|ze)|chart|graph|dashboard|distribution|weighted|how many|count)\b/i.test(t)) {
+    return { kind: "query", confidence: "high", source: "signal" };
+  }
+
+  // A NEGATED / absence question ("who haven't I met?", "who haven't I had a meeting with since May?") is a
+  // QUERY about a gap — NOT a request to log a meeting. Guard before the "I had a meeting with X" create rule,
+  // which otherwise matches the "…I had a meeting with…" substring inside "haven't I had a meeting with…".
+  if (/\b(?:haven'?t|hasn'?t|have not|has not|didn'?t|never|not yet)\b[^?]*\b(?:met|meeting|spoke|spoken|called|talked|contacted|reached out|caught up|heard from)\b/i.test(t)) {
+    return { kind: "query", confidence: "high", source: "signal" };
   }
 
   for (const rule of RULES) {

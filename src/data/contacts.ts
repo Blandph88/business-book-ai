@@ -8,6 +8,7 @@
 import Papa from "papaparse";
 import { getAppMode } from "../lib/appMode";
 import { loadImportedContacts } from "../storage/importedContacts";
+import { loadOwnedContacts } from "../storage/ownedContacts";
 import { SECTOR_GROUPS } from "./vocab";
 import { OTHER_INDUSTRY_LABEL } from "../config/markets";
 
@@ -100,8 +101,19 @@ function normalizeGroups(contacts: Contact[]): Contact[] {
 }
 
 export async function loadContacts(): Promise<Contact[]> {
-  if (getAppMode() === "owned")
-    return normalizeGroups(await loadImportedContacts());
+  const base = getAppMode() === "owned"
+    ? normalizeGroups(await loadImportedContacts())
+    : normalizeGroups(parseContactRows(await loadDemoCsv()));
+  // Merge in any contacts the owner added manually (people not in their LinkedIn export). Keyed by url,
+  // owner-added winning a collision — so they appear in every list/facet exactly like an imported contact.
+  const owned = loadOwnedContacts();
+  if (!owned.length) return base;
+  const byUrl = new Map(base.map((c) => [c.url, c]));
+  for (const c of normalizeGroups(owned)) byUrl.set(c.url, c);
+  return [...byUrl.values()];
+}
+
+async function loadDemoCsv(): Promise<string> {
   const response = await fetch("contacts_enriched.csv");
   if (!response.ok) {
     throw new Error(
@@ -109,7 +121,7 @@ export async function loadContacts(): Promise<Contact[]> {
         `Expected it at web/public/contacts_enriched.csv.`,
     );
   }
-  return normalizeGroups(parseContactRows(await response.text()));
+  return response.text();
 }
 
 // Fetch and parse ALL accepted connections (incl. out-of-scope, where sector_group is

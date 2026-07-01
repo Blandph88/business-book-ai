@@ -3,6 +3,7 @@
 // every other store here. One key holds the list; each chat is a title + its turns.
 
 import type { ChatTurn } from "../ai/prompts";
+import { persistLocal, scopedKey } from "./persist";
 
 export type SavedChat = {
   id: string;
@@ -12,7 +13,9 @@ export type SavedChat = {
   turns: ChatTurn[];
 };
 
-const KEY = "bob.chats.v1";
+// Scoped + disk-mirrored like the record stores — so chats are durable (survive a cleared browser /
+// move with the book via owner_data.json), not stranded in fragile per-browser localStorage.
+const KEY = scopedKey("bob.chats.v1");
 
 export function newChatId(): string {
   return "chat_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -34,7 +37,7 @@ export function getChat(id: string): SavedChat | null {
 
 function writeAll(chats: SavedChat[]): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(chats));
+    persistLocal(KEY, JSON.stringify(chats)); // localStorage + mirror to the durable disk file
   } catch {
     /* best-effort */
   }

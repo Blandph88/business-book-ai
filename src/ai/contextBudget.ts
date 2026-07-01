@@ -25,5 +25,14 @@ export async function retrievalCharBudget(): Promise<number> {
   const info = await aiAvailability();
   const tokens = info.contextTokens && info.contextTokens > 0 ? info.contextTokens : backendDefaultTokens(info.backend);
   const usableTokens = Math.max(1_200, tokens - 1_500);
-  return Math.round(usableTokens * 3.6 * 0.55);
+  const chars = Math.round(usableTokens * 3.6 * 0.55);
+  // Small in-browser / built-in models PREFILL slowly on a laptop GPU — a big prompt is the main cause of a
+  // long "Thinking…" before the first token. Cap their grounding hard so answers start fast.
+  const small = info.backend === "webllm" || info.backend === "builtin";
+  if (small) return Math.min(chars, 1_600);
+  // Capable backends (BYOK/Ollama) have huge context windows, but a FOCUSED slice beats dumping the whole
+  // book: a quarter-million-char grounding (≈44k tokens) is slow, costly, and drowns the relevant records in
+  // noise (it once blew up here). The retriever surfaces the records that matter; ~16k chars (≈4–5k tokens)
+  // is plenty for any specific query, and broad "summarise my book" asks are served by the compact summary.
+  return Math.min(chars, 16_000);
 }

@@ -28,6 +28,8 @@ import {
   type ControlsInitial,
 } from "../data/tableControls";
 import { ContactForm, type ContactRow } from "./ContactForm";
+import { NewContactForm } from "./NewContactForm";
+import { type Option } from "./formControls";
 import { StatsBar } from "../components/StatsBar";
 import {
   LinkedInIcon,
@@ -164,6 +166,18 @@ export function ContactsTab({
 
   // The currently-open contact panel, or null when closed.
   const [formTarget, setFormTarget] = useState<ContactRow | null>(null);
+  // Whether the "add a new contact" slide-in is open.
+  const [addingContact, setAddingContact] = useState(false);
+
+  // Reload contacts + edits from storage (after adding a manual contact).
+  function reloadContacts() {
+    loadContacts().then((rows) => { setContacts(rows); setEdits(loadAllEdits()); }).catch(() => {});
+  }
+  // Organisations already in the book, for the new-contact org picker (free-text adds a new one).
+  const orgOptions = useMemo<Option[]>(
+    () => [...new Set(contacts.map((c) => c.organisation?.trim()).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b)).map((o) => ({ value: o, label: o })),
+    [contacts],
+  );
 
   // Load the CSV and any previously saved edits once, on mount.
   useEffect(() => {
@@ -248,9 +262,12 @@ export function ContactsTab({
         ? {
             query: intent.search,
             searchField: intent.searchField,
-            filters: intent.filter
-              ? { [intent.filter.key]: intent.filter.value }
-              : undefined,
+            filters: (() => {
+              const f: Record<string, string> = {};
+              if (intent.filter) f[intent.filter.key] = intent.filter.value;
+              for (const x of intent.filters ?? []) f[x.key] = x.value;
+              return Object.keys(f).length ? f : undefined;
+            })(),
           }
         : undefined,
     [intent],
@@ -343,6 +360,9 @@ export function ContactsTab({
       <div className="contacts-toolbar">
         <h2>Contacts</h2>
         <span className="contacts-count">{contacts.length} contacts</span>
+        <button type="button" className="mform-secondary" onClick={() => setAddingContact(true)}>
+          + Add contact
+        </button>
         <span
           className={
             justSaved
@@ -531,6 +551,21 @@ export function ContactsTab({
             // (no-ops when the form was opened from within this tab).
             onReturn?.();
           }}
+        />
+      )}
+
+      {addingContact && (
+        <NewContactForm
+          orgOptions={orgOptions}
+          onSaved={(url) => {
+            setAddingContact(false);
+            reloadContacts();
+            setJustSaved(true);
+            window.setTimeout(() => setJustSaved(false), 1200);
+            // Open the freshly-added contact so they can keep editing / log a meeting.
+            void url;
+          }}
+          onClose={() => setAddingContact(false)}
         />
       )}
     </section>

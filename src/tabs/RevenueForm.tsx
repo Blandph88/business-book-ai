@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Sow, Deliverable, RateLine } from "../storage/revenue";
 import type { Opportunity } from "../storage/opportunities";
 import { contractedRevenue, pctRecognised } from "../data/revenue";
@@ -16,6 +16,8 @@ import {
   DateInput,
   NumberInput,
   Select,
+  SearchableSelect,
+  type Option,
 } from "./formControls";
 import { AiFill } from "../components/AiFill";
 
@@ -73,6 +75,12 @@ export function RevenueForm({
   onClose: () => void;
 }) {
   const isNew = target.mode === "new";
+
+  // Organisations we already have opportunities with, for the searchable org picker (free-text adds a new one).
+  const orgPickOptions = useMemo<Option[]>(
+    () => [...new Set(opportunities.map((o) => o.organisation?.trim()).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b)).map((o) => ({ value: o, label: o })),
+    [opportunities],
+  );
 
   const [draft, setDraft] = useState<Sow>(() =>
     normalizeForEdit(
@@ -193,8 +201,11 @@ export function RevenueForm({
             </Field>
             <div className="mform-grid">
               <Field label="Organisation">
-                <TextField
+                <SearchableSelect
                   value={draft.organisation}
+                  options={orgPickOptions}
+                  placeholder="Search or add an organisation…"
+                  allowFreeText
                   onChange={(v) => set("organisation", v)}
                 />
               </Field>

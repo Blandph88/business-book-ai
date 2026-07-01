@@ -1,0 +1,48 @@
+/* A deterministic, clickable result table (compute answers). Scannable like a table, navigable like cards. */
+.ctab { display: flex; flex-direction: column; }
+.ctab-intro { margin: 0 0 8px; line-height: 1.55; white-space: pre-wrap; }
+.ctab-wrap {
+  overflow: auto;
+  max-height: 340px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.ctab-table { border-collapse: collapse; font-size: 13px; width: 100%; }
+.ctab-table th, .ctab-table td { text-align: left; padding: 9px 14px; white-space: nowrap; vertical-align: top; }
+.ctab-table thead th {
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  background: var(--primary-tint);
+  border-bottom: 1px solid var(--primary-tint-2);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.ctab-table tbody td { border-top: 1px solid var(--line); color: var(--ink); }
+.ctab-table tbody tr:first-child td { border-top: none; }
+.ctab-table td:first-child { font-weight: 600; }
+.ctab-row--click { cursor: pointer; }
+.ctab-row--click:hover td { background: var(--primary-tint); }
+.ctab-row--click:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+/* Hint that a row opens the record. */
+.ctab-row--click td:last-child { position: relative; }
+.ctab-row--click td:last-child::after { content: "›"; color: var(--ink-3); margin-left: 8px; font-weight: 700; }
+/* "View all N" jump to the full filtered list when a result is capped. */
+.ctab-more {
+  align-self: flex-start;
+  margin-top: 8px;
+  border: 1px solid var(--primary-tint-2);
+  background: var(--primary-tint);
+  color: var(--primary-700);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  font-family: inherit;
+}
+.ctab-more:hover { background: var(--primary-tint-2); }

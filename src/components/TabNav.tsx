@@ -1,3 +1,5 @@
+import { NAV_ICON } from "./NavIcons";
+
 // The top navigation bar.
 //
 // The OVERVIEW (the network charts/funnels — the `metrics` view id) is the nameless HOME:
@@ -13,7 +15,8 @@ export type TabId =
   | "contacts"
   | "meetings"
   | "opportunities"
-  | "revenue";
+  | "revenue"
+  | "chat";
 
 // A deep-link payload carried when navigating to a tab (e.g. from a Dashboard click):
 // preset the search box, preset one column filter, and/or open a specific row's slide-in
@@ -24,6 +27,8 @@ export type TabIntent = {
   search?: string;
   searchField?: string; // scope the preset search to one field (a tab's searchFields key, e.g. "company")
   filter?: { key: string; value: string };
+  // Several filters at once (e.g. agreed-to-meet = Yes AND met = No). Merged with `filter` if both given.
+  filters?: { key: string; value: string }[];
   openId?: string;
   // Open a NEW record's form pre-filled for this contact (its LinkedIn url) — used by the
   // contact form's "Log meeting" / "Add opportunity" shortcuts.
@@ -45,7 +50,8 @@ export const TABS: { id: TabId; label: string }[] = [
   { id: "contacts", label: "Contacts" },
   { id: "meetings", label: "Meetings" },
   { id: "opportunities", label: "Opportunities" },
-  { id: "revenue", label: "Contracts" },
+  { id: "revenue", label: "Engagements" },
+  { id: "chat", label: "Chat" },
 ];
 
 type TabNavProps = {
@@ -64,6 +70,7 @@ export function TabNav({ activeTab, onSelect }: TabNavProps) {
           }
           onClick={() => onSelect(tab.id)}
         >
+          <span className="tab-button-icon">{NAV_ICON[tab.id]}</span>
           {tab.label}
         </button>
       ))}
