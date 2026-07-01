@@ -253,7 +253,7 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
       <div className="kpi-grid">
         <KpiCard label="Needs attention" value={agenda.length} hint="overdue + this week" />
         <KpiCard label="Weighted pipeline" value={formatMoney(weightedPipeline)} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Open" } })} />
-        <KpiCard label="Recognised" value={formatMoney(recognised)} hint="across signed contracts" onClick={() => onNavigate("revenue")} />
+        <KpiCard label="Recognised" value={formatMoney(recognised)} hint="across signed engagements" onClick={() => onNavigate("revenue")} />
         <KpiCard label="Win rate" value={winRateLabel} hint={`${winLoss.won}W · ${winLoss.lost}L`} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Won" } })} />
       </div>
 
@@ -666,7 +666,7 @@ function AgendaTable({
     kind === "Opportunity next step"
       ? "Opportunity"
       : kind === "Contract next step"
-        ? "Contract"
+        ? "Engagement"
         : "Meeting";
   return (
     <div className="agenda-table-wrap">

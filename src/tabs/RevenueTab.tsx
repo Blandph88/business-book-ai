@@ -176,14 +176,14 @@ export function RevenueTab({
   return (
     <section className="rev">
       <div className="rev-toolbar">
-        <h2>Contracts</h2>
-        <span className="rev-count">{rows.length} contracts</span>
+        <h2>Engagements</h2>
+        <span className="rev-count">{rows.length} engagements</span>
         <button
           type="button"
           className="rev-add"
           onClick={() => setFormTarget({ mode: "new" })}
         >
-          + Add contract
+          + Add engagement
         </button>
         <span className={justSaved ? "rev-saved rev-saved--on" : "rev-saved"}>
           Saved ✓
@@ -191,8 +191,8 @@ export function RevenueTab({
       </div>
 
       <p className="rev-hint">
-        Your signed contracts. Contracted revenue and % recognised are calculated
-        automatically from each contract's pricing. Click any row to edit.
+        Your signed engagements. Contracted revenue and % recognised are calculated
+        automatically from each engagement's pricing. Click any row to edit.
       </p>
 
       {rows.length > 0 && (

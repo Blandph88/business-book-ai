@@ -26,6 +26,18 @@ export function weightedValue(opp: Opportunity): number {
   return (opp.est_value ?? 0) * (opp.probability ?? 0);
 }
 
+// The opportunity name WITHOUT a redundant leading "Org — " (some are stored as "JPMorgan — Strategy
+// engagement", which doubles the company when shown next to an Organisation column/field). Display-only.
+export function oppDisplayName(opp: { opportunity_name?: string; organisation?: string }): string {
+  const name = (opp.opportunity_name || "").trim() || "(unnamed)";
+  const org = (opp.organisation || "").trim();
+  if (org) {
+    const m = name.match(new RegExp(`^${org.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*[—-]\\s*(.+)$`, "i"));
+    if (m && m[1].trim()) return m[1].trim();
+  }
+  return name;
+}
+
 // ── Buyer function → your service line (a smart default, not a rule) ─────────
 // When an opportunity's buyer function is set (from the linked contact or by hand),
 // the form pre-fills your service line from this table. It's only a starting point —

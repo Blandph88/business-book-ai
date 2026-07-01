@@ -8,13 +8,16 @@ import { ContactsTab } from "./tabs/ContactsTab";
 import { MeetingsTab } from "./tabs/MeetingsTab";
 import { OpportunitiesTab } from "./tabs/OpportunitiesTab";
 import { RevenueTab } from "./tabs/RevenueTab";
+import { ChatTab } from "./tabs/ChatTab";
 import { AccountView } from "./components/AccountView";
 import MobileNote from "./components/MobileNote";
 import { Brand, FreeholdBadge } from "./components/Brand";
 import { ImportModal } from "./components/ImportModal";
+import { track } from "./lib/analytics";
 import { CopilotBar } from "./components/CopilotBar";
 import { SideNav } from "./components/SideNav";
 import { CURRENCY_CODE, CURRENCY_OPTIONS, setCurrency } from "./data/format";
+import { listChats, type SavedChat } from "./storage/chats";
 
 // Persisted "the onboarding tour has been seen" flag. Written through localStorage so it
 // rides the same persistence as the rest of the app: in the OWNED app the vault persists it
@@ -48,6 +51,23 @@ export default function App() {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [copilotView, setCopilotView] = useState<"search" | "history">("search");
   const openCopilot = (view: "search" | "history" = "search") => { setCopilotView(view); setCopilotOpen(true); };
+  // The Recent-chats rail + the full Chat surface read the same saved-chats store. `recentChats` is the
+  // live list shown in the nav; `chatLaunch` tells the Chat tab which view to open (the searchable list,
+  // a fresh chat, or a specific saved chat) — its `key` bumps to force a remount on each navigation.
+  const [recentChats, setRecentChats] = useState<SavedChat[]>(() => listChats());
+  const refreshChats = () => setRecentChats(listChats());
+  const [chatLaunch, setChatLaunch] = useState<{ view: "search" | "history" | "chat"; chatId?: string; seed?: string; key: number }>({ view: "history", key: 0 });
+  const goChat = (next: { view: "search" | "history" | "chat"; chatId?: string; seed?: string }) => {
+    setReturnTo(null);
+    setIntent(null);
+    setChatLaunch((l) => ({ ...next, key: l.key + 1 }));
+    setActiveTab("chat");
+  };
+  const openChats = () => goChat({ view: "history" });
+  const newChat = () => goChat({ view: "search" });
+  const openChatById = (id: string) => goChat({ view: "chat", chatId: id });
+  // The top-bar quick palette escalates a typed draft into the full Chat surface as a fresh conversation.
+  const askInChat = (text: string) => { setCopilotOpen(false); goChat({ view: "search", seed: text }); };
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openCopilot("search"); }
@@ -55,6 +75,9 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Demo analytics: the app opened. No-op in the owned/sealed copy; content-free. Fires once per load.
+  useEffect(() => { track("app_launch"); }, []);
 
   // The onboarding tour. Auto-opens on first run (no "seen" flag yet); re-openable any time
   // via the "?" button in the top bar.
@@ -81,13 +104,14 @@ export default function App() {
 
   // The responsive left nav (narrow widths): open/closed accordion. Selecting an item or
   // importing collapses it.
-  const [navOpen, setNavOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(true);
   // Keep the side nav OPEN after picking a tab — it pushes the content right rather than
   // overlaying, and stays put until the user explicitly closes it with the toggle.
   const selectTabFromNav = (tab: TabId) => {
     selectTab(tab);
   };
   const openImport = () => {
+    track("upload_start"); // demo-only, content-free: a prospect started connecting their own data
     setShowImport(true);
     setNavOpen(false);
   };
@@ -147,7 +171,8 @@ export default function App() {
     contacts: "Contacts",
     meetings: "Meetings",
     opportunities: "Opportunities",
-    revenue: "Contracts",
+    revenue: "Engagements",
+    chat: "Assistant",
   };
 
   return (
@@ -163,27 +188,18 @@ export default function App() {
           <button
             type="button"
             className="topbar-search"
-            title="Search or ask your book (⌘K)"
+            title="Search or ask your book"
             onClick={() => openCopilot("search")}
           >
             <span className="topbar-search-ico" aria-hidden>⌕</span>
-            <span className="topbar-search-text">Search, ask or take action</span>
-            <span className="topbar-search-kbd">⌘K</span>
-          </button>
-          <button
-            type="button"
-            className="topbar-chats"
-            title="Your saved chats about your book"
-            onClick={() => openCopilot("history")}
-          >
-            Chats
+            <span className="topbar-search-text">How can I help you today?</span>
           </button>
           <div className="topbar-right">
             <button
               type="button"
               className="topbar-import"
               title="Import your LinkedIn connections"
-              onClick={() => setShowImport(true)}
+              onClick={openImport}
             >
               ⬆ Import LinkedIn
             </button>
@@ -216,6 +232,10 @@ export default function App() {
         onToggle={() => setNavOpen((v) => !v)}
         onSelect={selectTabFromNav}
         onImport={openImport}
+        recentChats={recentChats}
+        onOpenChats={openChats}
+        onNewChat={newChat}
+        onOpenChat={openChatById}
       />
 
       <div className="app">
@@ -241,10 +261,21 @@ export default function App() {
         <main className="app-main" key={dataNonce}>
           {activeTab === "dashboard" && <DashboardTab onNavigate={navigate} />}
           {activeTab === "metrics" && <MetricsTab onNavigate={navigate} onOpenAccount={openAccount} />}
-          {activeTab === "contacts" && <ContactsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} onImport={() => setShowImport(true)} />}
+          {activeTab === "contacts" && <ContactsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} onImport={openImport} />}
           {activeTab === "meetings" && <MeetingsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}
           {activeTab === "opportunities" && <OpportunitiesTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}
           {activeTab === "revenue" && <RevenueTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}
+          {activeTab === "chat" && (
+            <ChatTab
+              key={chatLaunch.key}
+              view={chatLaunch.view}
+              openChatId={chatLaunch.chatId}
+              seedPrompt={chatLaunch.seed}
+              onChatsChanged={refreshChats}
+              onNavigate={navigate}
+              onOpenAccount={openAccount}
+            />
+          )}
         </main>
       </div>
 
@@ -266,7 +297,7 @@ export default function App() {
 
       {/* Global "Import your LinkedIn" modal (opened from the top bar / side nav / Contacts). */}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}
-      {copilotOpen && <CopilotBar initialView={copilotView} onNavigate={navigate} onOpenAccount={openAccount} onClose={() => setCopilotOpen(false)} />}
+      {copilotOpen && <CopilotBar initialView={copilotView} onAsk={askInChat} onChatsChanged={refreshChats} onNavigate={navigate} onOpenAccount={openAccount} onClose={() => setCopilotOpen(false)} />}
     </div>
   );
 }

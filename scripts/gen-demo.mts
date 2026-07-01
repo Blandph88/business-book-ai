@@ -89,10 +89,12 @@ function makeContact(company: string): Contact {
   return { first, last, company, title, url, email, connectedOn, tier };
 }
 const contacts: Contact[] = [];
-// Clusters: 40 companies × 4, 60 × 3, 160 × 2, then 1 each until ~1,400 contacts. The clustered
-// companies are the most prominent (front of ORDERED), so the biggest firms get the most contacts;
-// the long tail fills the singletons (shuffled so they're not industry-ordered).
-const plan: number[] = [...Array(40).fill(4), ...Array(60).fill(3), ...Array(160).fill(2)];
+// DEEP benches on the marquee accounts so the sector×seniority and org×function matrices have real depth
+// (multiple people per cell across varying levels + functions), not a sea of 1s. 50 companies × 8, 80 × 6,
+// 150 × 4, 270 × 3 (= 2,290), then a SHORT long tail of singletons to the target. The clustered companies
+// are the most prominent (front of ORDERED), so the biggest firms get the biggest benches — like a real book.
+const TARGET_CONTACTS = 2319;
+const plan: number[] = [...Array(50).fill(8), ...Array(80).fill(6), ...Array(150).fill(4), ...Array(270).fill(3)];
 let ci = 0;
 for (let p = 0; p < plan.length; p++) {
   const company = (ORDERED[p] ?? DICT[ci++ % DICT.length]).name;
@@ -100,7 +102,7 @@ for (let p = 0; p < plan.length; p++) {
 }
 const tail = shuffle(ORDERED.slice(plan.length));
 let si = 0;
-while (contacts.length < 1400) {
+while (contacts.length < TARGET_CONTACTS) {
   const company = (tail[si++] ?? DICT[ci++ % DICT.length]).name;
   contacts.push(makeContact(company));
 }
@@ -166,12 +168,17 @@ const WON_STEPS = ["contracting", "setup", "delivery", "delivery", "revenue"];
 //   • 3 UPCOMING  (due within the next week)
 //   • 11 QUIET    pipeline whose next step slipped weeks ago → shows in "going cold", not the agenda
 //   • 20 WON      (contracting → revenue) → these seed most of the Contracts/Revenue book
-type OppSlot = { step: string; delta: number | null };
+type OppSlot = { step: string; delta: number | null; lost?: boolean };
 const oppPlan: OppSlot[] = [];
 [-9, -7, -5, -4, -2, -1].forEach((d, k) => oppPlan.push({ step: PIPE_STEPS[k % PIPE_STEPS.length], delta: d }));
 [2, 4, 6].forEach((d, k) => oppPlan.push({ step: PIPE_STEPS[(k + 2) % PIPE_STEPS.length], delta: d }));
 for (let k = 0; k < 11; k++) oppPlan.push({ step: PIPE_STEPS[k % PIPE_STEPS.length], delta: -(24 + k * 7) });
 for (let k = 0; k < 20; k++) oppPlan.push({ step: WON_STEPS[k % WON_STEPS.length], delta: null });
+// LOST: a realistic minority of deals die after real investment (clearance→procurement). Gives a
+// believable ~70% win rate (20 won / 9 lost), NOT a fake 100%. These are NOT WON_STEPS, so they never
+// become signed engagements; oppStatus returns "Lost" via the lost flag regardless of step.
+const LOST_STEPS = ["clearance", "proposal_build", "proposal_delivery", "procurement", "scoping"];
+for (let k = 0; k < 9; k++) oppPlan.push({ step: LOST_STEPS[k % LOST_STEPS.length], delta: null, lost: true });
 
 // Collected for the contracts pass below (won opps become signed engagements).
 type OppMeta = { url: string; company: string; sl: string; step: string };
@@ -198,11 +205,12 @@ agreed.forEach((url, i) => {
     const sl = pick(SERVICE_LINE);
     opp = {
       opportunity_name: `${c.company} — ${sl} engagement`, service_line: sl, step: slot.step,
+      lost: slot.lost || undefined,
       description: `Opportunity spotted with ${full} (${c.title}) around ${pain}.`,
-      est_value: pick(VALUE_POOL), probability: STEP_PROB[slot.step],
+      est_value: pick(VALUE_POOL), probability: slot.lost ? 0 : STEP_PROB[slot.step],
       next_step: pick(["Send a follow-up note", "Draft a short proposal", "Schedule a scoping call", "Confirm budget owner", "Share a relevant case study"]),
     };
-    if (WON.has(slot.step)) wonOpps.push({ url, company: c.company, sl, step: slot.step });
+    if (!slot.lost && WON.has(slot.step)) wonOpps.push({ url, company: c.company, sl, step: slot.step });
   } else {
     // Relationship / pipeline meetings WITHOUT a spotted opportunity (still light up the funnel).
     const j = i - oppPlan.length;

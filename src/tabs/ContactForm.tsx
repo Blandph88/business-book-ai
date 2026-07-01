@@ -15,6 +15,7 @@ import { Field, TextField, TextArea, Select } from "./formControls";
 import { ContactLinks } from "../components/BrandIcons";
 import { useAiAvailable, aiPrompt, aiJson } from "../ai/ai";
 import { draftMessagePrompt, briefContactPrompt, suggestCrmPrompt, type DraftKind, type CrmSuggest } from "../ai/prompts";
+import { relevantNotes } from "../storage/memory";
 import { AiSuggest } from "../components/AiSuggest";
 
 // Default home country until an org→country mapping is wired up.
@@ -462,7 +463,7 @@ export function ContactForm({
         <AiSuggest
           title="Draft a message"
           subtitle={`To ${name || "this contact"} · ${draftKind === "first-touch" ? "first outreach" : draftKind === "follow-up" ? "follow-up" : "reconnect"}`}
-          generate={(tweak) => aiPrompt(draftMessagePrompt(contact, meetings, draftKind, tweak))}
+          generate={(tweak) => aiPrompt(draftMessagePrompt(contact, meetings, draftKind, tweak, relevantNotes(`${name} ${contact.organisation || ""}`).map((n) => n.text).join("\n")))}
           tweaks={[
             { label: "Shorter", instruction: "Make it shorter — 1–2 sentences." },
             { label: "Warmer", instruction: "Make it warmer and more personal." },
@@ -476,7 +477,7 @@ export function ContactForm({
           title={`Brief: ${name || "contact"}`}
           subtitle="Pre-outreach summary"
           editable={false}
-          generate={() => aiPrompt(briefContactPrompt(contact, meetings))}
+          generate={() => aiPrompt(briefContactPrompt(contact, meetings, relevantNotes(`${name} ${contact.organisation || ""}`).map((n) => n.text).join("\n")))}
           onClose={() => setAiPanel(null)}
         />
       )}

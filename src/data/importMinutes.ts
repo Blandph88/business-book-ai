@@ -32,7 +32,9 @@ import {
 // cleared. Resetting the "applied seeds" set means the (now empty) seed file starts
 // from scratch and no mock-### seed is remembered as applied.
 // v5: refresh demo onto the curated "this week" agenda (fewer overdue) + contract next-steps.
-const APPLIED_KEY = "bob.seedApplied.v5";
+// v6: realistic win/loss in the seed (some opps flagged lost) so the demo win rate isn't a fake 100%.
+// v7: regenerated demo at 2,319 contacts with deep per-company benches (matrices have real depth, win/loss baked in).
+const APPLIED_KEY = "bob.seedApplied.v7";
 
 // Build a Meeting from a compiled minute. The contact's name/org/seniority/function
 // are NOT stored here — they're derived live from the contact (see ./meetings.ts) —

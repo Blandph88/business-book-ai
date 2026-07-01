@@ -227,6 +227,81 @@ export function MultiSelect({
   );
 }
 
+// A SEARCHABLE single-select (combobox) — type to filter a long list and pick one. Use this anywhere a
+// plain <select> would be unwieldy: the contact picker (1000s of people) and the organisation picker. The
+// value can differ from the label (e.g. a contact's url as value, "Name · Org" as label). With
+// `allowFreeText`, a value not in the list can be typed and committed (orgs: pick an existing one OR add a
+// new). Shares the `msel-*` styling with MultiSelect so every form looks identical.
+export type Option = { value: string; label: string };
+export function SearchableSelect({
+  value,
+  options,
+  onChange,
+  placeholder,
+  allowFreeText = false,
+}: {
+  value?: string;
+  options: readonly Option[];
+  onChange: (v: string) => void;
+  placeholder?: string;
+  allowFreeText?: boolean;
+}) {
+  const selectedLabel = useMemo(
+    () => options.find((o) => o.value === value)?.label ?? (allowFreeText ? (value ?? "") : ""),
+    [options, value, allowFreeText],
+  );
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const q = query.trim().toLowerCase();
+  const matches = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  const canAddNew = allowFreeText && q !== "" && !options.some((o) => o.label.toLowerCase() === q);
+
+  const pick = (v: string) => { onChange(v); setQuery(""); setEditing(false); setOpen(false); };
+
+  return (
+    <div className="msel">
+      <div className="msel-tags">
+        <input
+          type="text"
+          className="msel-input"
+          value={editing ? query : selectedLabel}
+          placeholder={placeholder}
+          onChange={(e) => { setQuery(e.target.value); setEditing(true); setOpen(true); }}
+          onFocus={() => { setEditing(true); setQuery(""); setOpen(true); }}
+          onBlur={() => window.setTimeout(() => { setEditing(false); setOpen(false); }, 120)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && allowFreeText && query.trim()) { e.preventDefault(); pick(query.trim()); }
+            else if (e.key === "Escape") { setEditing(false); setOpen(false); }
+          }}
+        />
+        {value && !editing && (
+          <button type="button" className="msel-x" title="Clear" onMouseDown={(e) => { e.preventDefault(); pick(""); }}>×</button>
+        )}
+      </div>
+      {open && (matches.length > 0 || canAddNew) && (
+        <ul className="msel-menu">
+          {matches.slice(0, 8).map((o) => (
+            <li key={o.value}>
+              <button type="button" className="msel-opt" onMouseDown={(e) => { e.preventDefault(); pick(o.value); }}>
+                {o.label}
+              </button>
+            </li>
+          ))}
+          {canAddNew && (
+            <li>
+              <button type="button" className="msel-opt msel-opt--add" onMouseDown={(e) => { e.preventDefault(); pick(query.trim()); }}>
+                Add “{query.trim()}”
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // Dropdown bound to an optional string, with a leading "—" (empty) option. Works
 // for string vocabularies; numeric vocabularies (e.g. probability) use a dedicated
 // select in their form so the value stays a number.

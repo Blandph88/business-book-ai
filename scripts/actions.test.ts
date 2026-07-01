@@ -7,6 +7,7 @@ const store = new Map<string, string>();
 import { SPECS, matchContacts, parseMoney, type ActionCtx } from "../src/ai/actions/actionSpecs";
 import { loadAllMeetings } from "../src/storage/meetings";
 import { loadAllOpportunities } from "../src/storage/opportunities";
+import { loadOwnedContacts } from "../src/storage/ownedContacts";
 
 let pass = 0, fail = 0;
 function ok(name: string, cond: boolean) { cond ? pass++ : fail++; console.log(`${cond ? "✓" : "✗ FAIL"}  ${name}`); }
@@ -33,12 +34,29 @@ ok("contact extract → High priority", cx.priority === "High");
 ok("contact extract → Decision Maker", cx.decision_role === "Decision Maker");
 ok("contact extract → based in Dubai", cx.based_in === "Dubai");
 
+// CREATE contact (manual — someone not on LinkedIn): parse → write to owned store (classified) → undo removes
+const ncx = await SPECS.contact.extract(baseCtx({ op: "create", text: "add a new contact Jane Doe, CFO at Acme" }));
+ok("new-contact parse → first=Jane", ncx.first === "Jane");
+ok("new-contact parse → last=Doe", ncx.last === "Doe");
+ok("new-contact parse → org=Acme", ncx.organisation === "Acme");
+ok("new-contact parse → title=CFO", ncx.position === "CFO");
+const nres = SPECS.contact.write({ first: "Jane", last: "Doe", organisation: "Acme", position: "CFO" }, baseCtx({ op: "create" }));
+ok("new contact saved to owned store", loadOwnedContacts().some((c) => c.first === "Jane" && c.organisation === "Acme"));
+ok("new contact classified (sector_group set)", !!loadOwnedContacts().find((c) => c.first === "Jane")?.sector_group);
+nres.undo();
+ok("undo removes the new contact", !loadOwnedContacts().some((c) => c.first === "Jane" && c.organisation === "Acme"));
+
 // meeting write → deterministic id, retry doesn't duplicate, undo removes
 const mctx = baseCtx({ subjectUrl: "u1" });
 const m1 = SPECS.meeting.write({ meeting_stage: "Held", date_held: "2026-06-27", notes: "good chat" }, mctx);
 ok("meeting write created one", Object.keys(loadAllMeetings()).length === 1);
 const m2 = SPECS.meeting.write({ meeting_stage: "Held", date_held: "2026-06-27", notes: "good chat" }, mctx);
 ok("meeting retry → same id, no duplicate", m1.id === m2.id && Object.keys(loadAllMeetings()).length === 1);
+// UPDATE a meeting (targetId) → edits in place, no duplicate
+const upCtx = baseCtx({ op: "update", subjectUrl: "u1", targetId: m1.id, meetingRows: [{ id: m1.id, contact_url: "u1", meeting_no: 1, meeting_stage: "Held", date_held: "2026-06-27" }] as any });
+const mu = SPECS.meeting.write({ meeting_stage: "Held", notes: "updated notes" }, upCtx);
+ok("meeting update → same id, no new record", mu.id === m1.id && Object.keys(loadAllMeetings()).length === 1);
+ok("meeting update → notes changed", loadAllMeetings()[m1.id]?.notes === "updated notes");
 m1.undo();
 ok("meeting undo removed it", Object.keys(loadAllMeetings()).length === 0);
 

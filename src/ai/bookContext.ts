@@ -8,7 +8,7 @@ import type { Contact } from "../data/contacts";
 import type { MeetingRow } from "../data/meetings";
 import type { Opportunity } from "../storage/opportunities";
 import type { Sow } from "../storage/revenue";
-import { opportunityPhase, opportunityStatus, weightedValue } from "../data/opportunities";
+import { opportunityPhase, opportunityStatus, weightedValue, oppDisplayName } from "../data/opportunities";
 import { contractedRevenue } from "../data/revenue";
 import { formatMoney } from "../data/format";
 import { buildBookSummary } from "./bookSummary";
@@ -24,7 +24,7 @@ function lineContact(c: Contact): string {
   return `${`${c.first} ${c.last}`.trim()} · ${c.position || "—"} · ${c.organisation || "—"}${c.seniority ? ` · ${c.seniority}` : ""} · ${stage}`;
 }
 function lineOpp(o: Opportunity): string {
-  return `${o.organisation || "—"} — ${o.opportunity_name || "(unnamed)"} · ${opportunityPhase(o)}/${o.current_step} · ${opportunityStatus(o)} · est ${formatMoney(o.est_value)} (weighted ${formatMoney(weightedValue(o))})${o.primary_contact ? ` · ${o.primary_contact}` : ""}`;
+  return `${o.organisation || "—"} — ${oppDisplayName(o)} · ${opportunityPhase(o)}/${o.current_step} · ${opportunityStatus(o)} · est ${formatMoney(o.est_value)} (weighted ${formatMoney(weightedValue(o))})${o.primary_contact ? ` · ${o.primary_contact}` : ""}`;
 }
 function lineMeeting(r: MeetingRow): string {
   const when = r.date_held || r.date_scheduled || r.date_agreed || "—";
@@ -56,9 +56,8 @@ function focusOrgs(question: string, orgs: string[]): Set<string> {
 }
 
 export function assembleContext(question: string, d: BookData, charBudget: number, today: string): string {
-  const summary = buildBookSummary(d.contacts, d.meetingRows, d.opps, d.sows, today);
-  const parts: string[] = [summary];
-  let used = summary.length;
+  const parts: string[] = [];
+  let used = 0;
 
   // Add a labelled block, truncating its lines to whatever budget remains (with a "…N more" marker).
   const add = (header: string, lines: string[]) => {
@@ -109,6 +108,12 @@ export function assembleContext(question: string, d: BookData, charBudget: numbe
     add("All contracts / SoWs", d.sows.map(lineSow));
     add("All contacts", d.contacts.map(lineContact));
   }
+
+  // The aggregate summary is included ONLY for broad/stats/overview questions (or when nothing else was
+  // retrieved, so a vague question still has grounding). This is what stops it stat-dumping into every
+  // unrelated answer — the model gets the records that matter, not a recital of the whole book.
+  const broad = has("summary", "overview", "pipeline", "network", "funnel", "momentum", "progress", "stat", "performance", "doing", "going") || /\b(know about me|how am i|how'?s it going|what do you know|how am i doing|overall)\b/i.test(question) || parts.length === 0;
+  if (broad) parts.unshift(buildBookSummary(d.contacts, d.meetingRows, d.opps, d.sows, today));
 
   return parts.join("");
 }

@@ -21,6 +21,7 @@ import { ContactLinks } from "./BrandIcons";
 import type { Navigate } from "./TabNav";
 import { useAiAvailable, aiPrompt } from "../ai/ai";
 import { accountSummaryPrompt } from "../ai/prompts";
+import { relevantNotes } from "../storage/memory";
 import { AiSuggest } from "./AiSuggest";
 
 // A read-only "account" overlay for one organisation: everyone we know there, every
@@ -111,7 +112,8 @@ export function AccountView({
     const contactLines = people.map((c) => `${`${c.first} ${c.last}`.trim()} — ${[c.seniority, c.function].filter(Boolean).join(", ") || "role unknown"}`);
     const meetingLines = meetingRows.map((m) => `${m.contactInfo.name} #${m.meeting_no}: ${m.meeting_stage || "?"} ${meetingDate(m)}${m.sentiment ? ` (${m.sentiment})` : ""}`);
     const oppLines = orgOpps.map((o) => `${o.opportunity_name || "(unnamed)"}: ${opportunityPhase(o)} · ${opportunityStatus(o)} · ${formatMoney(weightedValue(o))}`);
-    return aiPrompt(accountSummaryPrompt(org, contactLines, meetingLines, oppLines));
+    const memory = relevantNotes(org).map((n) => n.text).join("\n");
+    return aiPrompt(accountSummaryPrompt(org, contactLines, meetingLines, oppLines, memory));
   }
 
   return (
@@ -258,7 +260,7 @@ export function AccountView({
           {orgSows.length > 0 && (
             <section className="account-section">
               <h4 className="account-heading">
-                Contracts ({orgSows.length})
+                Engagements ({orgSows.length})
               </h4>
               <ul className="account-list">
                 {orgSows.map((s) => (

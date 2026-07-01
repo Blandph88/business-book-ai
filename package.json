@@ -10,7 +10,17 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen-demo": "npx --yes tsx scripts/gen-demo.mts"
+    "gen-demo": "npx --yes tsx scripts/gen-demo.mts",
+    "qa": "npx --yes tsx scripts/qa-ground-truth.mts",
+    "router-coverage": "npx --yes tsx scripts/router-coverage.test.ts",
+    "eval": "npx --yes tsx scripts/eval/run.mts",
+    "eval:threads": "EVAL_SET=threads npx --yes tsx scripts/eval/run.mts",
+    "eval:memory": "EVAL_SET=memory npx --yes tsx scripts/eval/run.mts",
+    "eval:critical": "EVAL_SET=critical npx --yes tsx scripts/eval/run.mts",
+    "eval:capability": "EVAL_SET=capability npx --yes tsx scripts/eval/run.mts",
+    "eval:polish": "EVAL_SET=polish npx --yes tsx scripts/eval/run.mts",
+    "eval:companion": "EVAL_SET=companion npx --yes tsx scripts/eval/run.mts",
+    "eval:core": "EVAL_SET=core npx --yes tsx scripts/eval/run.mts"
   },
   "dependencies": {
     "papaparse": "^5.5.3",
@@ -26,5 +36,9 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
     "vitest": "^4.1.9"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "fsevents@2.3.3": true
   }
 }

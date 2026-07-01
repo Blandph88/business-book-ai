@@ -4,6 +4,7 @@
 
 import { useMemo, useState } from "react";
 import type { FieldSpec, ActionKind } from "../ai/actions/actionSpecs";
+import { SearchableSelect, type Option } from "../tabs/formControls";
 import "./ActionCard.css";
 
 export type ActionCardData = {
@@ -14,6 +15,7 @@ export type ActionCardData = {
   values: Record<string, string>;
   needsContact: boolean;
   subjectUrl?: string;
+  targetId?: string; // the existing record being updated (opportunity/contract), so confirm edits in place
   status: "draft" | "saved";
   savedSummary?: string;
 };
@@ -21,6 +23,7 @@ export type ActionCardData = {
 export function ActionCard({
   data,
   contacts,
+  suggestions = {},
   busy,
   onConfirm,
   onCancel,
@@ -28,6 +31,7 @@ export function ActionCard({
 }: {
   data: ActionCardData;
   contacts: { url: string; label: string }[];
+  suggestions?: Record<string, string[]>;
   busy?: boolean;
   onConfirm: (values: Record<string, string>, subjectUrl?: string) => void;
   onCancel: () => void;
@@ -36,6 +40,10 @@ export function ActionCard({
   const [values, setValues] = useState<Record<string, string>>(data.values);
   const [subjectUrl, setSubjectUrl] = useState<string | undefined>(data.subjectUrl);
   const [showAll, setShowAll] = useState(false);
+
+  // Contact picker options (searchable). Any other text field that has a known list (organisation,
+  // based_in, next_action) becomes a searchable picker too — see the field loop below.
+  const contactOptions = useMemo<Option[]>(() => contacts.map((c) => ({ value: c.url, label: c.label })), [contacts]);
 
   // Show fields that were filled or are required; everything else behind "more".
   const visible = useMemo(() => {
@@ -61,17 +69,19 @@ export function ActionCard({
   return (
     <div className="actc">
       <div className="actc-head">
-        <span className="actc-kind">{data.op === "create" ? "New" : "Update"} · {data.kind}</span>
+        <span className="actc-kind">{data.op === "create" ? "New" : "Update"} · {data.kind === "contract" ? "engagement" : data.kind}</span>
         <strong className="actc-title">{data.title}</strong>
       </div>
 
       {data.needsContact && (
         <label className={"actc-field" + (missingContact ? " actc-field--missing" : "")}>
           <span>Contact</span>
-          <select value={subjectUrl ?? ""} onChange={(e) => setSubjectUrl(e.target.value || undefined)}>
-            <option value="">Choose a contact…</option>
-            {contacts.map((c) => <option key={c.url} value={c.url}>{c.label}</option>)}
-          </select>
+          <SearchableSelect
+            value={subjectUrl ?? ""}
+            options={contactOptions}
+            placeholder="Search your contacts…"
+            onChange={(v) => setSubjectUrl(v || undefined)}
+          />
         </label>
       )}
 
@@ -88,6 +98,14 @@ export function ActionCard({
               </select>
             ) : f.type === "textarea" ? (
               <textarea rows={3} value={v} placeholder={f.placeholder} onChange={(e) => set(f.key, e.target.value)} />
+            ) : (suggestions[f.key]?.length ?? 0) > 0 ? (
+              <SearchableSelect
+                value={v}
+                options={(suggestions[f.key] ?? []).map((o) => ({ value: o, label: o }))}
+                placeholder={f.placeholder ?? "Start typing…"}
+                allowFreeText
+                onChange={(val) => set(f.key, val)}
+              />
             ) : (
               <input type={f.type === "date" ? "date" : f.type === "number" ? "number" : "text"} value={v} placeholder={f.placeholder} onChange={(e) => set(f.key, e.target.value)} />
             )}

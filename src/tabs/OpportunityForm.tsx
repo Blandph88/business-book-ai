@@ -25,7 +25,7 @@ import {
   type OpportunityStep,
 } from "../data/vocab";
 import { formatMoney } from "../data/format";
-import { Field, TextField, TextArea, DateInput, NumberInput, Select, MultiSelect } from "./formControls";
+import { Field, TextField, TextArea, DateInput, NumberInput, Select, MultiSelect, SearchableSelect, type Option } from "./formControls";
 import { AiFill } from "../components/AiFill";
 
 // The slide-in detail/edit panel for a single opportunity (CLAUDE.md §4), built on
@@ -117,6 +117,20 @@ export function OpportunityForm({
       [...contacts].sort((a, b) =>
         `${a.first} ${a.last}`.localeCompare(`${b.first} ${b.last}`),
       ),
+    [contacts],
+  );
+  // Searchable-picker option lists: link a contact (value = url), name a primary contact (value = name),
+  // and pick/add an organisation. Derived once so every picker on this form shares the same source.
+  const contactPickOptions = useMemo<Option[]>(
+    () => contactOptions.map((c) => ({ value: c.url, label: `${`${c.first} ${c.last}`.trim()}${c.organisation ? ` · ${c.organisation}` : ""}` })),
+    [contactOptions],
+  );
+  const namePickOptions = useMemo<Option[]>(
+    () => contactOptions.map((c) => { const n = `${c.first} ${c.last}`.trim(); return { value: n, label: `${n}${c.organisation ? ` · ${c.organisation}` : ""}` }; }),
+    [contactOptions],
+  );
+  const orgPickOptions = useMemo<Option[]>(
+    () => [...new Set(contacts.map((c) => c.organisation?.trim()).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b)).map((o) => ({ value: o, label: o })),
     [contacts],
   );
 
@@ -333,7 +347,7 @@ export function OpportunityForm({
                       className="mform-inline-btn"
                       onClick={() => onOpenSow(linkedSowId)}
                     >
-                      View contract →
+                      View engagement →
                     </button>
                   )}
                 </p>
@@ -432,10 +446,10 @@ export function OpportunityForm({
                   <button
                     type="button"
                     className="mform-secondary"
-                    title="Create a Statement of Work pre-filled from this opportunity"
+                    title="Create an engagement (Statement of Work) pre-filled from this opportunity"
                     onClick={onCreateSow}
                   >
-                    + Create contract
+                    + Create engagement
                   </button>
                 )}
             </div>
@@ -453,29 +467,29 @@ export function OpportunityForm({
               />
             </Field>
             <Field label="Linked contact (sets the sector group & function)">
-              <select
-                className="mform-control"
+              <SearchableSelect
                 value={draft.contact_url ?? ""}
-                onChange={(e) => pickContact(e.target.value)}
-              >
-                <option value="">— none —</option>
-                {contactOptions.map((c) => (
-                  <option key={c.url} value={c.url}>
-                    {`${c.first} ${c.last}`.trim()} — {c.organisation}
-                  </option>
-                ))}
-              </select>
+                options={contactPickOptions}
+                placeholder="Search a contact…"
+                onChange={(v) => pickContact(v)}
+              />
             </Field>
             <div className="mform-grid">
               <Field label="Organisation">
-                <TextField
+                <SearchableSelect
                   value={draft.organisation}
+                  options={orgPickOptions}
+                  placeholder="Search or add an organisation…"
+                  allowFreeText
                   onChange={(v) => set("organisation", v)}
                 />
               </Field>
               <Field label="Primary contact">
-                <TextField
+                <SearchableSelect
                   value={draft.primary_contact}
+                  options={namePickOptions}
+                  placeholder="Search or type a name…"
+                  allowFreeText
                   onChange={(v) => set("primary_contact", v)}
                 />
               </Field>
