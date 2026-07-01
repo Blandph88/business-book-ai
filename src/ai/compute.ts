@@ -684,7 +684,12 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // Recognised-revenue MATHS over engagements (total / count / average per engagement). Computed, never the
   // model — and it must precede both the "by value" rank and the generic engagements list, which used to
   // catch "revenue" and just re-list all engagements when the user asked for the total or the average.
-  if (/\b(recognis|recogniz|revenue)\w*/.test(t) && (/\b(total|how much|average|avg|mean|per engagement|across|sum|each|altogether|in total)\b/.test(t) || (/\bengagements?\b/.test(t) && !LIST_VERB.test(t.replace(/how much/g, ""))))) return contractsAggregate(d, t);
+  if (
+    (/\b(recognis|recogniz|revenue)\w*/.test(t) && (/\b(total|how much|average|avg|mean|per engagement|across|sum|each|altogether|in total)\b/.test(t) || (/\bengagements?\b/.test(t) && !LIST_VERB.test(t.replace(/how much/g, ""))))) ||
+    // …and the follow-up "so what's the average per engagement?" (no "revenue" word) — an average over
+    // engagements is the aggregate, NOT the engagements list. Excludes ranking/list phrasings.
+    (/\bengagements?\b/.test(t) && /\b(average|avg|mean|typical|per engagement)\b/.test(t) && !/\b(biggest|largest|highest|top|most valuable|which one|list|show me)\b/.test(t))
+  ) return contractsAggregate(d, t);
   // Engagements RANKED by value (deterministic — never let the model pick the max).
   if (/\b(highest|biggest|largest|top|most valuable|by value|worth most)\b[^?]*\b(engagement|contract|sow)/.test(t) || /\b(engagement|contract|sow)s?\b[^?]*\b(highest|biggest|largest|most valuable|by value|worth most)\b/.test(t)) return findContracts(d, { byValue: true });
   if (/\b(contracts?|sows?|engagements?|signed work|statement of work|revenue)\b/.test(t) && (LIST_VERB.test(t) || /\b(active|signed|any|all|my)\b/.test(t))) return findContracts(d, { status: /\bactive\b/.test(t) ? "Active" : undefined });
@@ -705,6 +710,10 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
     const ref = about[1].trim();
     // "tell me about me / myself / my book" is the personal snapshot above, not a person — never resolve it.
     if (/^(?:me|myself|i|my (?:book|network|business|pipeline|data|contacts?|relationships?|leads?))$/i.test(ref)) return personalSnapshot(d, today);
+    // A PRONOUN reference ("brief me on her", "tell me about them") names no one on its own — resolving it
+    // as a literal name grabs the whole trailing clause ("her and what I'd open with") and reports it
+    // not-found. Defer to the model, which carries the person named earlier in the thread via grounding.
+    if (/^(?:her|him|them|it|that|this|they|he|she|us|those|these)\b/i.test(ref)) return null;
     // If it resolves to a company (has contacts there) and not a person, summarise the account.
     if (d.contacts.some((c) => fullName(c).toLowerCase() === ref.toLowerCase()) || resolveContact(d, ref, today)) return contactBrief(d, ref, today);
     if (d.contacts.some((c) => orgMatches(c.organisation, ref))) return accountSummary(d, ref);

@@ -38,7 +38,9 @@ const opps = seedMeetings.filter((m) => (m as any).opportunity).map((m, i) => {
   const op = (m as any).opportunity; const c = byUrl.get(m.contact_url as string);
   return { id: `opp:seed-${i}`, opportunity_name: op.opportunity_name, organisation: c?.organisation ?? "—", primary_contact: c ? `${c.first} ${c.last}`.trim() : "", service_line: op.service_line, current_step: op.step || "meeting", est_value: op.est_value, probability: op.probability, lost: !!op.lost, contact_url: m.contact_url };
 }) as any[];
-const data = { contacts, meetingRows, opps, sows: [] } as any;
+let sows: any[] = [];
+try { sows = (JSON.parse(readFileSync(join(ROOT, "public/seed_extras.json"), "utf8")).sows ?? []); } catch { /* none */ }
+const data = { contacts, meetingRows, opps, sows } as any;
 
 // ── Assertions ──────────────────────────────────────────────────────────────────────────────────────
 // expected: null = must pass through to free-form; "*" = must catch (any tool); string/[strings] = must
@@ -198,6 +200,12 @@ check("open deals with no meeting logged against them at all?", ["no meeting", "
 // Regression: a REAL company still resolves, and value filters still work.
 check("who do I know at JPMorgan?", ["jpmorgan"]);
 check("open deals over 100000", ["opportunit", "no open"]);
+// "average per engagement" follow-up (no "revenue" word) → the aggregate, not the engagements list.
+check("so what's the average per engagement?", ["average", "per engagement"], "how much revenue have I recognised across my engagements?");
+check("average recognised per engagement", ["average", "per engagement"]);
+// A PRONOUN "brief me on her" must NOT be resolved as a literal name → defer to the model (null).
+check("just brief me on her and what I'd open with", null);
+check("tell me about them", null);
 
 // ── WS3 confidentiality → answered deterministically by privacyResponse (tested in compute-tools.test) ──
 // (privacyResponse is a separate entry point, not computeForQuery — covered by its own unit test.)

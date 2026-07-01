@@ -18,7 +18,10 @@ export type Groups = { people: Hit[]; companies: Company[]; meetings: Hit[]; opp
 
 // Tokenise for matching — apostrophes/punctuation FOLDED OUT first ("O'Connor" → "oconnor"), so a name typed
 // with an apostrophe matches the stored "OConnor". Word-PREFIX match (so "EY" hits EY, not Foley).
-const tokenize = (s: string) => s.toLowerCase().replace(/['’]/g, "").split(/[^a-z0-9]+/).filter(Boolean);
+// POSSESSIVE-aware: strip a trailing "'s" first ("Wright's" → "wright", so "what's Amelia Wright's salary?"
+// still resolves the contact — a very common phrasing that otherwise left the last-name token as "wrights"
+// and made the model deny a real contact), THEN fold out remaining apostrophes ("O'Connor" → "oconnor").
+const tokenize = (s: string) => s.toLowerCase().replace(/['’]s\b/g, "").replace(/['’]/g, "").split(/[^a-z0-9]+/).filter(Boolean);
 // Question/command words dropped from the QUERY so a full sentence still resolves the entity it names —
 // "What do I know about Rachel O'Connor?" must match the contact, not require "what/do/i/know/about" to match
 // it too. (Only the query is filtered; the haystack keeps every word.) Deliberately function-words only —
