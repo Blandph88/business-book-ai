@@ -330,3 +330,14 @@
   color: var(--ink-3);
   padding: 8px 12px 4px;
 }
+
+/* No AI configured → a quiet pointer to Freehold's AI settings (setup lives at the platform level now). */
+.copilot-ai-off {
+  max-width: 30rem;
+  margin: 0.75rem auto 0;
+  text-align: center;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--muted, #6b7280);
+}
+.copilot-ai-off strong { color: var(--text, #374151); font-weight: 600; }

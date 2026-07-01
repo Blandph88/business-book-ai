@@ -23,7 +23,6 @@ import { type BookData } from "../ai/bookContext";
 import { computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, type ComputeResult, type ToolCall } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, type Groups, type Hit } from "../ai/grounding";
 import { ComputeTable } from "./ComputeTable";
-import { AiSetupCard } from "./AiSetupCard";
 import { retrievalCharBudget } from "../ai/contextBudget";
 import { routeIntent, isActionIntent, heavyDistress } from "../ai/intents";
 import { track, lenBucket } from "../lib/analytics";
@@ -446,7 +445,6 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   // instead of letting the copilot answer with placeholder text. `aiNonce` bumps after a successful setup.
   const [aiNonce, setAiNonce] = useState(0);
   const { backend: activeBackend } = useAiBackend(aiNonce);
-  const noModel = activeBackend === "stub";
   const [view, setView] = useState<View>(initialView);
   const [histQuery, setHistQuery] = useState("");
   const [, setInflightTick] = useState(0);
@@ -1095,19 +1093,15 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
           </>
         )}
 
-        {view === "search" && noModel && (
-          // No working on-device model yet → the setup ladder instead of the composer (on-device only for now).
-          <div className="copilot-search"><AiSetupCard onReady={() => setAiNonce((n) => n + 1)} /></div>
-        )}
-        {view === "search" && !noModel && (
-          // Full-page new chat: stay a centred composer (hero stays put, no live record list) until the
-          // user hits Enter — then `ask()` switches to the chat view with the composer at the bottom. The
-          // live record-search "palette" behaviour (un-centre + results) is only for the top-bar modal.
+        {view === "search" && (
+          // One composer that self-degrades: with AI it's the assistant; without AI configured it's a clean
+          // deterministic search box (AI features simply don't render). No in-app setup ladder — AI is set up
+          // once at the Freehold level and inherited, so here we only POINT there when it isn't on.
           <div className={"copilot-search" + (q.trim() && !fullPage ? " copilot-search--active" : "")}>
             {(!q.trim() || fullPage) && (
               <div className="copilot-hero-head">
                 <BusinessBookLogo size={44} />
-                <h2 className="copilot-hero-title">What shall we work on?</h2>
+                <h2 className="copilot-hero-title">{aiReady ? "What shall we work on?" : "Search your book"}</h2>
               </div>
             )}
             <div className="copilot-field">
@@ -1141,6 +1135,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                   </button>
                 ))}
               </div>
+            )}
+            {!aiReady && !q.trim() && (
+              <p className="copilot-ai-off">The AI assistant isn't set up for this app. Turn it on from your Freehold <strong>AI settings</strong> (the ⚙ beside this app in your library) to unlock the copilot — everything else here works without it.</p>
             )}
 
             {q.trim() && !fullPage && (
