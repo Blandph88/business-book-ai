@@ -18,10 +18,10 @@ import { todayISO } from "../data/agenda";
 import { isCommonOrgToken } from "../data/orgTokens";
 import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searchAvailable, searchWeb, searchEntity, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
 import { BusinessBookLogo } from "./Brand";
-import { askBookPrompt, suggestionsPrompt, toolRouterPrompt, distilMemoryPrompt, interpretResultPrompt, type ChatTurn } from "../ai/prompts";
+import { askBookPrompt, suggestionsPrompt, toolRouterPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, type ChatTurn } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
 import { computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, type ComputeResult, type ToolCall } from "../ai/compute";
-import { searchBook, assembleGrounding, type Groups, type Hit } from "../ai/grounding";
+import { searchBook, assembleGrounding, conversationPath, type Groups, type Hit } from "../ai/grounding";
 import { ComputeTable } from "./ComputeTable";
 import { AiSetupCard } from "./AiSetupCard";
 import { retrievalCharBudget } from "../ai/contextBudget";
@@ -663,6 +663,34 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     } catch { /* best-effort — the table already answered on its own */ }
   }
 
+  // The COMPANION stream: for a personal / general / advice turn the topic-gate routed AWAY from the book.
+  // Warm and broad — NO records, NO chips, NO related cards, NO "want me to…?" — just talk with them. The
+  // persona's depth/challenge scales with model capability; on a stall it falls back to a warm line, never a
+  // contact card (the old fallback dumping "Richard Singh" into an emotional chat was the worst offender).
+  async function streamCompanion(text: string, prior: UITurn[], id: string, history: ChatTurn[], level: "small" | "mid" | "high") {
+    let firstTok = true, bailed = false;
+    const streamP = aiPromptStream(companionPrompt(text, history, level), (full) => {
+      if (bailed || chatIdRef.current !== id) return;
+      if (firstTok) { firstTok = false; setAsking(false); setStreaming(true); }
+      setChat([...prior, { role: "you", text }, { role: "ai", text: full }]);
+    });
+    try {
+      const reply = await Promise.race([
+        streamP,
+        new Promise<string>((_, reject) => setTimeout(() => { if (firstTok) { bailed = true; reject(new Error("model-timeout")); } }, 45_000)),
+      ]);
+      const aiText = reply.trim() || "(no response)";
+      persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
+      if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
+    } catch {
+      const aiText = "Sorry — that one took too long for the on-device model to get through (it can be slow to warm up the first time). Mind giving it another go? It's usually quicker the second time.";
+      persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
+      if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
+    } finally {
+      setStreaming(false); setAsking(false); markDone(id);
+    }
+  }
+
   // When a conversation is finished (the user leaves it), distil any DURABLE facts into the AI's long-term
   // memory (capable tiers only — it's a JSON extraction). Fire-and-forget; deduped; skips if nothing new
   // since the last distil of this chat. This is what makes the assistant remember across conversations.
@@ -783,6 +811,20 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
           }
         } catch { /* not a clean tool call — fall through to the free-form answer */ }
       }
+    }
+    // TOPIC-GATE: this turn isn't a book lookup/tool. Is it a personal/general conversation (→ warm companion,
+    // no records), a serious-distress signal (→ deterministic safety floor), or a grounded question/advice
+    // about their ACTUAL book (→ the grounded path below)? Deterministic on every tier, so even a tiny model
+    // can't treat "I feel sad" as a pipeline problem or dump a contact card into an emotional conversation.
+    if (!docText) {
+      const path = conversationPath(text, data);
+      if (path === "crisis") {
+        persistTo(id, [...history, { role: "you", text }, { role: "ai", text: CRISIS_RESPONSE }]);
+        if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: CRISIS_RESPONSE }]);
+        setAsking(false); markDone(id);
+        return;
+      }
+      if (path === "companion") { await streamCompanion(text, prior, id, history, capabilityLevel(avail.backend, avail.model)); return; }
     }
     const g = searchBook(text, data);
     const related: RelatedHit[] = g && !g.empty ? collectRelated(g) : [];

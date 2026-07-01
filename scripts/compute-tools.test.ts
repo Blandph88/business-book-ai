@@ -9,6 +9,8 @@ import {
   contactsMetAtLeast, openOppsWithoutMeeting, companiesWithOppAndContacts, contractsAggregate,
   privacyResponse, shouldInterpretResult, computeForQuery,
 } from "../src/ai/compute.ts";
+import { conversationPath } from "../src/ai/grounding.ts";
+import { personalRegister, crisisSignal } from "../src/ai/intents.ts";
 
 const today = "2026-07-01";
 // Two contacts at Acme (which has held meetings + an open opp), one at Beta (open opp, NO meeting).
@@ -86,6 +88,33 @@ test("shouldInterpretResult → analytical yes, bare count no, empty no", () => 
   assert.equal(shouldInterpretResult("how many contacts do I have?", table), false);
   assert.equal(shouldInterpretResult("who are my warmest leads?", table), true);
   assert.equal(shouldInterpretResult("who's gone cold?", empty), false);
+});
+
+test("topic-gate: personal / general → companion; book question → book; crisis → crisis", () => {
+  // personal/emotional → companion (NEVER treated as a book query)
+  for (const q of ["I feel really sad today", "I'm struggling today", "I hate my boss, he took credit again",
+    "I want to talk about my personal life", "I'm exhausted and I barely slept", "having a rough week honestly"])
+    assert.equal(conversationPath(q, d), "companion", q);
+  // general / advice / technical (no book entity) → companion
+  for (const q of ["what do you think about moving to Saudi Arabia?", "help me debug this python loop",
+    "should I go all in on my startup?", "what makes a good investor pitch?"])
+    assert.equal(conversationPath(q, d), "companion", q);
+  // grounded book question / advice about a real entity → book
+  for (const q of ["should I chase the Acme deal?", "who do I know at Acme?", "draft a note to Ann Alpha",
+    "brief me on Ben Bravo", "how's my pipeline looking"])
+    assert.equal(conversationPath(q, d), "book", q);
+  // a stray book keyword inside a personal vent must NOT flip it to book
+  assert.equal(conversationPath("my boss keeps booking pointless meetings and it's draining me", d), "companion");
+  // crisis → the deterministic safety floor
+  for (const q of ["I don't want to be here anymore", "I've been thinking about ending it all", "I want to kill myself"])
+    assert.equal(conversationPath(q, d), "crisis", q);
+});
+
+test("personalRegister / crisisSignal basics", () => {
+  assert.equal(personalRegister("I just feel low today"), true);
+  assert.equal(personalRegister("who do I know at Acme?"), false);
+  assert.equal(crisisSignal("I want to end my life"), true);
+  assert.equal(crisisSignal("kill that deal, it's going nowhere"), false); // "kill" a deal ≠ crisis
 });
 
 test("computeForQuery: filler never becomes a bogus company (no mis-parse)", () => {

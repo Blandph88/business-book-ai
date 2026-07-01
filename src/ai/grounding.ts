@@ -11,6 +11,24 @@ import type { BookData } from "./bookContext";
 import { assembleContext } from "./bookContext";
 import { resolveWarmReference, joinGroundingText } from "./compute";
 import { oppDisplayName } from "../data/opportunities";
+import { personalRegister, crisisSignal } from "./intents";
+
+// TOPIC-GATE. For a turn that DIDN'T resolve to a deterministic tool (computeForQuery returned null), decide
+// how to handle it — the fix for the copilot treating "I feel sad" as a pipeline problem and dumping a
+// contact card. "crisis" → the deterministic safety floor (no model). "companion" → the warm general
+// companion, with NO book records injected (personal, an idea, a decision, code, their day). "book" → a
+// grounded question or piece of advice about their ACTUAL book (names a real contact/company, or explicitly
+// asks about their pipeline/outreach) → the grounded book path. Personal register always wins over a stray
+// book keyword ("my boss keeps booking meetings" stays companion — "boss" isn't a contact, "meetings" alone
+// isn't enough). Runs on every tier — the gate is deterministic so even a tiny model can't fumble it.
+export function conversationPath(text: string, d: BookData): "crisis" | "companion" | "book" {
+  if (crisisSignal(text)) return "crisis";
+  if (personalRegister(text)) return "companion";
+  const g = searchBook(text, d);
+  const namesBookEntity = !!g && !g.empty;
+  const explicitBook = /\b(my pipeline|my deals?|my opportunit|my contacts?|my network|my book|my leads?|my meetings?|my engagements?|who do i know|book of business|follow[- ]?up with|reach out to|draft (?:a |an )?(?:note|message|email|follow|intro|reply)|brief me on|log (?:a |an )?(?:meeting|opportunit|contact)|prep me for|account plan)\b/i.test(text);
+  return namesBookEntity || explicitBook ? "book" : "companion";
+}
 
 export type Hit = { id: string; main: string; meta: string };
 export type Company = { org: string; count: number };

@@ -204,3 +204,35 @@ export function routeIntent(text: string, opts: { hasDoc?: boolean } = {}): Rout
 export function isActionIntent(r: RoutedIntent): boolean {
   return r.kind === "create" || r.kind === "update";
 }
+
+// ── PERSONAL / EMOTIONAL register ────────────────────────────────────────────────────────────────
+// The user has brought something personal (they're low, stressed, venting about their boss or their day)
+// rather than asking about their book. When this fires, the copilot drops the BD hat entirely and just
+// responds like a warm human — NO records, NO contact names, NO pivot to pipeline (the exact things that
+// made "I feel sad" get answered with "want to nudge an opportunity? try Richard Singh"). Deliberately
+// broad on feeling-words; a work message that merely mentions stress ("stressful quarter — show my deals")
+// is caught by the work routes first at the call site, so this only owns genuinely personal turns.
+export function personalRegister(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    /\bi (?:feel|am feeling|'m feeling|felt|get|got|am|'m)\s+(?:so |really |very |a bit |quite |kind of |kinda |pretty |just )?(sad|down|low|blue|upset|anxious|stressed|overwhelmed|burnt? ?out|burned ?out|exhausted|drained|lonely|depress(?:ed|ing)|miserable|hopeless|worthless|numb|lost|awful|terrible|rubbish|crap|unhappy|angry|frustrated|scared|worried|empty|defeated)\b/.test(t) ||
+    /\b(?:i'?m|i am) (?:really |so |just )?struggling\b/.test(t) ||
+    /\bi (?:hate|can'?t stand|am sick of|'m sick of|am done with|'m done with|resent|despise)\s+(?:my )?(boss|job|manager|team|colleague|coworker|career|life|work|everything|this|it here)\b/.test(t) ||
+    /\bmy (?:personal life|private life|mental health|wellbeing|well-being|marriage|relationship|partner|family|divorce|breakup|break-up|health|home life)\b/.test(t) ||
+    /\bi (?:just )?(?:feel|felt) (?:sad|awful|terrible|low|down|empty|like giving up|like crying|like a failure)\b/.test(t) ||
+    /\b(?:having|had|it'?s been) a (?:really |very |such a )?(?:hard|rough|tough|bad|terrible|awful|long|shit|shitty|horrible) (?:day|week|time|month|year|one)\b/.test(t) ||
+    /\bi (?:can'?t cope|can'?t take (?:it|this)|don'?t know what to do|need to vent|need someone to talk to|want to talk about my|feel like giving up|feel alone|feel so alone|feel invisible)\b/.test(t) ||
+    /\b(?:i'?m|i am) (?:so |really |just )?(?:tired|exhausted|done|fed up|burnt out|burned out) (?:of|with)?\b/.test(t) ||
+    /\bwant to (?:talk|chat) (?:to you )?about (?:my|something) (?:personal|life|feelings|day)\b/.test(t)
+  );
+}
+
+// A serious-distress / CRISIS signal (self-harm, suicidal ideation, wanting to disappear). When this fires
+// the copilot must respond with care and point to real human help — it is NOT a counsellor. Handled
+// deterministically at the call site so a small model can't fumble the most important message a user sends.
+export function crisisSignal(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    /\b(kill myself|end(?:ing)? (?:it all|my life)|take my (?:own )?life|suicid(?:e|al)|don'?t want to (?:live|be here|wake up|exist)|want to die|better off (?:dead|without me)|no reason to (?:live|go on|carry on)|can'?t go on (?:like this)?|hurt myself|harm myself|self[- ]harm|not want to be here)\b/.test(t)
+  );
+}

@@ -18,8 +18,8 @@ import Papa from "papaparse";
 (globalThis as unknown as { localStorage: object }).localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
 import { computeForQuery, computeText, shouldInterpretResult, privacyResponse } from "../../src/ai/compute.ts";
-import { assembleGrounding } from "../../src/ai/grounding.ts";
-import { askBookPrompt, interpretResultPrompt } from "../../src/ai/prompts.ts";
+import { assembleGrounding, conversationPath } from "../../src/ai/grounding.ts";
+import { askBookPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE } from "../../src/ai/prompts.ts";
 import { routeIntent } from "../../src/ai/intents.ts";
 import { CONVERSATIONS } from "./conversations.mts";
 import { THREADS } from "./threads.mts";
@@ -27,13 +27,14 @@ import { MEMORY_THREADS, SEED_MEMORY } from "./memory-threads.mts";
 import { CRITICAL_THREADS } from "./critical-threads.mts";
 import { CAPABILITY_THREADS } from "./capability-threads.mts";
 import { POLISH_THREADS } from "./polish-threads.mts";
+import { COMPANION_THREADS } from "./companion-threads.mts";
 // EVAL_SET picks the battery: "core" = the wide one/two-turn coverage set; "threads" = the long multi-turn
 // conversation set (context back-reference + challenge); "memory" = the memory/source-of-truth + model-weakness
 // set (seeds past-chat MEMORY); "critical" = the critical-failure-mode set (numbers/negation/PII/refusal/
 // drafting/adversarial); "capability" = the in-depth suite for the compute→interpret combo + relational/
 // aggregate tools + guardrails + confidentiality + grounding; "all" (default) = core + threads back to back.
 const EVAL_SET = process.env.EVAL_SET;
-const SET = EVAL_SET === "core" ? CONVERSATIONS : EVAL_SET === "threads" ? THREADS : EVAL_SET === "memory" ? MEMORY_THREADS : EVAL_SET === "critical" ? CRITICAL_THREADS : EVAL_SET === "capability" ? CAPABILITY_THREADS : EVAL_SET === "polish" ? POLISH_THREADS : [...CONVERSATIONS, ...THREADS];
+const SET = EVAL_SET === "core" ? CONVERSATIONS : EVAL_SET === "threads" ? THREADS : EVAL_SET === "memory" ? MEMORY_THREADS : EVAL_SET === "critical" ? CRITICAL_THREADS : EVAL_SET === "capability" ? CAPABILITY_THREADS : EVAL_SET === "polish" ? POLISH_THREADS : EVAL_SET === "companion" ? COMPANION_THREADS : [...CONVERSATIONS, ...THREADS];
 // On the memory set, inject the seeded past-chat facts as the app's "Memory from past chats" block, so we can
 // test whether the model pulls each fact from the RIGHT source (memory vs book vs live context) and never
 // confuses or fabricates them. Wording mirrors CopilotBar exactly.
@@ -55,6 +56,9 @@ const today = process.env.QA_TODAY || new Date().toISOString().slice(0, 10);
 const AI_KEY = process.env.AI_API_KEY || process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || "";
 const AI_BASE = (process.env.AI_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, "");
 const AI_MODEL = process.env.AI_MODEL || process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+// Companion-persona depth to grade: EVAL_LEVEL=small|mid|high (default high — the capable-tier voice). Lets
+// us run the SAME companion threads at each tier to check the gradient (tentative→confident direction, etc.).
+const COMPANION_LEVEL = (["small", "mid", "high"].includes(process.env.EVAL_LEVEL || "") ? process.env.EVAL_LEVEL : "high") as "small" | "mid" | "high";
 const CAPABLE_BUDGET = 6000; // chars of grounding (smaller = faster + stays under free-tier token limits)
 const THROTTLE_MS = Number(process.env.EVAL_THROTTLE_MS || 7000); // pause between model calls to avoid 429s
 
@@ -170,14 +174,29 @@ for (const convo of SET.slice(0, LIMIT)) {
       history.push({ role: "you", text }, { role: "ai", text: aiText });
     } else {
       modelTurns++;
-      // Recent context (last 2 turns) so entity resolution carries the person named earlier in the thread.
-      const convo = history.slice(-2).map((h) => h.text).join("\n");
-      const grounding = assembleGrounding(text, data, CAPABLE_BUDGET, today, convo) + MEMORY_BLOCK;
-      const { system, prompt } = askBookPrompt(text, grounding, history, "", false);
-      response = await callModel(system!, prompt);
-      path = "model (free-form)";
-      history.push({ role: "you", text }, { role: "ai", text: response });
-      if (AI_KEY) await new Promise((r) => setTimeout(r, THROTTLE_MS)); // throttle to stay under rate limits
+      // TOPIC-GATE: a turn that isn't a book tool → crisis (deterministic safety floor), a personal/general
+      // conversation (the warm COMPANION — no book injected), or a grounded question/advice about the book.
+      const cpath = conversationPath(text, data);
+      if (cpath === "crisis") {
+        response = CRISIS_RESPONSE;
+        path = "crisis (deterministic safety floor)";
+        history.push({ role: "you", text }, { role: "ai", text: response });
+      } else if (cpath === "companion") {
+        const { system, prompt } = companionPrompt(text, history.slice(-8), COMPANION_LEVEL);
+        response = await callModel(system!, prompt);
+        path = `companion (model · ${COMPANION_LEVEL})`;
+        history.push({ role: "you", text }, { role: "ai", text: response });
+        if (AI_KEY) await new Promise((r) => setTimeout(r, THROTTLE_MS));
+      } else {
+        // Recent context (last 2 turns) so entity resolution carries the person named earlier in the thread.
+        const convo = history.slice(-2).map((h) => h.text).join("\n");
+        const grounding = assembleGrounding(text, data, CAPABLE_BUDGET, today, convo) + MEMORY_BLOCK;
+        const { system, prompt } = askBookPrompt(text, grounding, history, "", false);
+        response = await callModel(system!, prompt);
+        path = "model (free-form)";
+        history.push({ role: "you", text }, { role: "ai", text: response });
+        if (AI_KEY) await new Promise((r) => setTimeout(r, THROTTLE_MS)); // throttle to stay under rate limits
+      }
     }
     lines.push(`\n**USER:** ${text}`, `**PATH:** ${path}`, `**RESPONSE:**\n\n${response}\n`);
     console.log(`  [${path.startsWith("deterministic") ? "DET" : path.startsWith("action") ? "ACT" : "MODEL"}${path.includes("HIJACK") ? " ⚠️HIJACK" : ""}] ${convo.name}: ${text.slice(0, 70)}…`);
