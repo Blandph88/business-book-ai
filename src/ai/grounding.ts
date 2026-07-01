@@ -10,6 +10,7 @@
 import type { BookData } from "./bookContext";
 import { assembleContext } from "./bookContext";
 import { resolveWarmReference, joinGroundingText } from "./compute";
+import { oppDisplayName } from "../data/opportunities";
 
 export type Hit = { id: string; main: string; meta: string };
 export type Company = { org: string; count: number };
@@ -66,6 +67,33 @@ export function searchBook(q: string, d: BookData): Groups | null {
   return { people, companies, meetings, opps: oppsHits, contracts, empty };
 }
 
+// For each person the message NAMES, state plainly they ARE in the book and attach their relationship state,
+// last meeting (real date + sentiment) and any related opportunity. This is what stops the model flip-
+// flopping — declaring a real contact "not in your book", then finding them a turn later — and stops it
+// inventing or disclaiming a meeting date: it references the REAL one every time. Consistency, not just
+// existence: the same named person yields the same grounded facts on every turn.
+function personDetailGrounding(people: Hit[], d: BookData): string {
+  if (!people.length) return "";
+  const lines = people.map((p) => {
+    const c = d.contacts.find((x) => x.url === p.id);
+    if (!c) return `${p.main}${p.meta ? ` (${p.meta})` : ""}`;
+    const held = d.meetingRows
+      .filter((m) => m.contact_url === c.url && m.meeting_stage === "Held")
+      .sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
+    const stage = c.met ? "you've met them" : c.agreed_to_meet ? "agreed to meet, not met yet"
+      : c.two_way ? "two-way contact" : c.responded ? "replied, no meeting yet"
+      : c.messaged ? "messaged, no reply yet" : "not contacted yet";
+    const last = held.length
+      ? `; last meeting ${held[0].date_held}${held[0].sentiment ? ` (${held[0].sentiment})` : ""}${held.length > 1 ? `, ${held.length} meetings in total` : ""}`
+      : "; no meeting logged";
+    const opp = d.opps.find((o) => o.contact_url === c.url)
+      || d.opps.find((o) => !!o.organisation && !!c.organisation && o.organisation.toLowerCase() === c.organisation.toLowerCase());
+    const oppTxt = opp ? `; related opportunity "${oppDisplayName(opp)}"` : "";
+    return `${c.first} ${c.last} — ${c.position || "?"} at ${c.organisation || "?"} (${stage}${last}${oppTxt})`;
+  });
+  return `\n\nThese people ARE in the user's book — treat each as a known contact (never say they're not in the book), and use these exact facts (their real relationship state and real meeting dates):\n${lines.join("\n")}`;
+}
+
 export function groundingFromGroups(g: Groups | null): string {
   if (!g || g.empty) return "";
   const lines: string[] = [];
@@ -108,7 +136,11 @@ export function assembleGrounding(question: string, d: BookData, charBudget: num
   const entityText = convo ? `${question}\n${convo}` : question;
   // Resolve names from the current message FIRST (priority), then top up from recent context — so the active
   // entity leads and we don't crowd it out with everyone mentioned earlier in the thread.
-  g += groundingFromGroups(mergeGroups(searchBook(question, d), convo ? searchBook(entityText, d) : null));
+  const named = mergeGroups(searchBook(question, d), convo ? searchBook(entityText, d) : null);
+  g += groundingFromGroups(named);
+  // …and for the PEOPLE named, attach their full relationship state + real meeting dates, so the model is
+  // consistent about who's in the book and never invents/disclaims a meeting it can look up right here.
+  g += personDetailGrounding(named?.people ?? [], d);
   g += criteriaGrounding(question, d);
   g += joinGroundingText(question, d, today);
   const warm = resolveWarmReference(entityText, d, today);

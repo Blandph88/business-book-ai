@@ -276,6 +276,85 @@ export function pipelineAggregate(d: BookData, t: string): ComputeResult | null 
   return { intro: `Your open pipeline totals ${money(total)} across ${n} opportunities (probability-weighted: ${money(weighted)}).`, columns: [], rows: [] };
 }
 
+// 5b. contractsAggregate — recognised-revenue MATHS over engagements (total / count / average per
+// engagement / the largest). Computed, never the model: a 70B answered "$323k" for a max that wasn't in
+// the data, and the keyword layer used to just re-list all 30 engagements when asked for the average.
+export function contractsAggregate(d: BookData, t: string): ComputeResult {
+  const sows = d.sows;
+  if (!sows.length) return { intro: "You've no engagements logged yet, so there's no recognised revenue to total up.", columns: [], rows: [] };
+  const total = sows.reduce((s, x) => s + (x.recognised_to_date ?? 0), 0);
+  const n = sows.length;
+  const avg = Math.round(total / n);
+  const top = sows.slice().sort((a, b) => (b.recognised_to_date ?? 0) - (a.recognised_to_date ?? 0))[0];
+  const topWhere = `${top.engagement_name || "an engagement"}${top.organisation ? ` at ${top.organisation}` : ""} (${money(top.recognised_to_date)})`;
+  const wantAvg = /\b(average|avg|mean|per engagement|typical|each)\b/.test(t);
+  const intro = wantAvg
+    ? `Across your ${n} engagements you've recognised ${money(total)} in total — an average of ${money(avg)} per engagement. The largest is ${topWhere}.`
+    : `You've recognised ${money(total)} in revenue across ${n} engagements (that's ${money(avg)} each on average). Your largest is ${topWhere}.`;
+  return { intro, columns: [], rows: [] };
+}
+
+// 6c. contactsMetAtLeast — count-THRESHOLD over held meetings ("met more than once", "three or more times").
+// Counts HELD meetings per contact. The keyword layer used to read "met more than once" as the plain "met"
+// filter and return everyone you'd met even once — the classic off-by-threshold error.
+export function contactsMetAtLeast(d: BookData, min: number): ComputeResult {
+  const count = new Map<string, number>();
+  for (const m of d.meetingRows) if (m.meeting_stage === "Held" && m.contact_url) count.set(m.contact_url, (count.get(m.contact_url) || 0) + 1);
+  const list = d.contacts.filter((c) => (count.get(c.url) || 0) >= min).sort((a, b) => (count.get(b.url) || 0) - (count.get(a.url) || 0));
+  const label = min === 2 ? "more than once" : `at least ${min} times`;
+  if (!list.length) return { intro: `No one you've met ${label} — so far every contact you've met, you've met just the once.`, columns: [], rows: [] };
+  const shown = list.slice(0, 40);
+  const res: ComputeResult = {
+    intro: `People you've met ${label} (${list.length}):`,
+    columns: ["Name", "Role", "Company", "Times met"],
+    rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", String(count.get(c.url) || 0)], record: { tab: "contacts", id: c.url } })),
+  };
+  if (list.length > shown.length) res.more = { count: list.length, tab: "contacts", intent: { filter: { key: "met", value: "Yes" } } };
+  return res;
+}
+
+// 6d. openOppsWithoutMeeting — ANTI-JOIN: open opportunities with NO meeting ever held against them (by
+// primary contact or anyone at the org). A real "what's slipping" question the keyword layer used to
+// mangle — it grabbed "…at all" as a company name and returned a bogus empty table.
+export function openOppsWithoutMeeting(d: BookData): ComputeResult {
+  const open = d.opps.filter((o) => oppStatus(o) === "Open");
+  if (!open.length) return { intro: "You've no open opportunities right now, so nothing's sitting without a meeting.", columns: [], rows: [] };
+  const held = d.meetingRows.filter((m) => m.meeting_stage === "Held");
+  const hasMeeting = (o: Opportunity) => held.some((m) => (o.contact_url && m.contact_url === o.contact_url) || (!!o.organisation && orgMatches(m.contactInfo.organisation, o.organisation)));
+  const naked = open.filter((o) => !hasMeeting(o)).sort((a, b) => (b.est_value ?? 0) - (a.est_value ?? 0));
+  if (!naked.length) return { intro: "Good news — every open opportunity has at least one meeting logged against it.", columns: [], rows: [] };
+  const shown = naked.slice(0, 30);
+  const res: ComputeResult = {
+    intro: `Open opportunities with no meeting logged against them yet — worth booking one before they stall (${naked.length}):`,
+    columns: ["Opportunity", "Company", "Stage", "Est. value"],
+    rows: shown.map((o) => ({ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), money(o.est_value)], record: { tab: "opportunities", id: o.id } })),
+  };
+  if (naked.length > shown.length) res.more = { count: naked.length, tab: "opportunities", intent: {} };
+  return res;
+}
+
+// 6e. companiesWithOppAndContacts — JOIN+count: organisations where you have BOTH an open opportunity AND
+// ≥ min contacts. A genuine intersection (the model muddled it free-hand; the keyword layer couldn't
+// express it and mis-extracted "…at least two contacts" as a company). These are your expansion footholds.
+export function companiesWithOppAndContacts(d: BookData, min = 2): ComputeResult {
+  const norm = (s?: string) => (s || "").trim().toLowerCase();
+  const byOrg = new Map<string, { org: string; contacts: number }>();
+  for (const c of d.contacts) { const k = norm(c.organisation); if (!k) continue; const e = byOrg.get(k) || { org: (c.organisation || "").trim(), contacts: 0 }; e.contacts++; byOrg.set(k, e); }
+  const openOpps = new Map<string, number>();
+  for (const o of d.opps) if (oppStatus(o) === "Open") { const k = norm(o.organisation); if (k) openOpps.set(k, (openOpps.get(k) || 0) + 1); }
+  const rows = [...openOpps.entries()]
+    .map(([k, opps]) => ({ e: byOrg.get(k), opps }))
+    .filter((x) => x.e && x.e.contacts >= min)
+    .sort((a, b) => b.e!.contacts - a.e!.contacts)
+    .slice(0, 30);
+  if (!rows.length) return { intro: `No companies where you have both an open opportunity and at least ${min} contacts right now.`, columns: [], rows: [] };
+  return {
+    intro: `Companies where you have both an open opportunity and ${min}+ contacts — your strongest expansion footholds (${rows.length}):`,
+    columns: ["Company", "Contacts", "Open opps"],
+    rows: rows.map((x) => ({ cells: [x.e!.org, String(x.e!.contacts), String(x.opps)] })),
+  };
+}
+
 // Weekly focus / priorities — the deterministic answer to "what should I focus on this week?". Reuses the
 // same agenda the dashboard shows (overdue + due-soon write-ups, follow-ups, scheduled meetings, opportunity
 // + contract next-steps). Instant, accurate, and crucially NEVER hits the model — an advisory question like
@@ -404,6 +483,49 @@ const ABOUT = /\b(?:brief me on|tell me about|who is|what do you know about|summ
 // same list tools — the tool intros already state the total ("200 contacts (showing 40):").
 const LIST_VERB = /\b(list|show|pull up|see|view|give me|display|what(?:'?s| are| is)?|how many|number of|count|find|get me|i (?:have|know))\b/;
 
+// Extract a company filter from "…at/with/for/from X" — but ONLY keep it when X is actually an org in the
+// book. This is the guard that stops filler becoming a bogus company: "open deals … at all?" would grab
+// "all", "…and at least two contacts at?" would grab "least two contacts at", and the tool would then
+// confidently return an empty table for a company that doesn't exist. If nothing real matches, return
+// undefined (no company filter) so the query is answered unscoped or declined — never mis-answered.
+function extractCompany(t: string, d: BookData): string | undefined {
+  const m = t.match(/\b(?:at|with|for|from)\s+([A-Za-z0-9][A-Za-z0-9 .&'-]{0,38}?)(?:[?,.:;—–-]|$|\s+(?:about|who|that|which|and|but|so|to|for|regarding|give|show|list|tell)\b)/i);
+  if (!m) return undefined;
+  const cand = m[1].trim();
+  if (!cand || AT_NOISE.test(cand)) return undefined;
+  const real = d.contacts.some((c) => orgMatches(c.organisation, cand)) || d.opps.some((o) => orgMatches(o.organisation, cand)) || d.sows.some((s) => orgMatches(s.organisation, cand));
+  return real ? cand : undefined;
+}
+
+// Parse a meeting-count THRESHOLD from a "met …" question. Returns the minimum meetings (≥1) or null when
+// it isn't a threshold query. "more than once"/"twice" → 2; "three or more times"/"at least 3" → 3;
+// "more than twice" → 3. Negated forms ("haven't met") are excluded — those are a different question.
+function meetThreshold(t: string): number | null {
+  if (!/\bmet\b/.test(t) || /\bhaven'?t\b|\bhasn'?t\b|\bnever\b|\bnot\b/.test(t)) return null;
+  const W: Record<string, number> = { once: 1, twice: 2, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+  const num = (s: string) => W[s.toLowerCase()] ?? Number(s);
+  let m;
+  if ((m = t.match(/\bmore than\s+(once|twice|two|three|four|five|\d+)\b/))) return num(m[1]) + 1;
+  if ((m = t.match(/\bat least\s+(once|twice|two|three|four|five|\d+)\b/))) return num(m[1]);
+  if ((m = t.match(/\b(two|three|four|five|\d+)\s*(?:or more|\+)\s*times?\b/))) return num(m[1]);
+  if (/\btwice\b|\bmultiple times\b|\bseveral times\b|\brepeatedly\b/.test(t)) return 2;
+  return null;
+}
+
+// Is this the "companies where I have BOTH an open opp AND ≥N contacts" JOIN? Returns the min contacts, or
+// null. Kept as a helper so it can run BEFORE the reasoning-gate (the "where I have …" phrasing trips the
+// join-condition heuristic in isReasoningRequest, but this join is deterministically computable, so the tool
+// should win over deferring to the model — which free-hands the intersection and gets it wrong).
+function oppContactsJoin(t: string): number | null {
+  if (!(/\bcompan/.test(t) && /\b(?:opportunit|deals?|open (?:opp|deal))/.test(t) && /\b(?:contacts?|people|knows?|folks)\b/.test(t) && /\b(both|and|at least|two|2|multiple|several|more than one|\d+\+?)\b/.test(t))) return null;
+  const W: Record<string, number> = { two: 2, three: 3, four: 4, five: 5 };
+  const nm = t.match(/\b(?:at least|more than)?\s*(\d+|two|three|four|five)\b\s*(?:\+|or more)?\s*(?:contact|people|folks)/);
+  let min = nm ? (W[nm[1]] ?? Number(nm[1])) : 2;
+  if (/\bmore than one\b/.test(t)) min = 2;
+  if (nm && /more than/.test(t)) min += 1;
+  return Math.max(2, min || 2);
+}
+
 // A complex REASONING / multi-part instruction the keyword router must DECLINE (→ return null → the model
 // handles it). Without this, a paragraph-long "you are a BD advisor, analyse… and prepare…" instruction gets
 // hijacked into a single table the moment it contains a trigger word like "meeting". Targets generation/
@@ -467,6 +589,10 @@ export function isReasoningRequest(text: string): boolean {
 }
 
 export function computeForQuery(text: string, d: BookData, today: string, prevText?: string): ComputeResult | null {
+  // Deterministically-computable relational JOINs run BEFORE the reasoning-gate, so a phrasing that trips the
+  // join-condition heuristic ("companies WHERE I HAVE an open deal and 2+ contacts") still gets the exact tool
+  // rather than being free-handed by the model (the original multi-constraint-join failure).
+  { const min = oppContactsJoin(text.toLowerCase()); if (min) return companiesWithOppAndContacts(d, min); }
   // Hand genuine reasoning / multi-part instructions to the model — never short-circuit them to a table.
   if (isReasoningRequest(text)) return null;
   const t = text.toLowerCase();
@@ -529,25 +655,36 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // ── Contacts by funnel filter ───────────────────────────────────────────────────────────────────
   if (/agreed to meet/.test(t) && /(haven'?t|not|yet|still)/.test(t)) return findContacts(d, { stage: "agreed_not_met" });
   if (/(haven'?t|hasn'?t|hadn'?t|didn'?t|doesn'?t|don'?t|not|no|never)\s+(responded|replied|heard back|got back|answered)/.test(t) || /\b(?:un|non)-?responsive\b|\bghosted\b|\bno reply\b|\bgone silent\b/.test(t)) return findContacts(d, { stage: "not_responded" });
+  // Count-THRESHOLD on meetings ("met more than once / twice / three or more times") — a subset of "met",
+  // NOT the whole met set. Must precede the plain "met" route below, which would otherwise ignore the count.
+  { const min = meetThreshold(t); if (min && min >= 2) return contactsMetAtLeast(d, min); }
   if (/\b(people|who|contacts)\b[^?]*\b(?:i'?ve|i have|have i)\s+met\b/.test(t) && !/haven'?t|hasn'?t|not/.test(t)) return findContacts(d, { stage: "met" });
   if (/\bdecision[- ]?makers?\b|\bc-?suite\b|\bexecutives?\b|\bsenior (?:people|contacts|leaders|stakeholders)\b/.test(t)) {
-    const m = t.match(/\b(?:at|in|from)\s+([A-Za-z0-9 .&'-]+?)(?:\?|$)/i);
     // Honour a funnel qualifier in the SAME question ("...C-suite I've actually met" → met only).
     let stage: ContactFilter["stage"] | undefined;
     if (/\bmet\b/.test(t) && !/haven'?t|hasn'?t|not |never|yet to|still to/.test(t)) stage = "met";
     else if (/agreed to meet/.test(t)) stage = "agreed_not_met";
     else if (/responded|replied|got back|heard back/.test(t) && !/haven'?t|hasn'?t|not |never/.test(t)) stage = "responded";
-    return findContacts(d, { decisionRole: true, company: m ? m[1].trim() : undefined, stage });
+    return findContacts(d, { decisionRole: true, company: extractCompany(t, d), stage });
   }
+
+  // ── Compound / relational (aggregate · anti-join · join) — compute or decline, never mis-parse ──────
+  // ANTI-JOIN: open opportunities with NO meeting logged ("open deals with no meeting against them"). Must
+  // precede the generic deals route, whose naive company-grab used to turn "…at all" into a bogus company.
+  if (/\b(deals?|opportunit)/.test(t) && /\b(no|without|zero|haven'?t (?:had|logged)|not had)\b[^?]*\bmeeting/.test(t)) return openOppsWithoutMeeting(d);
+  // (The JOIN+count "companies with an open opp AND ≥N contacts" runs at the top, before the reasoning-gate.)
 
   // ── Opportunities / deals ───────────────────────────────────────────────────────────────────────
   if (/\bopportunit|\bdeals?\b/.test(t) && (LIST_VERB.test(t) || /\b(open|won|lost|any|all|my)\b/.test(t))) {
     const mv = t.match(/\b(?:over|above|more than|worth|>)\s*[£$€]?\s*(\d[\d,]*)\s*(k|m)?/i);
     const minValue = mv ? Number(mv[1].replace(/,/g, "")) * (mv[2]?.toLowerCase() === "m" ? 1_000_000 : mv[2]?.toLowerCase() === "k" ? 1000 : 1) : undefined;
-    const oc = t.match(/\b(?:at|with|for|from)\s+([A-Za-z0-9 .&'-]+?)(?:\?|$)/i);
-    return findOpportunities(d, { status: /\bwon\b/.test(t) ? "Won" : /\blost\b/.test(t) ? "Lost" : "Open", minValue, company: oc ? oc[1].trim() : undefined });
+    return findOpportunities(d, { status: /\bwon\b/.test(t) ? "Won" : /\blost\b/.test(t) ? "Lost" : "Open", minValue, company: extractCompany(t, d) });
   }
   // ── Contracts / signed work ─────────────────────────────────────────────────────────────────────
+  // Recognised-revenue MATHS over engagements (total / count / average per engagement). Computed, never the
+  // model — and it must precede both the "by value" rank and the generic engagements list, which used to
+  // catch "revenue" and just re-list all engagements when the user asked for the total or the average.
+  if (/\b(recognis|recogniz|revenue)\w*/.test(t) && (/\b(total|how much|average|avg|mean|per engagement|across|sum|each|altogether|in total)\b/.test(t) || (/\bengagements?\b/.test(t) && !LIST_VERB.test(t.replace(/how much/g, ""))))) return contractsAggregate(d, t);
   // Engagements RANKED by value (deterministic — never let the model pick the max).
   if (/\b(highest|biggest|largest|top|most valuable|by value|worth most)\b[^?]*\b(engagement|contract|sow)/.test(t) || /\b(engagement|contract|sow)s?\b[^?]*\b(highest|biggest|largest|most valuable|by value|worth most)\b/.test(t)) return findContracts(d, { byValue: true });
   if (/\b(contracts?|sows?|engagements?|signed work|statement of work|revenue)\b/.test(t) && (LIST_VERB.test(t) || /\b(active|signed|any|all|my)\b/.test(t))) return findContracts(d, { status: /\bactive\b/.test(t) ? "Active" : undefined });
@@ -652,6 +789,35 @@ export function joinGroundingText(question: string, d: BookData, today: string):
   }
   if (!rows.length) return "";
   return `\n\nComputed join — your COLD contacts at companies where you ALSO have live work. These are warm-account/cold-person openings: use the existing engagement as the natural reason to reconnect.\n${rows.join("\n")}`;
+}
+
+// Backend-aware CONFIDENTIALITY answer. A consultant's first question before trusting the tool with real
+// client data is "can anyone see this / does it get sent to a server?" — and the honest answer depends on
+// which AI model is connected, which the free-form model doesn't know (it wrongly promised "nothing is ever
+// sent to a server" even while running on a cloud backend — a false privacy claim, the worst kind for a
+// confidentiality product). So we answer it DETERMINISTICALLY and accurately from the live backend. Returns
+// null when the message isn't a privacy question. `avail` is optional (the eval has no live backend → the
+// general, still-accurate answer that covers both modes).
+type Availability = { backend?: string; byok?: boolean; onDevice?: string };
+export function privacyResponse(text: string, avail?: Availability): ComputeResult | null {
+  const t = text.toLowerCase();
+  const asksLeaves = /\b(sent|send|sends|go|goes|going|leave|leaves|upload|uploaded|shar(?:e|ed|ing)|stor(?:e|ed|ing)|expose|leak)\b/.test(t);
+  const dataOrServer = /\b(server|cloud|anyone (?:else )?(?:can )?see|third[- ]part|external|off[- ]?(?:my )?(?:device|machine)|my data|this data|my book|my contacts|client data|the data)\b/.test(t);
+  const isPrivacyQ =
+    (asksLeaves && dataOrServer) ||
+    /\bis (?:this|it|my data|my book|everything) (?:private|confidential|secure|safe|encrypted)\b/.test(t) ||
+    /\bwhere (?:does|do|will|would|is) .{0,45}?\b(go|goes|end up|get sent|is (?:it |this )?sent|processed|stored|live|reside)\b/.test(t) ||
+    /\bcan anyone (?:else )?(?:see|access|read)\b/.test(t) ||
+    /\bdoes (?:this|it|anything|that) (?:get |ever )?(?:sent|uploaded|shared|stored)\b/.test(t);
+  if (!isPrivacyQ) return null;
+  const onDevice = !!avail && (avail.backend === "webllm" || avail.backend === "builtin" || avail.backend === "ollama") && !avail.byok;
+  const cloud = !!avail && (avail.byok || avail.backend === "byok");
+  const intro = onDevice
+    ? "Everything stays on this device. Your book lives in your browser's local storage, and the AI model you're using runs locally too — so your question and your data never leave the machine, aren't sent to any server, and we never see them. Safe to put real client data in."
+    : cloud
+      ? "Your book itself never leaves this device — it's held in your browser's local storage, never uploaded to us, and we store nothing on our servers. When you ask a question, only the slice needed to answer it (your question plus the relevant records) is sent to the AI model you connected with your own API key, so your own provider processes it under your account — not us, and no one else can see it. If you'd rather nothing leaves the machine at all, switch to an on-device model."
+      : "Your book is stored locally in your browser — it's never uploaded to us and we keep nothing on our servers. What happens when you ask a question depends on which AI model you've connected: an on-device model keeps everything on this machine; a cloud model (your own API key) receives only your question plus the relevant records, processed under your own account. Either way we can't see your book, and no one else can.";
+  return { intro, columns: [], rows: [] };
 }
 
 // Should this computed result get a follow-on LLM INTERPRETATION (the compute→interpret combo)? The tool

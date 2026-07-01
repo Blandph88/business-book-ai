@@ -20,7 +20,7 @@ import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searc
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, toolRouterPrompt, distilMemoryPrompt, interpretResultPrompt, type ChatTurn } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeText, runTool, shouldInterpretResult, type ComputeResult, type ToolCall } from "../ai/compute";
+import { computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, type ComputeResult, type ToolCall } from "../ai/compute";
 import { searchBook, assembleGrounding, type Groups, type Hit } from "../ai/grounding";
 import { ComputeTable } from "./ComputeTable";
 import { AiSetupCard } from "./AiSetupCard";
@@ -757,6 +757,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       if (computed.enrich?.kind === "company") void enrichCompany(computed.enrich.name, id, display, persisted);
       else if (shouldInterpretResult(text, computed)) void interpretCompute(text, md, id, display, persisted);
     };
+    // Confidentiality question → answer accurately from the LIVE backend (never the model, which over-promises
+    // "nothing is sent anywhere" even on a cloud tier). Deterministic, so it's correct and identical every time.
+    if (!docText && !isGenerate) {
+      const priv = privacyResponse(text, avail);
+      if (priv) { renderCompute(priv); return; }
+    }
     if (!docText && !isGenerate) {
       // 1. Keyword router (fast prior, every tier) — date-range / ranking / list queries → exact tables.
       // The prior user turn lets a bare follow-up ("which is the highest value one?") pick the right ranker.

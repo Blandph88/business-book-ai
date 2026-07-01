@@ -177,6 +177,31 @@ check("how big is the gap between the raw and the weighted number?", ["gap", "no
 check("what's my average deal size?", ["average", "no open"]);
 check("what's my biggest deal by value?", ["biggest", "no open"]); // still a RANKING, not aggregation
 
+// ── WS1 relational/aggregate tools + hardened extraction (compute-or-decline, never mis-parse) ──────
+// Recognised-revenue MATHS over engagements → computed, never a re-listing of the engagements table.
+check("how much revenue have I recognised across my engagements?", ["recognised", "no engagements"]);
+check("what's the average recognised per engagement?", ["average", "per engagement", "no engagements"]);
+check("total recognised revenue", ["recognised", "no engagements"]);
+// Count-THRESHOLD on meetings → a subset of "met", not the whole met set.
+check("who have I met more than once?", ["more than once", "met just the once"]);
+check("anyone I've met three or more times?", ["at least 3", "met just the once", "more than once"]);
+check("who have I met at least twice?", ["more than once", "met just the once"]);
+// ANTI-JOIN: open opps with no meeting → the tool, NOT a mis-parsed "…at all" company table.
+check("which of my open deals have no meeting logged against them at all?", ["no meeting", "every open opportunity", "no open opportunities right now"]);
+check("open opportunities without a meeting", ["no meeting", "every open opportunity", "no open opportunities right now"]);
+// JOIN+count: companies with an open opp AND ≥N contacts.
+check("which companies do I have both an open opportunity and at least two contacts at?", ["expansion footholds", "both an open opportunity"]);
+check("companies where I have an open deal and multiple contacts", ["expansion footholds", "both an open opportunity"]);
+// Hardened company extraction — filler ("at all", "at least two contacts at") must NEVER become a bogus
+// company. These MUST route to the right relational tool, never to "No open opportunities at all".
+check("open deals with no meeting logged against them at all?", ["no meeting", "every open opportunity", "no open opportunities right now"]);
+// Regression: a REAL company still resolves, and value filters still work.
+check("who do I know at JPMorgan?", ["jpmorgan"]);
+check("open deals over 100000", ["opportunit", "no open"]);
+
+// ── WS3 confidentiality → answered deterministically by privacyResponse (tested in compute-tools.test) ──
+// (privacyResponse is a separate entry point, not computeForQuery — covered by its own unit test.)
+
 // Open-ended / chit-chat → must fall through to the model (null)
 check("are you funny", null);
 check("tell me a joke", null);

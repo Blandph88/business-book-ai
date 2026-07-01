@@ -17,6 +17,7 @@
     "eval:threads": "EVAL_SET=threads npx --yes tsx scripts/eval/run.mts",
     "eval:memory": "EVAL_SET=memory npx --yes tsx scripts/eval/run.mts",
     "eval:critical": "EVAL_SET=critical npx --yes tsx scripts/eval/run.mts",
+    "eval:capability": "EVAL_SET=capability npx --yes tsx scripts/eval/run.mts",
     "eval:core": "EVAL_SET=core npx --yes tsx scripts/eval/run.mts"
   },
   "dependencies": {

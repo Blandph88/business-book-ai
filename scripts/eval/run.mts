@@ -17,7 +17,7 @@ import Papa from "papaparse";
 // bookContext/prompts may touch localStorage transitively — stub it so the Node harness doesn't crash.
 (globalThis as unknown as { localStorage: object }).localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 
-import { computeForQuery, computeText, shouldInterpretResult } from "../../src/ai/compute.ts";
+import { computeForQuery, computeText, shouldInterpretResult, privacyResponse } from "../../src/ai/compute.ts";
 import { assembleGrounding } from "../../src/ai/grounding.ts";
 import { askBookPrompt, interpretResultPrompt } from "../../src/ai/prompts.ts";
 import { routeIntent } from "../../src/ai/intents.ts";
@@ -25,12 +25,14 @@ import { CONVERSATIONS } from "./conversations.mts";
 import { THREADS } from "./threads.mts";
 import { MEMORY_THREADS, SEED_MEMORY } from "./memory-threads.mts";
 import { CRITICAL_THREADS } from "./critical-threads.mts";
+import { CAPABILITY_THREADS } from "./capability-threads.mts";
 // EVAL_SET picks the battery: "core" = the wide one/two-turn coverage set; "threads" = the long multi-turn
 // conversation set (context back-reference + challenge); "memory" = the memory/source-of-truth + model-weakness
 // set (seeds past-chat MEMORY); "critical" = the critical-failure-mode set (numbers/negation/PII/refusal/
-// drafting/adversarial); "all" (default) = core + threads back to back.
+// drafting/adversarial); "capability" = the in-depth suite for the compute→interpret combo + relational/
+// aggregate tools + guardrails + confidentiality + grounding; "all" (default) = core + threads back to back.
 const EVAL_SET = process.env.EVAL_SET;
-const SET = EVAL_SET === "core" ? CONVERSATIONS : EVAL_SET === "threads" ? THREADS : EVAL_SET === "memory" ? MEMORY_THREADS : EVAL_SET === "critical" ? CRITICAL_THREADS : [...CONVERSATIONS, ...THREADS];
+const SET = EVAL_SET === "core" ? CONVERSATIONS : EVAL_SET === "threads" ? THREADS : EVAL_SET === "memory" ? MEMORY_THREADS : EVAL_SET === "critical" ? CRITICAL_THREADS : EVAL_SET === "capability" ? CAPABILITY_THREADS : [...CONVERSATIONS, ...THREADS];
 // On the memory set, inject the seeded past-chat facts as the app's "Memory from past chats" block, so we can
 // test whether the model pulls each fact from the RIGHT source (memory vs book vs live context) and never
 // confuses or fabricates them. Wording mirrors CopilotBar exactly.
@@ -139,7 +141,9 @@ for (const convo of SET.slice(0, LIMIT)) {
     // Actions (create/update) open a propose→confirm card in the real app — they never run computeForQuery.
     const isAction = intent.kind === "create" || intent.kind === "update";
     const prevText = [...history].reverse().find((h) => h.role === "you")?.text;
-    const computed = (!isAction && !isGenerate(text)) ? computeForQuery(text, data, today, prevText) : null;
+    // Privacy questions answer deterministically from the backend (no live backend in the harness → the
+    // general, still-accurate answer); otherwise the keyword router. Both are the "deterministic" path.
+    const computed = (!isAction && !isGenerate(text)) ? (privacyResponse(text) || computeForQuery(text, data, today, prevText)) : null;
     if (isAction) {
       actionTurns++;
       path = `action (${intent.kind} ${intent.entity ?? ""})`.trim();
