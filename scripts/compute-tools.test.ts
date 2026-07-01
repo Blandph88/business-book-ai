@@ -105,6 +105,11 @@ test("topic-gate: personal / general → companion; book question → book; cris
     assert.equal(conversationPath(q, d), "book", q);
   // a stray book keyword inside a personal vent must NOT flip it to book
   assert.equal(conversationPath("my boss keeps booking pointless meetings and it's draining me", d), "companion");
+  // a LIFE/CAREER decision is a personal conversation even when it names a book company (Acme)…
+  assert.equal(conversationPath("I'm turning down the role at Acme to go all in on my startup", d), "companion");
+  assert.equal(conversationPath("should I take the Saudi job or stay at Acme?", d), "companion");
+  // …but a book-ADVISORY question about a record stays on the book path
+  assert.equal(conversationPath("should I chase the Acme deal harder?", d), "book");
   // crisis → the deterministic safety floor
   for (const q of ["I don't want to be here anymore", "I've been thinking about ending it all", "I want to kill myself"])
     assert.equal(conversationPath(q, d), "crisis", q);

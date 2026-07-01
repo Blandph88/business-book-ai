@@ -21,9 +21,16 @@ import { personalRegister, crisisSignal } from "./intents";
 // asks about their pipeline/outreach) → the grounded book path. Personal register always wins over a stray
 // book keyword ("my boss keeps booking meetings" stays companion — "boss" isn't a contact, "meetings" alone
 // isn't enough). Runs on every tier — the gate is deterministic so even a tiny model can't fumble it.
+// A first-person LIFE / CAREER decision ("turning down EY", "should I take the Saudi job", "torn between",
+// "go all in") is a personal conversation even when it names a company in their book — the decision is about
+// THEIR life, not a book record. Distinct from a book-advisory question ("should I chase the Merck deal"),
+// which is about a record and stays on the grounded path. Keeps a career deliberation in the companion.
+const LIFE_DECISION = /\b(turn(?:ing)? (?:it |them |the (?:job|offer|role) )?down|walk(?:ing)? away from|go(?:ing)? all[- ]in|give (?:it |everything |this )?up|quit(?:ting)?|hand in my notice|should i (?:take|accept|leave|quit|stay|resign|move to|relocate|go for|say yes to)|thinking (?:of|about) (?:leaving|quitting|moving|resigning|jacking)|torn between|i'?ve decided|made up my mind|big (?:life |career )?decision|life decision|career (?:decision|move|change|crossroads)|whether to (?:take|accept|leave|quit|stay|go))\b/i;
+
 export function conversationPath(text: string, d: BookData, prevCompanion = false): "crisis" | "companion" | "book" {
   if (crisisSignal(text)) return "crisis";
   if (personalRegister(text)) return "companion";
+  if (LIFE_DECISION.test(text)) return "companion";
   // An EXPLICIT book request ("brief me on X", "my pipeline", "the Merck deal", "status of…") always pulls
   // to the grounded path — even mid-conversation.
   const explicitBook = /\b(my pipeline|my deals?|my opportunit|my contacts?|my network|my book|my leads?|my meetings?|my engagements?|who do i know|book of business|follow[- ]?up with|reach out to|draft (?:a |an )?(?:note|message|email|follow|intro|reply)|brief me on|log (?:a |an )?(?:meeting|opportunit|contact)|prep me for|account plan|status (?:of|on)|the \w+ (?:deal|opportunit(?:y|ies)|account|engagement))\b/i.test(text);
