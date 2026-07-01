@@ -817,7 +817,11 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // about their ACTUAL book (→ the grounded path below)? Deterministic on every tier, so even a tiny model
     // can't treat "I feel sad" as a pipeline problem or dump a contact card into an emotional conversation.
     if (!docText) {
-      const path = conversationPath(text, data);
+      // Stickiness: was the PRIOR user turn a companion turn? If so, a mention of a book entity doesn't yank
+      // this personal thread back to grounded mode — only an explicit book request does.
+      const prevUserText = [...prior].reverse().find((tn) => tn.role === "you")?.text || "";
+      const prevCompanion = !!prevUserText && conversationPath(prevUserText, data) === "companion";
+      const path = conversationPath(text, data, prevCompanion);
       if (path === "crisis") {
         persistTo(id, [...history, { role: "you", text }, { role: "ai", text: CRISIS_RESPONSE }]);
         if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: CRISIS_RESPONSE }]);

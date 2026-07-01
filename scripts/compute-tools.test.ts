@@ -110,6 +110,17 @@ test("topic-gate: personal / general → companion; book question → book; cris
     assert.equal(conversationPath(q, d), "crisis", q);
 });
 
+test("topic-gate stickiness: a mid-conversation entity mention stays companion; explicit book request switches", () => {
+  // Fresh turn naming a book company → book. (Acme is a company in the synthetic book.)
+  assert.equal(conversationPath("should I chase the Acme deal?", d, false), "book");
+  // Same-ish turn, but we're MID-COMPANION (prevCompanion=true) and it's not an explicit book request →
+  // stays companion (the "part of me thinks I'm mad to turn down EY" case — don't yank a personal thread).
+  assert.equal(conversationPath("part of me thinks I'm mad to walk away from Acme", d, true), "companion");
+  // An EXPLICIT book request pulls back to the book even mid-companion.
+  assert.equal(conversationPath("actually, brief me on Ann Alpha", d, true), "book");
+  assert.equal(conversationPath("ok what's the status of the Acme deal", d, true), "book");
+});
+
 test("personalRegister / crisisSignal basics", () => {
   assert.equal(personalRegister("I just feel low today"), true);
   assert.equal(personalRegister("who do I know at Acme?"), false);

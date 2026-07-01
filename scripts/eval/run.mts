@@ -176,7 +176,10 @@ for (const convo of SET.slice(0, LIMIT)) {
       modelTurns++;
       // TOPIC-GATE: a turn that isn't a book tool → crisis (deterministic safety floor), a personal/general
       // conversation (the warm COMPANION — no book injected), or a grounded question/advice about the book.
-      const cpath = conversationPath(text, data);
+      // Stickiness: if the prior user turn was companion, a stray book-entity mention stays in the thread.
+      const prevUserText = [...history].reverse().find((h) => h.role === "you")?.text || "";
+      const prevCompanion = !!prevUserText && conversationPath(prevUserText, data) === "companion";
+      const cpath = conversationPath(text, data, prevCompanion);
       if (cpath === "crisis") {
         response = CRISIS_RESPONSE;
         path = "crisis (deterministic safety floor)";

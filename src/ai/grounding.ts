@@ -21,13 +21,20 @@ import { personalRegister, crisisSignal } from "./intents";
 // asks about their pipeline/outreach) → the grounded book path. Personal register always wins over a stray
 // book keyword ("my boss keeps booking meetings" stays companion — "boss" isn't a contact, "meetings" alone
 // isn't enough). Runs on every tier — the gate is deterministic so even a tiny model can't fumble it.
-export function conversationPath(text: string, d: BookData): "crisis" | "companion" | "book" {
+export function conversationPath(text: string, d: BookData, prevCompanion = false): "crisis" | "companion" | "book" {
   if (crisisSignal(text)) return "crisis";
   if (personalRegister(text)) return "companion";
+  // An EXPLICIT book request ("brief me on X", "my pipeline", "the Merck deal", "status of…") always pulls
+  // to the grounded path — even mid-conversation.
+  const explicitBook = /\b(my pipeline|my deals?|my opportunit|my contacts?|my network|my book|my leads?|my meetings?|my engagements?|who do i know|book of business|follow[- ]?up with|reach out to|draft (?:a |an )?(?:note|message|email|follow|intro|reply)|brief me on|log (?:a |an )?(?:meeting|opportunit|contact)|prep me for|account plan|status (?:of|on)|the \w+ (?:deal|opportunit(?:y|ies)|account|engagement))\b/i.test(text);
+  if (explicitBook) return "book";
+  // STICKINESS: once we're in a companion conversation, a follow-up that merely MENTIONS a book entity
+  // ("part of me thinks I'm mad to turn down EY") must not yank them back to grounded mode mid-thread — only
+  // an explicit book request (above) does. This keeps a personal thread personal even when it names their
+  // employer / a company they know. A fresh turn (no companion context) still routes on the entity.
+  if (prevCompanion) return "companion";
   const g = searchBook(text, d);
-  const namesBookEntity = !!g && !g.empty;
-  const explicitBook = /\b(my pipeline|my deals?|my opportunit|my contacts?|my network|my book|my leads?|my meetings?|my engagements?|who do i know|book of business|follow[- ]?up with|reach out to|draft (?:a |an )?(?:note|message|email|follow|intro|reply)|brief me on|log (?:a |an )?(?:meeting|opportunit|contact)|prep me for|account plan)\b/i.test(text);
-  return namesBookEntity || explicitBook ? "book" : "companion";
+  return g && !g.empty ? "book" : "companion";
 }
 
 export type Hit = { id: string; main: string; meta: string };
