@@ -877,7 +877,9 @@ export function joinGroundingText(question: string, d: BookData, today: string):
 type Availability = { backend?: string; byok?: boolean; onDevice?: string };
 export function privacyResponse(text: string, avail?: Availability): ComputeResult | null {
   const t = text.toLowerCase();
-  const asksLeaves = /\b(sent|send|sends|go|goes|going|leave|leaves|upload|uploaded|shar(?:e|ed|ing)|stor(?:e|ed|ing)|expose|leak)\b/.test(t);
+  // NB: no "go/goes/going" — far too common ("going to help", "how's it going") and it false-triggered the
+  // privacy card on ordinary messages. A genuine "where does my data go?" is caught by the explicit patterns below.
+  const asksLeaves = /\b(sent|send|sends|leave|leaves|leaving|upload|uploaded|shar(?:e|ed|ing)|stor(?:e|ed|ing)|expose|leak|transmit)\b/.test(t);
   const dataOrServer = /\b(server|cloud|anyone (?:else )?(?:can )?see|third[- ]part|external|off[- ]?(?:my )?(?:device|machine)|my data|this data|my book|my contacts|client data|the data)\b/.test(t);
   const isPrivacyQ =
     (asksLeaves && dataOrServer) ||

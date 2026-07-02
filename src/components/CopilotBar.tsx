@@ -61,7 +61,27 @@ type RelatedHit =
 // A chat turn as shown in the UI — a persisted you/ai message (with optional related links), or a
 // transient "action" turn carrying a propose→confirm card (not persisted).
 type Chip = { label: string; prompt: string };
-type UITurn = { role: "you" | "ai" | "action"; text: string; related?: RelatedHit[]; action?: ActionCardData; undo?: () => void; chips?: Chip[]; compute?: ComputeResult };
+type UITurn = { role: "you" | "ai" | "action"; text: string; related?: RelatedHit[]; action?: ActionCardData; undo?: () => void; chips?: Chip[]; compute?: ComputeResult; genMs?: number; genTok?: number };
+
+// Rough token estimate for the live/after "N tokens" readout (we don't get exact counts mid-stream).
+const approxTokens = (s: string) => Math.max(1, Math.round((s || "").length / 4));
+
+// First-token stall watchdog. Rejects only if the model produces NO first token within `baseMs` — but
+// while a model DOWNLOAD is actively in progress (first-time WebLLM fetch can take minutes), it keeps
+// pushing the deadline out, so a legitimate big download never trips the "took too long" fallback.
+// `onStall` fires just before it rejects (to flag the caller's `bailed` guard).
+function firstTokenStall(stillFirstTok: () => boolean, downloading: () => boolean, onStall: () => void, baseMs = 60_000): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    let deadline = Date.now() + baseMs;
+    const tick = () => {
+      if (!stillFirstTok()) return; // first token arrived → the stream wins the race; stop watching
+      if (downloading()) deadline = Date.now() + baseMs; // still downloading, not stalled → reset
+      if (Date.now() >= deadline) { onStall(); reject(new Error("model-timeout")); return; }
+      setTimeout(tick, 2_500);
+    };
+    setTimeout(tick, 2_500);
+  });
+}
 
 // searchBook + groundingFromGroups now live in ../ai/grounding (shared with the eval harness).
 
@@ -98,8 +118,19 @@ const ORG_NOISE = new Set([
 // something clickable: the company card opens that account; a person card deep-links to the contact.
 // Normalise for name matching: drop apostrophes, fold non-alphanumerics to spaces ("O'Connor" → "oconnor").
 const nameNorm = (s: string) => s.toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+// Everyday / conversational words that must NOT drive a company-card match — a company whose name merely
+// CONTAINS one of these ("Cook Book", "Before Smiles Talk Show", "About You") was surfacing off a stray
+// word in ordinary chat ("can we talk about my book"). Distinctive names (Deloitte, EY, TaxValet) aren't
+// here, so they still match. Function words + generic content words only — never brandable nouns.
+const CHATTY_STOP = new Set([
+  "the","a","an","and","or","but","if","so","of","to","in","on","at","for","with","from","by","about","as","into","over","after","before","up","down","out","off",
+  "i","me","my","mine","we","us","our","you","your","he","she","it","its","they","them","their","this","that","these","those","who","whom","what","which","when","where","why","how",
+  "is","are","am","was","were","be","been","being","do","does","did","done","have","has","had","can","could","would","should","will","shall","may","might","must","let","lets",
+  "not","no","yes","yeah","ok","okay","just","really","very","too","also","then","now","here","there","some","something","anything","everything","nothing","any","all","more","most","much","many",
+  "talk","talking","show","tell","think","thinking","know","feel","feeling","chat","help","today","tomorrow","time","day","work","working","book","books","thing","things","stuff","idea","ideas","people","person","want","like","need","make","making","get","got","go","going","say","said","good","great","nice","happy","sad","lonely","food","friend","friends","life","hope","maybe","sure","thanks","thank","please","sorry","hello","hi","hey",
+]);
 function entityHits(text: string, d: BookData): RelatedHit[] {
-  const msg = new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  const msg = new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !CHATTY_STOP.has(w)));
   if (!msg.size) return [];
   const lowText = " " + nameNorm(text) + " ";
   const people: RelatedHit[] = [];
@@ -409,16 +440,26 @@ function relativeTime(ts: number): string {
 // shapes every beat (so it visibly churns), and the whole thing drifts through shades of blue. Pure CSS
 // for the colour drift; a tiny interval cycles the glyph (remounting it replays a pop animation).
 const THINK_GLYPHS = ["+", "✦", "✶", "✷", "✸", "✹", "✺", "✳", "∗"];
-function ThinkingIndicator({ label }: { label: string }) {
-  const [i, setI] = useState(0);
+// Quirky-but-business-focused verbs the indicator cycles through (fun, and it reads as "still working").
+const THINK_VERBS = [
+  "Thinking", "Crunching", "Proofing", "Connecting", "Digging", "Scanning", "Weighing",
+  "Sharpening", "Mapping", "Synthesising", "Strategising", "Consulting",
+];
+function ThinkingIndicator({ label, startMs }: { label?: string; startMs?: number }) {
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setI((n) => (n + 1) % THINK_GLYPHS.length), 440);
+    const t = setInterval(() => setTick((n) => n + 1), 420);
     return () => clearInterval(t);
   }, []);
+  const secs = startMs ? Math.max(0, Math.floor((Date.now() - startMs) / 1000)) : 0;
+  // A fixed label (model download / "Working…") shows verbatim; otherwise rotate a quirky verb every ~3s,
+  // and settle into "Almost there…" on long waits so it never feels stuck.
+  const word = label ?? `${secs >= 22 ? "Almost there" : THINK_VERBS[Math.floor(tick / 7) % THINK_VERBS.length]}…`;
   return (
     <span className="thinking">
-      <span className="thinking-glyph" key={i}>{THINK_GLYPHS[i]}</span>
-      <span className="thinking-word">{label}</span>
+      <span className="thinking-glyph" key={tick % THINK_GLYPHS.length}>{THINK_GLYPHS[tick % THINK_GLYPHS.length]}</span>
+      <span className="thinking-word">{word}</span>
+      {secs > 0 && <span className="thinking-secs">· {secs}s</span>}
     </span>
   );
 }
@@ -439,18 +480,41 @@ function TierLabel() {
   );
 }
 
+// An input that WRAPS and auto-grows with the text (up to maxH, then scrolls). Enter sends; Shift+Enter
+// inserts a newline. Used for both the search field and the chat composer so long messages don't run off.
+function GrowTextarea({ value, onChange, onEnter, className, placeholder, autoFocus, maxH = 160, refCb }: {
+  value: string; onChange: (v: string) => void; onEnter: () => void; className?: string; placeholder?: string; autoFocus?: boolean; maxH?: number; refCb?: (el: HTMLTextAreaElement | null) => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  const resize = () => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, maxH) + "px"; };
+  useEffect(() => { resize(); }, [value]); // grow on type + shrink back when cleared programmatically
+  return (
+    <textarea
+      ref={(el) => { ref.current = el; refCb?.(el); }}
+      rows={1}
+      className={className}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onEnter(); } }}
+    />
+  );
+}
+
 export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "search", fullPage = false, onAsk, seedPrompt, openChatId, onChatsChanged }: { onNavigate: Navigate; onOpenAccount?: (org: string) => void; onClose: () => void; initialView?: View; fullPage?: boolean; onAsk?: (text: string) => void; seedPrompt?: string; openChatId?: string; onChatsChanged?: () => void }) {
   const aiReady = useAiAvailable();
   // Re-checkable active backend. When it's the stub (no real on-device model), we show the setup ladder
   // instead of letting the copilot answer with placeholder text. `aiNonce` bumps after a successful setup.
   const [aiNonce, setAiNonce] = useState(0);
-  const { backend: activeBackend } = useAiBackend(aiNonce);
+  const { backend: activeBackend, label: aiLabel, model: aiModel } = useAiBackend(aiNonce);
   const [view, setView] = useState<View>(initialView);
   const [histQuery, setHistQuery] = useState("");
   const [, setInflightTick] = useState(0);
   // First-use model download progress (broadcast by the broker), so "Thinking…" becomes "Setting up the
   // assistant… 34%" while the one-time model loads — stops people abandoning, thinking it's frozen.
   const [aiLoad, setAiLoad] = useState<{ active: boolean; progress: number; firstRun: boolean } | null>(null);
+  const aiLoadRef = useRef<{ active: boolean; progress: number; firstRun: boolean } | null>(null); // latest, for the stall watchdog
   const seededRef = useRef(false);
   // The rotating starter set, fixed for this mount so it doesn't reshuffle on every keystroke.
   const [starters] = useState(() => pickStarters(starterRotation++));
@@ -463,6 +527,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const [asking, setAsking] = useState(false);
   const [streaming, setStreaming] = useState(false); // a reply is streaming in token-by-token
   const [actionBusy, setActionBusy] = useState(false);
+  const [genTokens, setGenTokens] = useState(0); // live token estimate shown while a reply streams
+  const genStartRef = useRef(0); // ms when the current generation began (for the live secs + "Thought for XXs")
+  const wasGenRef = useRef(false); // tracks generating→idle transitions to stamp the finished turn
   const [saved, setSaved] = useState<SavedChat[]>(() => listChats());
   const [notes, setNotes] = useState<Note[]>([]); // the AI's distilled memory (loaded when the view opens)
   const [doc, setDoc] = useState<LoadedDoc | null>(null); // an attached document, fed into the next message
@@ -471,7 +538,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const latestChatRef = useRef<UITurn[]>([]); // newest chat turns, for distilling memory on leave/unmount
   const distilledRef = useRef<Map<string, number>>(new Map()); // chatId → turns already distilled (skip redundant)
   const threadRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const docInputRef = useRef<HTMLInputElement | null>(null);
 
   async function onPickFile(file: File | undefined) {
@@ -526,7 +593,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   useEffect(() => {
     function onLoad(e: Event) {
       const d = (e as CustomEvent).detail as { active: boolean; progress: number; firstRun?: boolean } | undefined;
-      if (d) setAiLoad(d.active ? { active: true, progress: d.progress, firstRun: !!d.firstRun } : null);
+      if (d) { const v = d.active ? { active: true, progress: d.progress, firstRun: !!d.firstRun } : null; setAiLoad(v); aiLoadRef.current = v; }
     }
     window.addEventListener("freehold:ai-load", onLoad);
     return () => window.removeEventListener("freehold:ai-load", onLoad);
@@ -559,6 +626,23 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const actionSuggestions = useMemo(() => ({ organisation: orgOptions, based_in: COMMON_LOCATIONS, next_action: NEXT_ACTIONS }), [orgOptions]);
 
   useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }); }, [chat, asking, view]);
+
+  // One place owns generation timing (no per-answer-path edits): when a turn STARTS generating, record the
+  // start + reset the live token count; when it ENDS, stamp the just-finished AI turn with elapsed ms +
+  // token estimate so it can show "Thought for XXs · ~N tokens" (Claude-style). Display-only (not persisted).
+  useEffect(() => {
+    const gen = asking || streaming;
+    if (gen && !wasGenRef.current) { genStartRef.current = Date.now(); setGenTokens(0); }
+    else if (!gen && wasGenRef.current && genStartRef.current) {
+      const ms = Date.now() - genStartRef.current;
+      setChat((cur) => {
+        const last = cur[cur.length - 1];
+        if (!last || last.role !== "ai" || last.genMs != null) return cur;
+        return cur.map((t, i) => (i === cur.length - 1 ? { ...t, genMs: ms, genTok: approxTokens(t.text) } : t));
+      });
+    }
+    wasGenRef.current = gen;
+  }, [asking, streaming]);
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
     window.addEventListener("keydown", onKey);
@@ -652,6 +736,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const streamed = await aiPromptStream(interpretResultPrompt(question, md), (full) => {
         if (chatIdRef.current !== id) return;
         acc = full;
+        setGenTokens(approxTokens(full));
         setChat([...display, { role: "ai", text: full }]);
       });
       const finalText = (streamed || acc).trim();
@@ -670,12 +755,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     const streamP = aiPromptStream(companionPrompt(text, history, level, { heavy: heavyDistress(text) }), (full) => {
       if (bailed || chatIdRef.current !== id) return;
       if (firstTok) { firstTok = false; setAsking(false); setStreaming(true); }
+      setGenTokens(approxTokens(full));
       setChat([...prior, { role: "you", text }, { role: "ai", text: full }]);
     });
     try {
       const reply = await Promise.race([
         streamP,
-        new Promise<string>((_, reject) => setTimeout(() => { if (firstTok) { bailed = true; reject(new Error("model-timeout")); } }, 45_000)),
+        firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
       ]);
       const aiText = reply.trim() || "(no response)";
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
@@ -883,6 +969,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const streamP = aiPromptStream(askBookPrompt(text, grounding, history, webContext, compact), (full) => {
         if (bailed || chatIdRef.current !== id) return;
         if (firstTok) { firstTok = false; setAsking(false); setStreaming(true); }
+        setGenTokens(approxTokens(full));
         setChat([...prior, { role: "you", text }, { role: "ai", text: full, related: relatedOrUndef }]);
       });
       // Safety net: a small on-device model can stall on load/prefill (WebLLM runs one job at a time). If NO
@@ -890,7 +977,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // any matched records) instead of leaving the user on an endless "Thinking…".
       const reply = await Promise.race([
         streamP,
-        new Promise<string>((_, reject) => setTimeout(() => { if (firstTok) { bailed = true; reject(new Error("model-timeout")); } }, 45_000)),
+        firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
       ]);
       setStreaming(false);
       const aiText = reply.trim() || "(no response)";
@@ -1070,6 +1157,11 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
           <div className="copilot-head">
             {saved.length > 0 && <button type="button" className="copilot-headbtn" onClick={openHistory}>‹ Chats</button>}
             <span className="copilot-head-title">{chatTitle}</span>
+            {aiReady && activeBackend && (
+              <span className="copilot-head-model" title={`AI model in use: ${aiLabel}${shortModelName(aiModel) ? ` · ${shortModelName(aiModel)}` : ""}. Managed by Freehold.`}>
+                <span className="copilot-tier-dot" />{shortModelName(aiModel) || aiLabel}
+              </span>
+            )}
             <button type="button" className="copilot-headbtn" onClick={startNew}>+ New</button>
           </div>
         )}
@@ -1105,14 +1197,14 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
               </div>
             )}
             <div className="copilot-field">
-              <input
-                ref={inputRef}
+              <GrowTextarea
+                refCb={(el) => { inputRef.current = el; }}
                 className="copilot-field-input"
                 autoFocus
                 placeholder={aiReady ? "How can I help you today?" : "Search contacts, meetings, opportunities…"}
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") ask(); }}
+                onChange={setQ}
+                onEnter={() => ask()}
               />
               <div className="copilot-field-foot">
                 {aiReady && <button type="button" className="copilot-plus" onClick={() => docInputRef.current?.click()} title="Add meeting notes, proposals, contracts and more" aria-label="Add meeting notes, proposals, contracts and more">+</button>}
@@ -1233,10 +1325,14 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                         ))}
                       </div>
                     )}
+                    {t.role === "ai" && t.genMs != null && (
+                      <div className="copilot-genmeta">Thought for {Math.max(1, Math.round(t.genMs / 1000))}s{t.genTok ? ` · ~${t.genTok} tokens` : ""}</div>
+                    )}
                   </div>
                 ),
               )}
-              {!streaming && (asking || actionBusy || isBusy(chatIdRef.current)) && <div className="copilot-turn copilot-turn--ai"><div className="copilot-turn-text copilot-turn-text--thinking"><ThinkingIndicator label={aiLoad?.active ? `${aiLoad.firstRun ? "Downloading the assistant (one-time)" : "Starting the assistant"}… ${Math.round((aiLoad.progress || 0) * 100)}%` : actionBusy ? "Working…" : "Thinking…"} /></div></div>}
+              {!streaming && (asking || actionBusy || isBusy(chatIdRef.current)) && <div className="copilot-turn copilot-turn--ai"><div className="copilot-turn-text copilot-turn-text--thinking"><ThinkingIndicator label={aiLoad?.active ? `${aiLoad.firstRun ? "Downloading the assistant (one-time)" : "Starting the assistant"}… ${Math.round((aiLoad.progress || 0) * 100)}%` : actionBusy ? "Working…" : undefined} startMs={genStartRef.current} /></div></div>}
+              {streaming && <div className="copilot-genmeta copilot-genmeta--live">~{genTokens} tokens · {Math.max(0, Math.round((Date.now() - genStartRef.current) / 1000))}s</div>}
             </div>
             {(doc || docNote) && (
               <div className="copilot-doc copilot-doc--composer">
@@ -1245,13 +1341,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
             )}
             <div className="copilot-composer">
               <button type="button" className="copilot-attach" onClick={() => docInputRef.current?.click()} title="Add meeting notes, proposals, contracts and more" aria-label="Add meeting notes, proposals, contracts and more">+</button>
-              <input
+              <GrowTextarea
                 className="copilot-composer-input"
                 autoFocus
                 placeholder="How can I help you today?"
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") ask(); }}
+                onChange={setQ}
+                onEnter={() => ask()}
               />
               <button type="button" className="copilot-ask" disabled={(!q.trim() && !doc) || asking} onClick={() => ask()}>{asking ? "…" : "Send"}</button>
             </div>

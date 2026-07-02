@@ -301,8 +301,33 @@ async function aiHandler(method: string, args: PromptArgs): Promise<unknown> {
 
 export function installDevBroker(): void {
   if (typeof window === "undefined") return;
-  const w = window as unknown as { freehold?: { request?: unknown } };
+  const w = window as unknown as { freehold?: { request?: unknown }; bb?: unknown };
   if (w.freehold && typeof w.freehold.request === "function") return; // sealed marketplace already provides it
+
+  // Dev-only console helper for flipping models while testing (bb.models(), bb.model('…'), bb.clear(), …).
+  // Guarded by import.meta.env.DEV so it's dead-code-eliminated from any production build, and it's only
+  // reached here (past the sealed guard) on localhost — so it can NEVER exist in the uploaded/sealed copy.
+  if (import.meta.env.DEV && !w.bb) {
+    const set = (k: string, v: string) => localStorage.setItem(k, v);
+    const del = (k: string) => localStorage.removeItem(k);
+    const reload = () => location.reload();
+    w.bb = {
+      models() {
+        const cur = localStorage.getItem("freehold.dev.webllm.model") || DEFAULT_WEBLLM_MODEL;
+        console.table(Object.entries(WEBLLM_GB).map(([model, GB]) => ({ model, GB, active: model === cur ? "←" : "" })));
+        console.info("bb.model('<id>') switch · bb.clear() clean WebLLM · bb.byok('<key>',{wire,endpoint,model}) · bb.off() no-AI");
+        return cur;
+      },
+      model(id: string) { set("freehold.dev.webllm.model", id); set("freehold.dev.webllm.consented", "1"); set("freehold.dev.webllm", "on"); del("freehold.dev.backend"); reload(); },
+      byok(apiKey: string, opts: { wire?: string; endpoint?: string; model?: string } = {}) {
+        set("freehold.ai.byok.v1", JSON.stringify({ wire: opts.wire || "openai", endpoint: opts.endpoint || "https://api.openai.com/v1", apiKey, model: opts.model || "gpt-4o" }));
+        set("freehold.dev.backend", "byok"); reload();
+      },
+      off() { set("freehold.dev.webllm", "off"); del("freehold.dev.backend"); del("freehold.ai.byok.v1"); reload(); },
+      clear() { ["freehold.ai.byok.v1", "freehold.dev.backend", "freehold.dev.webllm"].forEach(del); reload(); },
+    };
+    console.info("%c[Business Book dev] bb helper ready — type bb.models()", "color:#1f3b63;font-weight:600");
+  }
   w.freehold = Object.freeze({
     capabilities: ["ai", "search", "track"],
     request: (capability: string, method: string, args: PromptArgs) => {

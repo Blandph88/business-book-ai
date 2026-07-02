@@ -27,10 +27,26 @@ import { personalRegister, crisisSignal } from "./intents";
 // which is about a record and stays on the grounded path. Keeps a career deliberation in the companion.
 const LIFE_DECISION = /\b(turn(?:ing)? (?:it |them |the (?:job|offer|role) )?down|walk(?:ing)? away from|go(?:ing)? all[- ]in|give (?:it |everything |this )?up|quit(?:ting)?|hand in my notice|should i (?:take|accept|leave|quit|stay|resign|move to|relocate|go for|say yes to)|thinking (?:of|about) (?:leaving|quitting|moving|resigning|jacking)|torn between|i'?ve decided|made up my mind|big (?:life |career )?decision|life decision|career (?:decision|move|change|crossroads)|whether to (?:take|accept|leave|quit|stay|go))\b/i;
 
+// A bare greeting / pleasantry (the WHOLE message is one) → small talk, never a book search. Without this,
+// "Hello" falls through to searchBook and matches any company containing "hello" (Hello Charlie, HelloReport
+// …), so a simple hello dumps the user's network at them. Anchored ^…$ so real queries ("who do I know at
+// Hello?") still route to the book.
+const SMALL_TALK = /^\s*(hi+|hey+|hello+|hiya|yo|howdy|sup|greetings|(good\s+)?(morning|afternoon|evening)|(hi|hey|hello)\s+there|how\s+are\s+(you|things|we)|how'?s\s+(it\s+going|things|life)|what'?s\s+up|thank(s| you)|cheers|nice to (meet|see) you)[\s!.,?’']*$/i;
+
+// BUSINESS-DEVELOPMENT / book intent — the WHOLE POINT of the product. Clients, leads, prospects,
+// opportunities, pipeline, "who should I reach out to", "help me find clients", "analyse my book". These
+// must GROUND on the user's data (the book path), even mid-companion-thread — otherwise the copilot gives
+// generic ChatGPT advice and asks the user who their clients are, defeating why they bought it. Runs before
+// personalRegister + the companion-stickiness so a BD ask always beats "keep it personal". (Genuine life/
+// career decisions are caught by LIFE_DECISION above and stay personal; pure emotion has no BD nouns.)
+const BOOK_INTENT = /\b(clients?|customers?|leads?|prospects?|opportunit\w*|pipelines?|book of business|my (book|network|contacts?|deals?|leads?|clients?|prospects?|pipeline|meetings?))\b|\bwho are my\b|\banaly[sz]e (?:my |the )?(?:book|network|pipeline|contacts?|clients?)\b|\breach(?:ing)? out\b|\b(?:who|anyone|anybody|someone)\s+(?:i\s+(?:should|could|can|need to|ought to|might)|to)\b|\bwho (?:else )?(?:do|should|can|could) i (?:know|contact|target|approach|reach|prioriti[sz]e)\b/i;
+
 export function conversationPath(text: string, d: BookData, prevCompanion = false): "crisis" | "companion" | "book" {
   if (crisisSignal(text)) return "crisis";
+  if (SMALL_TALK.test(text)) return "companion";
+  if (LIFE_DECISION.test(text)) return "companion"; // a life/career decision stays personal even if it names a company
+  if (BOOK_INTENT.test(text)) return "book"; // BD/book asks GROUND on data — beats personal register + stickiness
   if (personalRegister(text)) return "companion";
-  if (LIFE_DECISION.test(text)) return "companion";
   // An EXPLICIT book request ("brief me on X", "my pipeline", "the Merck deal", "status of…") always pulls
   // to the grounded path — even mid-conversation.
   const explicitBook = /\b(my pipeline|my deals?|my opportunit|my contacts?|my network|my book|my leads?|my meetings?|my engagements?|who do i know|book of business|follow[- ]?up with|reach out to|draft (?:a |an )?(?:note|message|email|follow|intro|reply)|brief me on|log (?:a |an )?(?:meeting|opportunit|contact)|prep me for|account plan|status (?:of|on)|the \w+ (?:deal|opportunit(?:y|ies)|account|engagement))\b/i.test(text);
