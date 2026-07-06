@@ -4,7 +4,9 @@ import {
   parseConnections,
   parseMessages,
   importLinkedIn,
+  carryOverEnrichment,
 } from "./linkedinImport";
+import type { Contact } from "./contacts";
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────────────────
 // A real LinkedIn Connections.csv begins with a "Notes:" preamble, a quoted note, and a blank
@@ -300,5 +302,55 @@ describe("importLinkedIn", () => {
     const { contacts } = importLinkedIn(conns, "");
     expect(contacts).toHaveLength(1);
     expect(contacts[0].first).toBe("Jane");
+  });
+});
+
+// ── carryOverEnrichment (re-import preserves the LLM scans) ──────────────────────────────────
+describe("carryOverEnrichment", () => {
+  const warmth = { score: 8, label: "keen", at: "2026-01-01" } as Contact["warmthSentiment"];
+  const opp = { text: "wants a CRM", at: "2026-01-01" } as Contact["latentOpp"];
+
+  function freshBook(): Contact[] {
+    const conns = connFile([
+      `Ana,A,${ANA},,Acme,Manager,01 Jan 2024`,
+      `Ben,B,${BEN},,Globex,Director,01 Jan 2024`,
+    ]);
+    const msgs = msgFile([msgRow("c1", OWNER, ANA, "Hi Ana, nice to connect.")]);
+    return importLinkedIn(conns, msgs).contacts;
+  }
+  const isAna = (c: Contact) => normalizeUrl(c.url) === normalizeUrl(ANA);
+  const isBen = (c: Contact) => normalizeUrl(c.url) === normalizeUrl(BEN);
+
+  it("carries warmthSentiment + latentOpp over for a URL-matched contact", () => {
+    const fresh = freshBook();
+    const prev = freshBook().map((c) => (isAna(c) ? { ...c, warmthSentiment: warmth, latentOpp: opp } : c));
+    const out = carryOverEnrichment(fresh, prev);
+    expect(out.find(isAna)!.warmthSentiment).toEqual(warmth);
+    expect(out.find(isAna)!.latentOpp).toEqual(opp);
+    expect(out.find(isBen)!.warmthSentiment).toBeUndefined(); // Ben was never scored
+  });
+
+  it("matches across URL variants (trailing slash / query)", () => {
+    const fresh = freshBook();
+    const prev: Contact[] = [{ ...fresh.find(isAna)!, url: `${ANA}/?utm=x`, warmthSentiment: warmth }];
+    expect(carryOverEnrichment(fresh, prev).find(isAna)!.warmthSentiment).toEqual(warmth);
+  });
+
+  it("keeps the FRESH thread/inbound (a newer export wins), only carries the scans", () => {
+    const fresh = freshBook();
+    const freshThread = fresh.find(isAna)!.thread;
+    const prev = fresh.map((c) => ({
+      ...c,
+      thread: { lastDate: "1999-01-01", lastFromOwner: false, inboundCount: 99, outboundCount: 99 },
+      warmthSentiment: warmth,
+    }));
+    const ana = carryOverEnrichment(fresh, prev).find(isAna)!;
+    expect(ana.thread).toEqual(freshThread); // stale prev thread NOT copied
+    expect(ana.warmthSentiment).toEqual(warmth); // but the expensive scan output is
+  });
+
+  it("returns the fresh book unchanged when there's no previous book", () => {
+    const fresh = freshBook();
+    expect(carryOverEnrichment(fresh, [])).toEqual(fresh);
   });
 });

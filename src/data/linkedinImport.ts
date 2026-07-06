@@ -149,6 +149,29 @@ export type ImportResult = {
   counts: { total: number; messaged: number; responded: number; agreed: number };
 };
 
+// Re-import preserves expensive analysis. LinkedIn's CSVs carry no LLM scan output, so a naive
+// re-import (importLinkedIn → saveImportedContacts REPLACES the book) wipes the relationship-warmth
+// and opportunity scores — potentially hours of scanning. Carry `warmthSentiment` + `latentOpp` over
+// for URL-matched contacts (the fresh import supplies up-to-date `thread`/`inbound` from the new
+// messages). Bonus: the warmth/opp passes skip already-scored contacts, so a re-import re-scans only
+// the genuinely new/unscored ones instead of the whole book.
+export function carryOverEnrichment(fresh: Contact[], prev: Contact[]): Contact[] {
+  if (!prev.length) return fresh;
+  const prevByUrl = new Map<string, Contact>();
+  for (const c of prev) {
+    const k = normalizeUrl(c.url);
+    if (k) prevByUrl.set(k, c);
+  }
+  return fresh.map((c) => {
+    const old = prevByUrl.get(normalizeUrl(c.url));
+    if (!old) return c;
+    const out = { ...c };
+    if (out.warmthSentiment === undefined && old.warmthSentiment !== undefined) out.warmthSentiment = old.warmthSentiment;
+    if (out.latentOpp === undefined && old.latentOpp !== undefined) out.latentOpp = old.latentOpp;
+    return out;
+  });
+}
+
 export function importLinkedIn(connectionsText: string, messagesText: string): ImportResult {
   const raw = parseConnections(connectionsText);
   const funnel = parseMessages(messagesText);

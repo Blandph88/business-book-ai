@@ -7,8 +7,8 @@
 
 import { useEffect, useState } from "react";
 import { getAppMode } from "../lib/appMode";
-import { importLinkedIn, type ImportResult } from "../data/linkedinImport";
-import { saveImportedContacts, hasImportedContacts } from "../storage/importedContacts";
+import { importLinkedIn, carryOverEnrichment, type ImportResult } from "../data/linkedinImport";
+import { saveImportedContacts, loadImportedContacts, hasImportedContacts } from "../storage/importedContacts";
 import { aiAvailable } from "../ai/ai";
 import { countScoreable } from "../ai/sentiment";
 import { startWarmthAnalysis } from "../ai/warmthTask";
@@ -82,8 +82,13 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
         setBusy(false);
         return;
       }
-      await saveImportedContacts(res.contacts);
-      setResult(res);
+      // Re-import: carry the warmth/opportunity scans over for URL-matched contacts so refreshing the
+      // book with a newer export doesn't wipe hours of analysis (the fresh import still supplies the
+      // up-to-date funnel/messages). owned-mode only — the demo book isn't imported.
+      const prev = demo ? [] : await loadImportedContacts();
+      const contacts = carryOverEnrichment(res.contacts, prev);
+      await saveImportedContacts(contacts);
+      setResult({ ...res, contacts });
     } catch (e) {
       setError(
         e instanceof Error
