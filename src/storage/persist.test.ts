@@ -1,37 +1,45 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { scopedKey, persistLocal, syncToDisk, hydrateFromDisk } from "./persist";
 
-beforeEach(() => {
+// persist.ts computes its KEYS list (and holds the module-level endpointDead guard) at
+// import time, so we reload it fresh in each test. These tests exercise the canonical
+// unscoped "bob.*" keys, which correspond to DEMO mode — the safe default is now "owned",
+// so we opt into demo explicitly before the module (and its KEYS) are evaluated.
+let persist: typeof import("./persist");
+
+beforeEach(async () => {
   localStorage.clear();
-  // Default test environment: no __FREEHOLD_DEMO__ flag, no query params → demo mode.
-  delete (window as unknown as { __FREEHOLD_DEMO__?: boolean }).__FREEHOLD_DEMO__;
+  (window as unknown as { __FREEHOLD_DEMO__?: boolean }).__FREEHOLD_DEMO__ = true;
+  // Fresh module per test → KEYS recomputed for demo mode AND the endpointDead guard reset.
+  vi.resetModules();
+  persist = await import("./persist");
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
+  delete (window as unknown as { __FREEHOLD_DEMO__?: boolean }).__FREEHOLD_DEMO__;
 });
 
 describe("scopedKey", () => {
-  it("returns the base key unchanged in demo mode (default)", () => {
-    expect(scopedKey("bob.meetings.v2")).toBe("bob.meetings.v2");
-    expect(scopedKey("anything")).toBe("anything");
+  it("returns the base key unchanged in demo mode", () => {
+    expect(persist.scopedKey("bob.meetings.v2")).toBe("bob.meetings.v2");
+    expect(persist.scopedKey("anything")).toBe("anything");
   });
 
   it("namespaces bob.* keys under bob.owned.* in owned mode", () => {
     (window as unknown as { __FREEHOLD_DEMO__?: boolean }).__FREEHOLD_DEMO__ = false;
-    expect(scopedKey("bob.meetings.v2")).toBe("bob.owned.meetings.v2");
+    expect(persist.scopedKey("bob.meetings.v2")).toBe("bob.owned.meetings.v2");
   });
 
   it("prefixes non-bob keys with owned. in owned mode", () => {
     (window as unknown as { __FREEHOLD_DEMO__?: boolean }).__FREEHOLD_DEMO__ = false;
-    expect(scopedKey("foo")).toBe("owned.foo");
+    expect(persist.scopedKey("foo")).toBe("owned.foo");
   });
 });
 
 describe("persistLocal", () => {
   it("writes the value to localStorage under the given key", () => {
-    persistLocal("bob.meetings.v2", JSON.stringify({ a: 1 }));
+    persist.persistLocal("bob.meetings.v2", JSON.stringify({ a: 1 }));
     expect(localStorage.getItem("bob.meetings.v2")).toBe(JSON.stringify({ a: 1 }));
   });
 
@@ -41,7 +49,7 @@ describe("persistLocal", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("{}", { status: 200 }));
 
-    persistLocal("bob.meetings.v2", JSON.stringify({ a: 1 }));
+    persist.persistLocal("bob.meetings.v2", JSON.stringify({ a: 1 }));
     // Debounced: nothing fires immediately.
     expect(fetchSpy).not.toHaveBeenCalled();
 
@@ -59,7 +67,7 @@ describe("persistLocal", () => {
     vi.useFakeTimers();
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("no endpoint"));
     expect(() => {
-      persistLocal("bob.revenue.v1", "{}");
+      persist.persistLocal("bob.revenue.v1", "{}");
       vi.advanceTimersByTime(300);
     }).not.toThrow();
   });
@@ -72,9 +80,9 @@ describe("syncToDisk", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("{}", { status: 200 }));
 
-    syncToDisk();
-    syncToDisk();
-    syncToDisk();
+    persist.syncToDisk();
+    persist.syncToDisk();
+    persist.syncToDisk();
     vi.advanceTimersByTime(300);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
@@ -87,7 +95,7 @@ describe("syncToDisk", () => {
 
     localStorage.setItem("bob.meetings.v2", "{not json");
     localStorage.setItem("bob.revenue.v1", JSON.stringify({ ok: true }));
-    syncToDisk();
+    persist.syncToDisk();
     vi.advanceTimersByTime(300);
 
     const body = JSON.parse(
@@ -106,7 +114,7 @@ describe("hydrateFromDisk", () => {
       new Response(JSON.stringify(fileData), { status: 200 }),
     );
 
-    await hydrateFromDisk();
+    await persist.hydrateFromDisk();
     expect(JSON.parse(localStorage.getItem("bob.meetings.v2")!)).toEqual({
       m1: { id: "m1" },
     });
@@ -119,7 +127,7 @@ describe("hydrateFromDisk", () => {
       new Response(JSON.stringify(fileData), { status: 200 }),
     );
 
-    await hydrateFromDisk();
+    await persist.hydrateFromDisk();
     expect(JSON.parse(localStorage.getItem("bob.meetings.v2")!)).toEqual({
       local: true,
     });
@@ -130,7 +138,7 @@ describe("hydrateFromDisk", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("", { status: 404 }),
     );
-    await expect(hydrateFromDisk()).resolves.toBeUndefined();
+    await expect(persist.hydrateFromDisk()).resolves.toBeUndefined();
     expect(JSON.parse(localStorage.getItem("bob.revenue.v1")!)).toEqual({
       keep: 1,
     });
@@ -139,7 +147,7 @@ describe("hydrateFromDisk", () => {
   it("swallows a network error and leaves localStorage untouched", async () => {
     localStorage.setItem("bob.revenue.v1", JSON.stringify({ keep: 1 }));
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
-    await expect(hydrateFromDisk()).resolves.toBeUndefined();
+    await expect(persist.hydrateFromDisk()).resolves.toBeUndefined();
     expect(localStorage.getItem("bob.revenue.v1")).toBe(
       JSON.stringify({ keep: 1 }),
     );

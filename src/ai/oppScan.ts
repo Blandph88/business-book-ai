@@ -1,0 +1,133 @@
+// Opportunity scan — the opt-in pass that reads each contact's inbound messages and spots a LATENT
+// opportunity (a need/project not yet in the pipeline). Same speed discipline as the warmth pass: skip the
+// noise, batch, parallelise only on fast backends, cap the on-device run, breathe between batches, resumable
+// (a contact with a `latentOpp` — even an empty "none" — is skipped). Stores one signal per contact.
+
+import type { Contact, LatentOpp } from "../data/contacts";
+import { aiJson, aiAvailability, isCapableBackend } from "./ai";
+import { loadImportedContacts, saveImportedContacts } from "../storage/importedContacts";
+import { opportunityScanPrompt, type OppScore } from "./prompts";
+import { hasWarmthSignal, redactPII, scanRedactEnabled } from "./sentiment";
+
+const BATCH = 12;
+const HEAD = 2, TAIL = 4;      // opportunities can surface late in a thread — keep a few more recent messages
+const MAX_CHARS = 360;
+const CONC_CAPABLE = 5;
+const ONDEVICE_CAP = 300;
+
+const snippets = (c: Contact, redact = false): string[] => {
+  const m = c.inbound ?? [];
+  const picked = m.length <= HEAD + TAIL ? m : [...m.slice(0, HEAD), ...m.slice(-TAIL)];
+  return picked.map((x) => { const body = (x.text || "").slice(0, MAX_CHARS); return redact ? redactPII(body, [c.first, c.last]) : body; });
+};
+const approxTokens = (s: string) => Math.round(s.length / 4);
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export function countOppScoreable(contacts: Contact[], force = false): number {
+  return contacts.filter((c) => hasWarmthSignal(c) && (force || !c.latentOpp)).length;
+}
+
+export type OppScanProgress = { done: number; total: number; tokens: number; current?: string };
+export type OppScanOpts = {
+  force?: boolean;
+  onProgress?: (p: OppScanProgress) => void;
+  onBatch?: (found: Map<string, LatentOpp>) => void | Promise<void>;
+  onMeta?: (m: { scoreable: number; capped: boolean }) => void;
+  signal?: { aborted: boolean };
+  concurrency?: number;
+  maxContacts?: number;
+  batchSize?: number;
+  pauseMs?: number;
+  redact?: boolean;
+};
+
+export async function scanOpportunities(contacts: Contact[], opts: OppScanOpts = {}): Promise<Map<string, LatentOpp>> {
+  const out = new Map<string, LatentOpp>();
+  let todo = contacts
+    .filter((c) => hasWarmthSignal(c) && (opts.force || !c.latentOpp))
+    // inbound is capped to the arc at import; rank by the true count from thread meta (most conversation first).
+    .sort((a, b) => (b.thread?.inboundCount ?? b.inbound?.length ?? 0) - (a.thread?.inboundCount ?? a.inbound?.length ?? 0));
+  if (opts.maxContacts && todo.length > opts.maxContacts) todo = todo.slice(0, opts.maxContacts);
+  const total = todo.length;
+  const size = Math.max(1, opts.batchSize ?? BATCH);
+  const batches: Contact[][] = [];
+  // Tiny first batch so progress lands fast on a slow local model; then full-size batches.
+  let start = 0;
+  if (todo.length > 2) { batches.push(todo.slice(0, 2)); start = 2; }
+  for (let i = start; i < todo.length; i += size) batches.push(todo.slice(i, i + size));
+
+  let done = 0, tokens = 0;
+  const at = new Date().toISOString().slice(0, 10);
+  opts.onProgress?.({ done, total, tokens });
+
+  const runBatch = async (batch: Contact[]) => {
+    if (opts.signal?.aborted) return;
+    const refToUrl = new Map<string, string>();
+    const items = batch.map((c, j) => {
+      const ref = `c${j}`;
+      refToUrl.set(ref, c.url);
+      return { ref, messages: snippets(c, opts.redact) }; // no name; redacted for cloud (data minimisation)
+    });
+    opts.onProgress?.({ done, total, tokens, current: batch[0] ? `${batch[0].first} ${batch[0].last}`.trim() : undefined });
+    const args = opportunityScanPrompt(items);
+    try {
+      const res = await aiJson<{ opps: OppScore[] }>(args);
+      tokens += approxTokens((args.system || "") + args.prompt + JSON.stringify(res ?? {}));
+      // Record EVERY contact in the batch (empty text = scanned, none) so the pass is resumable.
+      for (const c of batch) out.set(c.url, { at, text: "" });
+      for (const o of res?.opps ?? []) {
+        const url = o && typeof o.ref === "string" ? refToUrl.get(o.ref) : undefined;
+        if (url && typeof o.opp === "string" && o.opp.trim()) out.set(url, { at, text: o.opp.trim() });
+      }
+    } catch {
+      /* batch failed — leave unscanned so a re-run retries it */
+    }
+    done += batch.length;
+    opts.onProgress?.({ done, total, tokens });
+    await opts.onBatch?.(out);
+  };
+
+  const conc = Math.max(1, opts.concurrency ?? 1);
+  let idx = 0;
+  const runners = Array.from({ length: Math.min(conc, batches.length) }, async () => {
+    while (idx < batches.length) {
+      if (opts.signal?.aborted) return;
+      await runBatch(batches[idx++]);
+      if (opts.pauseMs && idx < batches.length) await sleep(opts.pauseMs);
+    }
+  });
+  await Promise.all(runners);
+  return out;
+}
+
+export function applyOpps(contacts: Contact[], found: Map<string, LatentOpp>): Contact[] {
+  if (!found.size) return contacts;
+  return contacts.map((c) => (found.has(c.url) ? { ...c, latentOpp: found.get(c.url) } : c));
+}
+
+// Orchestrator: scan the imported book + persist incrementally. Returns how many real opportunities were
+// FOUND (non-empty), how many were scoreable, and whether the on-device run was capped.
+export async function scanImportedContactsForOpportunities(opts: OppScanOpts = {}): Promise<{ found: number; scoreable: number; capped: boolean; backend?: string }> {
+  const contacts = await loadImportedContacts();
+  const avail = await aiAvailability();
+  // Capable backends (cloud OR local server) run 5-wide (local servers continuous-batch → ~3× throughput);
+  // whole book (uncapped). Only the in-browser model is sequential + capped.
+  const capable = isCapableBackend(avail.backend);
+  const concurrency = capable ? CONC_CAPABLE : 1;
+  const maxContacts = capable ? undefined : ONDEVICE_CAP;
+  const batchSize = 6; // small batches → progress lands quickly instead of sitting at 0/N while a big batch generates
+  const pauseMs = capable ? undefined : 1200; // GPU-breathing gap only for the in-browser model
+  const scoreable = countOppScoreable(contacts, opts.force);
+  const capped = !!maxContacts && scoreable > maxContacts;
+  const redact = capable && !avail.local && scanRedactEnabled(); // scrub identifiers only for a CLOUD provider
+  opts.onMeta?.({ scoreable, capped });
+  const persist = async (soFar: Map<string, LatentOpp>) => { await saveImportedContacts(applyOpps(contacts, soFar)); };
+  let sinceSave = 0;
+  const found = await scanOpportunities(contacts, {
+    ...opts, concurrency, maxContacts, batchSize, pauseMs, redact,
+    onBatch: async (s) => { if (++sinceSave >= 4) { sinceSave = 0; await persist(s); } await opts.onBatch?.(s); },
+  });
+  await persist(found);
+  const realCount = [...found.values()].filter((v) => v.text).length;
+  return { found: realCount, scoreable, capped, backend: avail.backend };
+}

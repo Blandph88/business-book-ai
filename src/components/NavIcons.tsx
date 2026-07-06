@@ -14,4 +14,5 @@ export const NAV_ICON: Record<TabId, React.ReactNode> = {
   opportunities: svg(<><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="4.5" /><circle cx="12" cy="12" r="1" /></>), // target
   revenue: svg(<><path d="M6.5 3.5h7l4.5 4.5v12a1 1 0 0 1-1 1h-10.5a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z" /><path d="M13 3.5V8h4.5" /><path d="M9 13h6" /><path d="M9 16.5h6" /></>), // contract/doc
   chat: svg(<><path d="M20 11.5a7.5 7.5 0 0 1-10.5 6.9L4 20l1.4-4.2A7.5 7.5 0 1 1 20 11.5z" /><path d="M8.5 11.5h7" /><path d="M8.5 8.5h4" /></>), // assistant / chat
+  insights: svg(<><path d="M9 18h6" /><path d="M10 21h4" /><path d="M12 3a6 6 0 0 0-3.5 10.9c.5.4.8 1 .9 1.6h5.2c.1-.6.4-1.2.9-1.6A6 6 0 0 0 12 3z" /></>), // lightbulb / insight
 };

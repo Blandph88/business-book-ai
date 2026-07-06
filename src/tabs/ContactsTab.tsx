@@ -13,6 +13,7 @@ import {
   type Opportunity,
 } from "../storage/opportunities";
 import { buildMeetingRows, type MeetingRow } from "../data/meetings";
+import { warmthCell, warmthLabel, WARMTH_LEVELS } from "../ai/compute";
 import {
   RELATIONSHIP_STRENGTH,
   PRIORITY,
@@ -39,7 +40,7 @@ import {
 } from "../components/BrandIcons";
 import { getAppMode } from "../lib/appMode";
 import { useAiAvailable } from "../ai/ai";
-import { enrichOtherCompanies, countUnclassified } from "../ai/enrich";
+import { countUnclassified } from "../ai/enrich";
 
 const YESNO = ["Yes", "No"] as const;
 const yn = (b: boolean) => (b ? "Yes" : "No");
@@ -69,6 +70,9 @@ const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
     { key: "seniority", label: "Seniority", options: SENIORITY, get: (c) => c.seniority },
     { key: "sector_group", label: "Sector group", options: SECTOR_GROUPS, get: (c) => c.sector_group },
     { key: "relationship", label: "Relationship", options: RELATIONSHIP_STRENGTH, get: (c) => c.relationship_strength ?? "" },
+    { key: "warmth", label: "Warmth", options: WARMTH_LEVELS, get: (c) => warmthLabel(c.warmthSentiment) }, // LLM message-tone; unscored won't match any level
+    { key: "owed", label: "Owes reply", options: YESNO, get: (c) => (c.thread && !c.thread.lastFromOwner ? "Yes" : "No") }, // deterministic: they messaged last
+    { key: "opportunity", label: "Opportunity spotted", options: YESNO, get: (c) => (c.latentOpp?.text ? "Yes" : "No") }, // a lead spotted in messages by the Opportunity scan (precursor to a pipeline opportunity)
     { key: "priority", label: "Priority", options: PRIORITY, get: (c) => c.priority ?? "" },
     // Messaged / Responded / Agreed-to-meet also get toolbar dropdowns (they share the same keys
     // as the headline stat-bar quick-filters, so a stat click and a dropdown stay in sync). Only
@@ -86,6 +90,7 @@ const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
     { key: "seniority", label: "Seniority", get: (c) => SENIORITY.indexOf(c.seniority as (typeof SENIORITY)[number]) },
     { key: "sector_group", label: "Sector group", get: (c) => c.sector_group },
     { key: "relationship", label: "Relationship", get: (c) => RELATIONSHIP_STRENGTH.indexOf(c.relationship_strength as (typeof RELATIONSHIP_STRENGTH)[number]) },
+    { key: "warmth", label: "Warmth", get: (c) => c.warmthSentiment?.score ?? -1 }, // LLM message-tone score; unscored sort last
     { key: "priority", label: "Priority", get: (c) => PRIORITY.indexOf(c.priority as (typeof PRIORITY)[number]) },
     { key: "next_action", label: "Next action", get: (c) => c.next_action ?? "" },
     { key: "next_action_date", label: "Next action date", get: (c) => c.next_action_date ?? "" },
@@ -142,27 +147,12 @@ export function ContactsTab({
   // "Saved ✓" flash after a save, so the owner can see persistence happened.
   const [justSaved, setJustSaved] = useState(false);
 
-  // AI classification fallback (#1) — owned mode only: clean up the unclassified "Other" tail by
-  // classifying unique unknown firms with AI. Updates this tab's contacts in place on completion.
+  // Company sector-classification is an AI enrichment SCAN — it lives in the Insights hub now (explainer
+  // modal + background banner + single-slot runner, so it can't collide with the warmth/opportunity scans).
+  // Here we just surface the unclassified count contextually and point there.
   const aiReady = useAiAvailable();
   const owned = getAppMode() === "owned";
-  const [enriching, setEnriching] = useState(false);
-  const [enrichNote, setEnrichNote] = useState<string | null>(null);
   const unclassified = useMemo(() => countUnclassified(contacts), [contacts]);
-  async function runEnrich() {
-    if (enriching) return;
-    setEnriching(true);
-    setEnrichNote("Classifying unknown firms…");
-    try {
-      const res = await enrichOtherCompanies((done, total) => setEnrichNote(`Classifying unknown firms… ${done}/${total}`));
-      setContacts(res.contacts);
-      setEnrichNote(res.updated > 0 ? `Classified ${res.updated.toLocaleString()} more contacts across ${res.companies} firms.` : "Nothing new to classify.");
-    } catch {
-      setEnrichNote("Couldn't classify those — try again.");
-    } finally {
-      setEnriching(false);
-    }
-  }
 
   // The currently-open contact panel, or null when closed.
   const [formTarget, setFormTarget] = useState<ContactRow | null>(null);
@@ -374,10 +364,9 @@ export function ContactsTab({
         </span>
         {aiReady && owned && unclassified > 0 && (
           <span className="contacts-enrich">
-            <button type="button" className="mform-secondary" disabled={enriching} onClick={runEnrich}>
-              {enriching ? "Classifying…" : `Classify ${unclassified.toLocaleString()} unknown with AI`}
+            <button type="button" className="mform-secondary" onClick={() => onNavigate?.("insights")}>
+              Classify {unclassified.toLocaleString()} unknown firms →
             </button>
-            {enrichNote && <span className="mform-ai-note">{enrichNote}</span>}
           </span>
         )}
       </div>
@@ -405,6 +394,7 @@ export function ContactsTab({
               <ColumnHeader label="Seniority" controls={controlsProps} sortKey="seniority" />
               <ColumnHeader label="Sector group" controls={controlsProps} sortKey="sector_group" />
               <ColumnHeader label="Relationship" controls={controlsProps} sortKey="relationship" />
+              <ColumnHeader label="Warmth" controls={controlsProps} sortKey="warmth" />
               <ColumnHeader label="Priority" controls={controlsProps} sortKey="priority" />
               <ColumnHeader label="Next action" controls={controlsProps} sortKey="next_action" />
               <ColumnHeader label="Next action date" controls={controlsProps} sortKey="next_action_date" />
@@ -452,6 +442,7 @@ export function ContactsTab({
                 <td>{c.seniority}</td>
                 <td>{c.sector_group}</td>
                 <td>{c.relationship_strength || "—"}</td>
+                <td>{warmthCell(c)}</td>
                 <td>{c.priority || "—"}</td>
                 <td>{c.next_action || "—"}</td>
                 <td>{c.next_action_date || "—"}</td>

@@ -16,6 +16,7 @@ export type TabId =
   | "meetings"
   | "opportunities"
   | "revenue"
+  | "insights"
   | "chat";
 
 // A deep-link payload carried when navigating to a tab (e.g. from a Dashboard click):
@@ -51,6 +52,7 @@ export const TABS: { id: TabId; label: string }[] = [
   { id: "meetings", label: "Meetings" },
   { id: "opportunities", label: "Opportunities" },
   { id: "revenue", label: "Engagements" },
+  { id: "insights", label: "Insights" },
   { id: "chat", label: "Chat" },
 ];
 

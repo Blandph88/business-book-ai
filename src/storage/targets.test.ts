@@ -1,4 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// The store freezes STORAGE_KEY = scopedKey("bob.targets.v1") at module load. These tests
+// exercise the canonical unscoped key, which is DEMO mode; the safe default is now "owned",
+// so opt into demo BEFORE the store module is imported (vi.hoisted runs above imports).
+vi.hoisted(() => {
+  (window as unknown as { __FREEHOLD_DEMO__?: boolean }).__FREEHOLD_DEMO__ = true;
+});
+
 import { loadTargets, saveTargets, type Targets } from "./targets";
 
 const KEY = "bob.targets.v1";

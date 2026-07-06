@@ -41,9 +41,9 @@
 .copilot--fullpage .copilot-chat { flex: 1; }
 /* ── The beautiful empty-state / search hero (modal + full-page new chat) ───────────────────────── */
 .copilot-search { display: flex; flex-direction: column; padding: 24px 18px; overflow-y: auto; min-height: 0; }
-/* Full-page new chat: blank, with the field group centred in the panel until the user starts typing. */
-.copilot--fullpage .copilot-search { flex: 1; }
-.copilot--fullpage .copilot-search:not(.copilot-search--active) { justify-content: center; }
+/* Full-page new chat: the hero (logo + title + field) sits at a STABLE upper position — anchored, not
+   vertically centred — so it doesn't slide down when the prompt suggestions disappear on typing. */
+.copilot--fullpage .copilot-search { flex: 1; justify-content: flex-start; padding-top: 14vh; }
 .copilot-hero-head { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-bottom: 20px; }
 .copilot-hero-title { margin: 0; font-size: 1.55rem; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; text-align: center; }
 
@@ -210,6 +210,22 @@
 
 /* The "ask your book" conversation thread (grows to fill; composer pinned below). */
 .copilot-chat { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.copilot-capnote {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2, #55606e);
+  background: var(--bg-2, #f0f2f5);
+  border-left: 3px solid var(--brand, #c79a3a);
+  border-radius: 6px;
+  padding: 9px 11px;
+}
+.copilot-capnote strong { color: var(--ink, #1a2230); font-weight: 700; }
+.copilot-capnote--info { display: flex; align-items: flex-start; gap: 10px; border-left-color: var(--primary, #1f3b63); }
+.copilot-capnote--info span { flex: 1; }
+.copilot-capnote-x { flex: 0 0 auto; border: 0; background: none; cursor: pointer; font-size: 16px; line-height: 1; color: var(--ink-3, #8a94a3); padding: 0 2px; }
+.copilot-capnote-x:hover { color: var(--ink, #1a2230); }
+/* Same note on the launcher/hero — constrained + centred to match the field + starters. */
+.copilot-search .copilot-capnote { width: 100%; max-width: 680px; margin: 14px auto 0; }
 .copilot-turn { display: flex; flex-direction: column; gap: 3px; }
 /* No "You / Your book" labels: the side + colour carry who's speaking. User messages sit on the RIGHT in
    a light-blue bubble; the assistant sits on the LEFT with no background (plain on the white surface). */

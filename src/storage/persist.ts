@@ -62,15 +62,19 @@ function snapshot(): Record<string, unknown> {
 }
 
 // POST the whole snapshot to disk. Best-effort and fire-and-forget: a missing endpoint
-// or a network error must never break an owner edit, so we swallow failures.
+// or a network error must never break an owner edit, so we swallow failures. If the endpoint
+// isn't there (standalone dev / prod build → localStorage-only), we DISABLE further posts after
+// the first miss so we don't spam the console with a 404 on every data write.
+let endpointDead = false;
 function postSnapshot(): void {
+  if (endpointDead) return;
   fetch(ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(snapshot()),
-  }).catch(() => {
-    /* dev endpoint absent (prod build) → localStorage-only; that's fine */
-  });
+  })
+    .then((r) => { if (!r.ok) endpointDead = true; }) // 404 etc → stop trying (localStorage is the source of truth)
+    .catch(() => { endpointDead = true; });
 }
 
 // Debounce so a burst of rapid edits collapses into a single disk write.

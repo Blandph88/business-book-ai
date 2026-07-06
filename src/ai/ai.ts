@@ -15,19 +15,22 @@ function broker(): Broker | null {
   return f && typeof f.request === "function" ? f : null;
 }
 
-export type PromptArgs = { prompt: string; system?: string; json?: boolean; temperature?: number };
+// `schema` (a JSON Schema) requests CONSTRAINED decoding — the backend restricts generation to valid JSON
+// matching it (WebLLM grammar engine / Ollama format / OpenAI structured outputs), so even a small on-device
+// model can't emit an invalid tool route. Backends that don't support it fall back to plain json-mode.
+export type PromptArgs = { prompt: string; system?: string; json?: boolean; temperature?: number; schema?: Record<string, unknown> };
 
 // The broker's AI availability report. `backend` + `contextTokens` (when the host provides them) let
 // the app SCALE how much of the book it sends as context to the active tier — a tiny on-device model
 // gets a focused slice, a BYOK frontier model can get everything. Older hosts only return willRun.
-export type AiAvailability = { willRun: boolean; backend?: string; contextTokens?: number; onDevice?: string; byok?: boolean; model?: string };
+export type AiAvailability = { willRun: boolean; backend?: string; contextTokens?: number; onDevice?: string; byok?: boolean; model?: string; local?: boolean };
 
 export async function aiAvailability(): Promise<AiAvailability> {
   const f = broker();
   if (!f) return { willRun: false };
   try {
     const a = (await f.request("ai", "availability")) as Partial<AiAvailability> | null;
-    return { willRun: !!a?.willRun, backend: a?.backend, contextTokens: a?.contextTokens, onDevice: a?.onDevice, byok: a?.byok, model: a?.model };
+    return { willRun: !!a?.willRun, backend: a?.backend, contextTokens: a?.contextTokens, onDevice: a?.onDevice, byok: a?.byok, model: a?.model, local: a?.local };
   } catch {
     return { willRun: false };
   }
@@ -65,7 +68,7 @@ export async function aiPromptStream(args: PromptArgs, onToken: (full: string) =
 // Run a JSON-mode prompt and parse the result leniently — small on-device models sometimes wrap the
 // object in prose or a ```json fence, so we extract the first {...} or [...] before parsing.
 export async function aiJson<T>(args: PromptArgs): Promise<T> {
-  const raw = await aiPrompt({ ...args, json: true });
+  const raw = await aiPrompt({ ...args, json: true }); // schema (if any) rides along in args → the broker
   const start = raw.search(/[{[]/);
   const end = Math.max(raw.lastIndexOf("}"), raw.lastIndexOf("]"));
   const slice = start >= 0 && end > start ? raw.slice(start, end + 1) : raw;
@@ -203,11 +206,11 @@ export function backendLabel(backend?: string, byok?: boolean): string {
 }
 
 // React hook: the active backend + a friendly label. Re-checks when `nonce` changes (e.g. after a switch).
-export function useAiBackend(nonce = 0): { backend?: string; label: string; contextTokens?: number; byok?: boolean; model?: string } {
-  const [s, setS] = useState<{ backend?: string; label: string; contextTokens?: number; byok?: boolean; model?: string }>({ label: "AI" });
+export function useAiBackend(nonce = 0): { backend?: string; label: string; contextTokens?: number; byok?: boolean; model?: string; local?: boolean } {
+  const [s, setS] = useState<{ backend?: string; label: string; contextTokens?: number; byok?: boolean; model?: string; local?: boolean }>({ label: "AI" });
   useEffect(() => {
     let live = true;
-    aiAvailability().then((a) => { if (live) setS({ backend: a.backend, label: backendLabel(a.backend, a.byok), contextTokens: a.contextTokens, byok: a.byok, model: a.model }); });
+    aiAvailability().then((a) => { if (live) setS({ backend: a.backend, label: backendLabel(a.backend, a.byok), contextTokens: a.contextTokens, byok: a.byok, model: a.model, local: a.local }); });
     return () => { live = false; };
   }, [nonce]);
   return s;

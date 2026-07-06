@@ -16,7 +16,16 @@
 //   {"wire":"anthropic","endpoint":"https://api.anthropic.com","apiKey":"sk-…","model":"claude-opus-4-8"}
 // (or an OpenAI-compatible endpoint).
 
-type PromptArgs = { prompt?: string; system?: string; json?: boolean; temperature?: number };
+type PromptArgs = { prompt?: string; system?: string; json?: boolean; temperature?: number; schema?: Record<string, unknown> };
+
+// WebLLM/OpenAI response_format for a JSON request. When a schema is supplied we ask for GRAMMAR-CONSTRAINED
+// decoding (WebLLM's WASM grammar engine restricts output to the schema) so even a small on-device model
+// can't emit an invalid tool route; otherwise plain json-mode. Returns {} when not a JSON request.
+function jsonFormat(opts?: PromptArgs): Record<string, unknown> {
+  if (!opts?.json) return {};
+  if (opts.schema) return { response_format: { type: "json_object", schema: JSON.stringify(opts.schema) } };
+  return { response_format: { type: "json_object" } };
+}
 
 // ── In-browser WebLLM (the Freehold demo model) ────────────────────────────────────────────────
 const WEBLLM_CDN = "https://esm.run/@mlc-ai/web-llm";
@@ -78,15 +87,31 @@ function loadEngine(): Promise<NonNullable<Awaited<typeof enginePromise>>> {
   enginePromise = (async () => {
     try {
       emitLoad(true, 0, firstRun, "Starting…");
-      const mod = (await import(/* @vite-ignore */ WEBLLM_CDN)) as { CreateMLCEngine: (m: string, o?: Record<string, unknown>) => Promise<never> };
-      const engine = await mod.CreateMLCEngine(model, {
-        initProgressCallback: (r: { text?: string; progress?: number }) => {
-          if (r?.text) console.info("[Business Book dev · WebLLM]", r.text);
-          emitLoad(true, typeof r?.progress === "number" ? r.progress : 0, firstRun, r?.text ?? "");
-        },
-      });
+      const mod = (await import(/* @vite-ignore */ WEBLLM_CDN)) as {
+        CreateMLCEngine: (m: string, o?: Record<string, unknown>) => Promise<never>;
+        CreateWebWorkerMLCEngine?: (w: Worker, m: string, o?: Record<string, unknown>) => Promise<never>;
+      };
+      const initProgressCallback = (r: { text?: string; progress?: number }) => {
+        if (r?.text) console.info("[Business Book dev · WebLLM]", r.text);
+        emitLoad(true, typeof r?.progress === "number" ? r.progress : 0, firstRun, r?.text ?? "");
+      };
+      // Prefer the WEB WORKER engine: inference runs off the main thread, so the UI (and the whole machine)
+      // stays responsive during a heavy pass. Falls back to the main-thread engine if the worker can't start,
+      // so this can never leave WebLLM broken — worst case is today's behaviour.
+      let engine: unknown = null;
+      if (typeof Worker !== "undefined" && mod.CreateWebWorkerMLCEngine) {
+        try {
+          const worker = new Worker(new URL("./webllmWorker.ts", import.meta.url), { type: "module" });
+          engine = await mod.CreateWebWorkerMLCEngine(worker, model, { initProgressCallback });
+          console.info("[Business Book dev · WebLLM] engine running in a Web Worker (off the main thread)");
+        } catch (werr) {
+          console.warn("[Business Book dev · WebLLM] worker engine unavailable, using main thread", werr);
+          engine = null;
+        }
+      }
+      if (!engine) engine = await mod.CreateMLCEngine(model, { initProgressCallback });
       emitLoad(false, 1, firstRun, "Ready");
-      return engine;
+      return engine as never;
     } catch (e) {
       enginePromise = null; // don't cache the rejection forever — allow a later retry
       emitLoad(false, 0, firstRun, "Failed");
@@ -103,7 +128,7 @@ async function webllmPrompt(input: string, opts?: PromptArgs): Promise<string> {
   const res = await engine.chat.completions.create({
     messages,
     temperature: opts?.temperature ?? 0.7,
-    ...(opts?.json ? { response_format: { type: "json_object" } } : {}),
+    ...jsonFormat(opts),
   });
   return res.choices?.[0]?.message?.content ?? "";
 }
@@ -118,7 +143,7 @@ async function webllmPromptStream(input: string, opts: PromptArgs | undefined, o
     messages,
     temperature: opts?.temperature ?? 0.7,
     stream: true,
-    ...(opts?.json ? { response_format: { type: "json_object" } } : {}),
+    ...jsonFormat(opts),
   })) as unknown as AsyncIterable<{ choices?: { delta?: { content?: string } }[] }>;
   let acc = "";
   for await (const chunk of stream) {
@@ -179,10 +204,15 @@ async function byokPrompt(cfg: Byok, input: string, opts?: PromptArgs): Promise<
   const msgs: { role: string; content: string }[] = [];
   if (opts?.system) msgs.push({ role: "system", content: opts.system });
   msgs.push({ role: "user", content: input });
+  // NO response_format for capable BYOK models: they emit valid JSON from the prompt alone, and our lenient
+  // parser extracts it — while a grammar/json_schema constraint ~DOUBLES generation time on a local server
+  // (LM Studio 14B measured ~2min vs ~1min for a batch), and json_object 400s on LM Studio. So we keep the
+  // request plain here and let the prompt + lenient parse do the work. (The small WebLLM path still uses the
+  // schema-grammar — a tiny model genuinely needs it; a 14B+ doesn't.)
   const res = await fetch(base + "/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: "Bearer " + cfg.apiKey },
-    body: JSON.stringify({ model: cfg.model, messages: msgs, response_format: opts?.json ? { type: "json_object" } : undefined }),
+    body: JSON.stringify({ model: cfg.model, messages: msgs }),
   });
   if (!res.ok) throw new Error("AI endpoint error " + res.status);
   const j = await res.json();
@@ -261,7 +291,11 @@ async function aiHandler(method: string, args: PromptArgs): Promise<unknown> {
     // Report the ACTIVE model so the app can tell WebLLM-1B from WebLLM-7B (capability is per-MODEL, not
     // per-tier). The real marketplace broker should likewise pass the model it's serving.
     const model = backend === "webllm" ? webllmModel() : backend === "builtin" ? "Gemini Nano" : backend === "byok" ? (byokConfig()?.model || "") : "";
-    return { onDevice, byok: !!byokConfig(), willRun: true, backend, contextTokens, model };
+    // A LOCAL byok endpoint (LM Studio / local Ollama on localhost) is high-quality but a SINGLE instance —
+    // it can't take the 5-way parallelism a cloud API can, and it's slower. Flag it so the scans throttle
+    // (sequential + capped) like an on-device tier instead of hammering it.
+    const local = backend === "byok" && /localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]/i.test(byokConfig()?.endpoint || "");
+    return { onDevice, byok: !!byokConfig(), willRun: true, backend, contextTokens, model, local };
   }
   if (method === "prompt") {
     const text = typeof args?.prompt === "string" ? args.prompt : "";

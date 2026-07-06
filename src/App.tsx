@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import "./App.css";
 import { TabNav, type TabId, type TabIntent } from "./components/TabNav";
 import { Tutorial } from "./components/Tutorial";
@@ -8,6 +8,7 @@ import { ContactsTab } from "./tabs/ContactsTab";
 import { MeetingsTab } from "./tabs/MeetingsTab";
 import { OpportunitiesTab } from "./tabs/OpportunitiesTab";
 import { RevenueTab } from "./tabs/RevenueTab";
+import { InsightsTab } from "./tabs/InsightsTab";
 import { ChatTab } from "./tabs/ChatTab";
 import { AccountView } from "./components/AccountView";
 import MobileNote from "./components/MobileNote";
@@ -16,8 +17,13 @@ import { ImportModal } from "./components/ImportModal";
 import { track } from "./lib/analytics";
 import { CopilotBar } from "./components/CopilotBar";
 import { SideNav } from "./components/SideNav";
+import { WarmthBanner } from "./components/WarmthBanner";
 import { CURRENCY_CODE, CURRENCY_OPTIONS, setCurrency } from "./data/format";
 import { listChats, type SavedChat } from "./storage/chats";
+import { getAppMode } from "./lib/appMode";
+import { hasImportedContacts } from "./storage/importedContacts";
+import { loadOwnedContacts } from "./storage/ownedContacts";
+import { subscribeWarmth, getWarmthState, resumeIfInterrupted } from "./ai/warmthTask";
 
 // Persisted "the onboarding tour has been seen" flag. Written through localStorage so it
 // rides the same persistence as the rest of the app: in the OWNED app the vault persists it
@@ -130,6 +136,32 @@ export default function App() {
     setDataNonce((n) => n + 1);
   };
 
+  // FIRST-RUN GATE: in the OWNED app with nothing imported yet, we show ONLY a single "Import your
+  // LinkedIn" action (no tabs, no nav, no empty charts) so a first-time, non-technical user isn't
+  // dropped into a hollow shell to poke around before there's any data. null = still checking (render
+  // nothing, avoids flashing the empty app); true once data exists. Demo mode always has seed data.
+  const [hasData, setHasData] = useState<boolean | null>(getAppMode() === "demo" ? true : null);
+  useEffect(() => {
+    if (getAppMode() === "demo") { setHasData(true); return; }
+    // "Has data" = an imported book OR any manually-added contact — so a user who created contacts by hand
+    // (without a LinkedIn import) isn't locked behind the import gate.
+    if (loadOwnedContacts().length > 0) { setHasData(true); return; }
+    let live = true;
+    hasImportedContacts().then((v) => { if (live) setHasData(v); });
+    return () => { live = false; };
+  }, [dataNonce]);
+
+  // When the background warmth analysis finishes, remount the active tab so charts/rankings pick up the new
+  // scores (once, on completion — not per batch, which would thrash the UI mid-run).
+  // Subscribe to just the STATUS string (not the whole state) so the app only re-renders on transitions,
+  // not on every per-batch progress tick (the banner has its own subscription for the live numbers).
+  const warmthStatus = useSyncExternalStore(subscribeWarmth, () => getWarmthState().status);
+  useEffect(() => { if (warmthStatus === "done") setDataNonce((n) => n + 1); }, [warmthStatus]);
+
+  // A scan that was mid-flight when the page was refreshed picks back up (it's resumable) — so the banner
+  // "stays" and the work continues across a reload. Runs once, only when there's data to work on.
+  useEffect(() => { if (hasData) resumeIfInterrupted(); }, [hasData]);
+
   // A deep-link navigation (from Dashboard/Metrics content, or a cross-tab form link).
   // Leaving an overview tab for a record tab records where to return to.
   const navigate = (tab: TabId, next?: TabIntent) => {
@@ -172,8 +204,22 @@ export default function App() {
     meetings: "Meetings",
     opportunities: "Opportunities",
     revenue: "Engagements",
+    insights: "Insights",
     chat: "Assistant",
   };
+
+  // While we don't yet know if there's data, render an empty shell (no flash of the full app or the gate).
+  if (hasData === null) return <div className="app-shell app-shell--booting" />;
+
+  // Owned + nothing imported → the single-action first-run screen.
+  if (hasData === false) {
+    return (
+      <div className="app-shell app-shell--firstrun">
+        <FirstRunGate onImport={openImport} />
+        {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -239,6 +285,9 @@ export default function App() {
       />
 
       <div className="app">
+        {/* Background relationship-warmth analysis progress — inside `.app` so it sits in the view panel
+            (offset from the fixed side nav) and slides with the drawer, rather than hiding behind it. */}
+        <WarmthBanner />
         <MobileNote />
 
         {/* Back-to-home bar: shown on every tab except the home Overview. When you deep-linked
@@ -265,6 +314,7 @@ export default function App() {
           {activeTab === "meetings" && <MeetingsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}
           {activeTab === "opportunities" && <OpportunitiesTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}
           {activeTab === "revenue" && <RevenueTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}
+          {activeTab === "insights" && <InsightsTab />}
           {activeTab === "chat" && (
             <ChatTab
               key={chatLaunch.key}
@@ -298,6 +348,25 @@ export default function App() {
       {/* Global "Import your LinkedIn" modal (opened from the top bar / side nav / Contacts). */}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}
       {copilotOpen && <CopilotBar initialView={copilotView} onAsk={askInChat} onChatsChanged={refreshChats} onNavigate={navigate} onOpenAccount={openAccount} onClose={() => setCopilotOpen(false)} />}
+    </div>
+  );
+}
+
+// The owned-app first-run screen: one action, centred, nothing else. Deliberately no tabs/nav/charts —
+// a first-time user should see "here's what this is, import to begin", not an empty CRM to wander.
+function FirstRunGate({ onImport }: { onImport: () => void }) {
+  return (
+    <div className="firstrun">
+      <div className="firstrun-card">
+        <Brand />
+        <h1 className="firstrun-title">Your book of business, built from your own network</h1>
+        <p className="firstrun-lead">
+          Import your LinkedIn connections and messages to see your relationships, pipeline and
+          warmest leads — read entirely on your computer.
+        </p>
+        <button type="button" className="firstrun-btn" onClick={onImport}>⬆ Import your LinkedIn</button>
+        <p className="firstrun-privacy">🔒 Nothing leaves this device. The app has no server and can't upload anything — that's the whole point.</p>
+      </div>
     </div>
   );
 }

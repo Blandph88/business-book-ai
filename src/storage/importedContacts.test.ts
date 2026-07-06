@@ -122,8 +122,9 @@ function makeFakeIndexedDB() {
 
 beforeEach(() => {
   localStorage.clear();
-  // Default test mode = demo, so the record key is "demo".
-  delete (window as unknown as { __FREEHOLD_DEMO__?: boolean }).__FREEHOLD_DEMO__;
+  // Opt into demo so the record key is "demo". (The safe default is now "owned"; this store
+  // keys at call time, so setting the flag here — not before import — is sufficient.)
+  (window as unknown as { __FREEHOLD_DEMO__?: boolean }).__FREEHOLD_DEMO__ = true;
 });
 
 afterEach(() => {

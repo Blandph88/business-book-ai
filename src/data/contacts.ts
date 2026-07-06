@@ -9,6 +9,7 @@ import Papa from "papaparse";
 import { getAppMode } from "../lib/appMode";
 import { loadImportedContacts } from "../storage/importedContacts";
 import { loadOwnedContacts } from "../storage/ownedContacts";
+import { seedDemoEnrichment } from "./demoEnrichment";
 import { SECTOR_GROUPS } from "./vocab";
 import { OTHER_INDUSTRY_LABEL } from "../config/markets";
 
@@ -42,7 +43,31 @@ export type Contact = {
   // (e.g. "966557312825"), or "" if none. Used to build a WhatsApp link. The owner can
   // override/add one per contact via OwnerEdits.phone (see storage/ownerEdits.ts).
   phone: string;
+  // The messages THIS contact sent the owner (inbound), captured at import from messages.csv.
+  // Their own words are the truest warmth signal — funnel stage only says they *agreed*, not how
+  // keen they were. Feeds the LLM sentiment pass (ai/sentiment.ts) and stays for future analysis.
+  inbound?: InboundMessage[];
+  // The LLM-derived relationship warmth from `inbound`, precomputed once (not per query). score 0–10
+  // (higher = warmer/keener); label a short read ("keen"/"warm"/"neutral"/"cool"). Folded into warmth().
+  warmthSentiment?: WarmthSentiment;
+  // Deterministic thread signal from import (BOTH sides, no LLM): who messaged last + when, counts each way.
+  thread?: ThreadMeta;
+  // A latent opportunity the LLM spotted in this contact's messages (a need/project not yet in the pipeline),
+  // from the opt-in Opportunity Scan. `text` "" = scanned, nothing found (so a re-run can skip; resumable).
+  latentOpp?: LatentOpp;
 };
+
+// A detected in-thread opportunity. `text` = a short description of the need ("" = scanned, none found).
+export type LatentOpp = { at: string; text: string };
+
+// One inbound message from a contact (their side of the thread only). `date` is ISO (YYYY-MM-DD) or "".
+export type InboundMessage = { date: string; text: string };
+// The precomputed sentiment read for a contact. `at` = when it was scored (ISO), so a re-import can tell
+// which contacts are already done and skip them (the pass is resumable).
+export type WarmthSentiment = { score: number; label?: string; at?: string };
+// Deterministic thread signal. `lastFromOwner` true = owner sent last (the CONTACT owes a reply);
+// false = the contact sent last (the OWNER owes the reply). Counts are messages each way.
+export type ThreadMeta = { lastDate: string; lastFromOwner: boolean; inboundCount: number; outboundCount: number };
 
 // The CSV stores booleans as the strings "True"/"False" (Python's str(bool)).
 // Parse them defensively: trim, lowercase, and treat only "true" as true.
@@ -103,7 +128,7 @@ function normalizeGroups(contacts: Contact[]): Contact[] {
 export async function loadContacts(): Promise<Contact[]> {
   const base = getAppMode() === "owned"
     ? normalizeGroups(await loadImportedContacts())
-    : normalizeGroups(parseContactRows(await loadDemoCsv()));
+    : seedDemoEnrichment(normalizeGroups(parseContactRows(await loadDemoCsv()))); // sample book: pre-lit AI signals
   // Merge in any contacts the owner added manually (people not in their LinkedIn export). Keyed by url,
   // owner-added winning a collision — so they appear in every list/facet exactly like an imported contact.
   const owned = loadOwnedContacts();

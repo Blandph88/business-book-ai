@@ -15,6 +15,7 @@ import { formatMoney } from "../data/format";
 import { todayISO } from "../data/agenda";
 import { useAiAvailable, aiPrompt } from "../ai/ai";
 import { yourDayPrompt, draftMessagePrompt } from "../ai/prompts";
+import { contactSignalsText } from "../ai/compute";
 import { AiSuggest } from "./AiSuggest";
 import type { ContactRow } from "../tabs/ContactForm";
 import "./YourDay.css";
@@ -91,6 +92,9 @@ export function YourDay() {
       closeThese.length ? `Deals near signature:\n${closeThese.map((o) => `- ${o.opportunity_name || "(unnamed)"} ${formatMoney(weightedValue(o))} [${opportunityPhase(o)}]`).join("\n")}` : "",
       goingCold.length ? `Messaged, no reply yet:\n${goingCold.map((c) => `- ${nm(c)}`).join("\n")}` : "",
       reconnect.length ? `Not met in 90+ days:\n${reconnect.map((c) => `- ${nm(c)}`).join("\n")}` : "",
+      // Enrichment/thread signals — empty until a scan/import provides them, so this degrades gracefully.
+      (() => { const owed = contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).slice(0, 8); return owed.length ? `You owe a reply (they messaged last):\n${owed.map((c) => `- ${nm(c)}${c.thread?.lastDate ? ` since ${c.thread.lastDate}` : ""}`).join("\n")}` : ""; })(),
+      (() => { const latent = contacts.filter((c) => c.latentOpp?.text).slice(0, 8); return latent.length ? `Opportunities spotted in your messages:\n${latent.map((c) => `- ${nm(c)}: ${c.latentOpp!.text}`).join("\n")}` : ""; })(),
     ].filter(Boolean).join("\n\n");
   }
 
@@ -155,7 +159,7 @@ export function YourDay() {
         <AiSuggest
           title="Draft a reconnect message"
           subtitle={`To ${`${draftContact.first} ${draftContact.last}`.trim()}`}
-          generate={(tweak) => aiPrompt(draftMessagePrompt(rowFor(draftContact), meetingsFor(draftContact), "reconnect", tweak))}
+          generate={(tweak) => aiPrompt(draftMessagePrompt(rowFor(draftContact), meetingsFor(draftContact), "reconnect", tweak, undefined, contactSignalsText(draftContact)))}
           tweaks={[{ label: "Shorter", instruction: "Make it shorter." }, { label: "Warmer", instruction: "Make it warmer." }]}
           onClose={() => setDraftContact(null)}
         />

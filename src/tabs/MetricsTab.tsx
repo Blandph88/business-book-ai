@@ -3,6 +3,7 @@ import "./MetricsTab.css";
 import { loadContacts, loadConnections, type Contact } from "../data/contacts";
 import { BarRow } from "../components/BarRow";
 import { StackedBarRow } from "../components/StackedBarRow";
+import { WarmthTemperatureCard } from "../components/WarmthTemperatureCard";
 import { PipelineMatrix } from "../components/PipelineMatrix";
 import { WeekStrip } from "../components/WeekStrip";
 import {
@@ -461,6 +462,13 @@ export function MetricsTab({
     }
   };
 
+  // Warmth level (or sector×level) → the detailed matrix, org × seniority (the usual shape), like the other
+  // stacked charts. Rows are the exact scored contacts of that level; the matrix cells drill to contacts.
+  const openWarmthMatrix = (rows: Contact[], title: string) => {
+    if (!rows.length) return;
+    setDrill({ kind: "matrix", rows, entity: "organisation", columns: "seniority", label: title, title, display: "panel" });
+  };
+
   const funnelMax = funnel[0]?.count ?? 0; // largest stage scales the bars
   const activePopulationLabel =
     POPULATIONS.find((p) => p.id === population)?.label ?? "";
@@ -507,6 +515,9 @@ export function MetricsTab({
           ))}
         </div>
       </div>
+
+      {/* ── Relationship temperature (LLM message-tone) — gated: only shows once scored ── */}
+      <WarmthTemperatureCard contacts={contacts} onPick={openWarmthMatrix} />
 
       {/* ── Population toggle (drives seniority, function AND market penetration) ── */}
       <div className="dash-pop">

@@ -60,6 +60,11 @@ const AI_MODEL = process.env.AI_MODEL || process.env.GROQ_MODEL || "llama-3.3-70
 // us run the SAME companion threads at each tier to check the gradient (tentative→confident direction, etc.).
 const COMPANION_LEVEL = (["small", "mid", "high"].includes(process.env.EVAL_LEVEL || "") ? process.env.EVAL_LEVEL : "high") as "small" | "mid" | "high";
 const CAPABLE_BUDGET = 6000; // chars of grounding (smaller = faster + stays under free-tier token limits)
+// QUIET BY DEFAULT: the full transcript is always written to eval-output/report*.md, so per-turn console
+// spew only floods the terminal (and bleeds into the Claude Code TUI). Opt in with VERBOSE=1 / EVAL_VERBOSE=1
+// for the live per-turn trace; otherwise we print nothing but the final "report → …" confirmation line.
+const VERBOSE = process.env.EVAL_VERBOSE === "1" || process.env.VERBOSE === "1";
+const note = (m: string) => { if (VERBOSE) process.stdout.write(m); };
 const THROTTLE_MS = Number(process.env.EVAL_THROTTLE_MS || 7000); // pause between model calls to avoid 429s
 
 // ── load the seed book (contacts + meetings + derived opps + sows) ──────────────────────────────────
@@ -114,7 +119,7 @@ async function callModel(system: string, prompt: string): Promise<string> {
         const retryAfter = Number(res.headers.get("retry-after")) * 1000;
         if (retryAfter > 90_000) return `(rate-limited ${Math.round(retryAfter / 1000)}s — free-tier cooldown spent; switch to OpenRouter or a paid tier, or wait and re-run)`;
         const wait = Math.min(retryAfter || (8000 * (attempt + 1)), 45_000);
-        process.stdout.write(`  · rate-limited, waiting ${Math.round(wait / 1000)}s…\n`);
+        note(`  · rate-limited, waiting ${Math.round(wait / 1000)}s…\n`);
         await sleep(wait);
         continue;
       }
@@ -131,7 +136,7 @@ const isGenerate = (t: string) => /^\s*(draft|write|compose|prepare|prep|send|em
 const lines: string[] = [];
 let hijacks = 0, deterministic = 0, modelTurns = 0, actionTurns = 0, turns = 0;
 
-console.log(`\nEval harness · ${today} · model=${AI_KEY ? AI_MODEL : "(routing-only, no key)"} · ${contacts.length} contacts, ${sows.length} engagements\n`);
+note(`\nEval harness · ${today} · model=${AI_KEY ? AI_MODEL : "(routing-only, no key)"} · ${contacts.length} contacts, ${sows.length} engagements\n`);
 lines.push(`# Copilot eval — ${today}`, `model: ${AI_KEY ? AI_MODEL : "(routing-only)"} · ${contacts.length} contacts · ${opps.length} opps · ${sows.length} engagements`, "");
 
 // EVAL_LIMIT=N runs only the first N conversations (handy to fit a free-tier rate budget).
@@ -203,7 +208,7 @@ for (const convo of SET.slice(0, LIMIT)) {
       }
     }
     lines.push(`\n**USER:** ${text}`, `**PATH:** ${path}`, `**RESPONSE:**\n\n${response}\n`);
-    console.log(`  [${path.startsWith("deterministic") ? "DET" : path.startsWith("action") ? "ACT" : "MODEL"}${path.includes("HIJACK") ? " ⚠️HIJACK" : ""}] ${convo.name}: ${text.slice(0, 70)}…`);
+    note(`  [${path.startsWith("deterministic") ? "DET" : path.startsWith("action") ? "ACT" : "MODEL"}${path.includes("HIJACK") ? " ⚠️HIJACK" : ""}] ${convo.name}: ${text.slice(0, 70)}…\n`);
   }
 }
 

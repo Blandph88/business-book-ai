@@ -6,17 +6,23 @@ import { OTHER_INDUSTRY_LABEL } from "../config/markets";
 // "owned" reads loadImportedContacts() (we mock it). We control both via vi.mock + helpers
 // the factories close over, so individual tests can flip mode / imported rows per case.
 
-let appMode: "demo" | "owned" = "demo";
-let importedRows: unknown[] = [];
+// vi.mock factories are HOISTED above the file body, and the transitive import chain
+// (contacts → ownedContacts → persist) calls getAppMode() at module-load time. So the mock
+// state must be initialised BEFORE the factories run — a plain top-level `let` would still be
+// in its temporal dead zone. vi.hoisted returns an object created alongside the hoisted mocks.
+const state = vi.hoisted(() => ({
+  appMode: "demo" as "demo" | "owned",
+  importedRows: [] as unknown[],
+}));
 
 vi.mock("../lib/appMode", () => ({
-  getAppMode: () => appMode,
-  isDemo: () => appMode === "demo",
-  isOwned: () => appMode === "owned",
+  getAppMode: () => state.appMode,
+  isDemo: () => state.appMode === "demo",
+  isOwned: () => state.appMode === "owned",
 }));
 
 vi.mock("../storage/importedContacts", () => ({
-  loadImportedContacts: async () => importedRows,
+  loadImportedContacts: async () => state.importedRows,
 }));
 
 // Import AFTER the mocks are registered.
@@ -57,8 +63,8 @@ function stubFetchCsv(csv: string, ok = true, status = 200) {
 }
 
 beforeEach(() => {
-  appMode = "demo";
-  importedRows = [];
+  state.appMode = "demo";
+  state.importedRows = [];
   vi.unstubAllGlobals();
 });
 
@@ -250,8 +256,8 @@ describe("normalizeGroups (via loadContacts)", () => {
 // ── loadContacts in owned mode ────────────────────────────────────────────────────────────
 describe("loadContacts (owned mode)", () => {
   it("reads imported contacts and heals stale groups/seniority", async () => {
-    appMode = "owned";
-    importedRows = [
+    state.appMode = "owned";
+    state.importedRows = [
       importedContact({ sector_group: "Other Industries", seniority: "Head of" }),
     ];
     const [c] = await loadContacts();
@@ -260,8 +266,8 @@ describe("loadContacts (owned mode)", () => {
   });
 
   it("does not fetch the demo CSV in owned mode", async () => {
-    appMode = "owned";
-    importedRows = [importedContact()];
+    state.appMode = "owned";
+    state.importedRows = [importedContact()];
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     await loadContacts();
@@ -269,8 +275,8 @@ describe("loadContacts (owned mode)", () => {
   });
 
   it("returns [] when there are no imported contacts", async () => {
-    appMode = "owned";
-    importedRows = [];
+    state.appMode = "owned";
+    state.importedRows = [];
     expect(await loadContacts()).toEqual([]);
   });
 });
@@ -314,8 +320,8 @@ describe("loadConnections", () => {
   });
 
   it("reads imported contacts in owned mode without normalizing", async () => {
-    appMode = "owned";
-    importedRows = [importedContact({ sector_group: "Other Industries" })];
+    state.appMode = "owned";
+    state.importedRows = [importedContact({ sector_group: "Other Industries" })];
     const [c] = await loadConnections();
     expect(c.sector_group).toBe("Other Industries");
   });

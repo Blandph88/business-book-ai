@@ -8,7 +8,7 @@
 // Tools: findContacts · findMeetings · findOpportunities · findContracts · rankContacts ·
 //        rankOpportunities · pipelineStats · funnelBreakdown · contactBrief · accountSummary · resolveContact
 import type { BookData } from "./bookContext";
-import type { Contact } from "../data/contacts";
+import type { Contact, WarmthSentiment } from "../data/contacts";
 import type { Opportunity } from "../storage/opportunities";
 import type { TabId, TabIntent } from "../components/TabNav";
 import { buildAgenda } from "../data/agenda";
@@ -51,8 +51,11 @@ function lastMeetingMap(d: BookData): Map<string, { date: string; sentiment: str
   return m;
 }
 const upcomingMeetingSet = (d: BookData, today: string) => new Set(d.meetingRows.filter((m) => m.meeting_stage === "Scheduled" && (m.date_scheduled || "") >= today).map((m) => m.contact_url));
-// WARMTH = funnel depth + recency of last meeting + its sentiment. "Warmest" = engaged, recent, positive.
-// (Definition is owner-set, not a hard rule — kept transparent in the answer's intro.)
+// WARMTH = funnel depth + recency of last meeting + its sentiment + how warm the contact's OWN MESSAGES were.
+// The message-sentiment term is the truest signal (funnel stage only says they *agreed*, not how keen) and is
+// weighted to actually reorder a tied cohort: score 0–10 maps to −2.5…+2.5, centred on neutral (5) = 0. It's
+// precomputed (ai/sentiment.ts) and absent until the pass has run, so warmth degrades gracefully to the old
+// funnel+meeting definition. Owner-set, not a hard rule — kept transparent in the answer's intro.
 function warmth(c: Contact, lm: Map<string, { date: string; sentiment: string }>, today: string): number {
   let s = c.met ? 4 : c.agreed_to_meet ? 3 : c.two_way ? 2 : c.responded ? 1 : c.messaged ? 0.5 : 0;
   const last = lm.get(c.url);
@@ -61,7 +64,47 @@ function warmth(c: Contact, lm: Map<string, { date: string; sentiment: string }>
     if (days <= 30) s += 1.5; else if (days <= 90) s += 0.5;
     if (/very positive/i.test(last.sentiment)) s += 1.5; else if (/positive/i.test(last.sentiment)) s += 0.75; else if (/cautious|negative/i.test(last.sentiment)) s -= 0.5;
   }
+  const ms = c.warmthSentiment?.score;
+  if (typeof ms === "number" && Number.isFinite(ms)) s += ((Math.max(0, Math.min(10, ms)) - 5) / 5) * 2.5;
+  // Responsiveness (deterministic, from the thread): a real back-and-forth where they reply is a small warmth
+  // signal; a one-sided thread (you sent lots, they barely replied) is a small negative. Graceful (no thread → 0).
+  const t = c.thread;
+  if (t && (t.inboundCount || t.outboundCount)) {
+    if (t.inboundCount >= 2 && t.inboundCount >= t.outboundCount) s += 0.5;      // reciprocates / engaged
+    else if (t.outboundCount >= 3 && t.inboundCount <= 1) s -= 0.5;              // you're doing all the reaching
+  }
   return s;
+}
+// The five warmth levels (warmest → coldest) — used for the display label AND the Contacts filter dropdown,
+// so they can't drift. Bucketed from the 0–10 score (not the model's free-text label) so it's always one of
+// these exact five and the filter matches the cell.
+export const WARMTH_LEVELS = ["Keen", "Warm", "Neutral", "Cool", "Cold"] as const;
+export function warmthLabel(w?: WarmthSentiment): string {
+  if (!w || typeof w.score !== "number") return "";
+  const s = w.score;
+  return s >= 8 ? "Keen" : s >= 6 ? "Warm" : s >= 4 ? "Neutral" : s >= 2 ? "Cool" : "Cold";
+}
+// A compact cell for tables: "Keen · 9/10", or "—" when this contact hasn't been scored yet.
+export function warmthCell(c: Contact): string {
+  const w = c.warmthSentiment;
+  return w && typeof w.score === "number" ? `${warmthLabel(w)} · ${Math.round(w.score)}/10` : "—";
+}
+// The DRY relationship-signal block that feeds the generative features (drafts, briefs, account summary,
+// Your Day). Assembles ONLY the signals present on this contact — warmth, who-owes-a-reply, a latent
+// opportunity, their last message — so it degrades gracefully to "" when no scan has run + no thread data.
+export function contactSignalsText(c: Contact): string {
+  const parts: string[] = [];
+  const w = c.warmthSentiment;
+  if (w && typeof w.score === "number") parts.push(`Relationship warmth (from their message tone): ${warmthLabel(w)} — ${Math.round(w.score)}/10`);
+  const t = c.thread;
+  if (t) {
+    if (!t.lastFromOwner && t.inboundCount > 0) parts.push(`You OWE them a reply — they messaged last${t.lastDate ? ` on ${t.lastDate}` : ""}`);
+    else if (t.lastFromOwner) parts.push(`You messaged last${t.lastDate ? ` on ${t.lastDate}` : ""}; waiting on them`);
+  }
+  if (c.latentOpp?.text) parts.push(`Possible opportunity spotted in their messages: ${c.latentOpp.text}`);
+  const lastIn = c.inbound?.length ? c.inbound[c.inbound.length - 1].text.trim() : "";
+  if (lastIn) parts.push(`The last thing they wrote to you: "${lastIn.slice(0, 240)}"`);
+  return parts.length ? parts.join(".\n") + "." : "";
 }
 // £-prefixed (a UK consulting book) and CONSISTENT everywhere — the deterministic tables set the currency
 // so the model never introduces a stray "$" (the polish run had it saying "$800k" next to the tools' "800k").
@@ -217,6 +260,12 @@ export function rankContacts(d: BookData, by: "warmth" | "cold", today: string):
   }
   const ranked = d.contacts.map((c) => ({ c, s: warmth(c, lm, today) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 8);
   if (!ranked.length) return { intro: "I can't see anyone with engagement logged yet — once you've messaged or met people, they'll rank here.", columns: [], rows: [] };
+  const anyScored = ranked.some(({ c }) => c.warmthSentiment);
+  // Once the sentiment pass has run, show the model's WARMTH read so you can see WHY each lead ranks here —
+  // not just the funnel stage. Before any scoring, keep the original stage-only table.
+  if (anyScored) {
+    return { intro: "Your warmest leads right now — ranked by engagement and the tone of their messages:", columns: ["Name", "Company", "Role", "Warmth"], rows: ranked.map(({ c }) => ({ cells: [fullName(c), c.organisation || "—", c.position || "—", warmthCell(c)], record: { tab: "contacts", id: c.url } })) };
+  }
   return { intro: "Your warmest leads right now — ranked by engagement, plus how recent and positive your last meeting was:", columns: ["Name", "Company", "Role", "Engagement"], rows: ranked.map(({ c }) => ({ cells: [fullName(c), c.organisation || "—", c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })) };
 }
 
@@ -226,7 +275,17 @@ export function rankOpportunities(d: BookData, by: "value" | "probability" | "ri
   if (!open.length) return { intro: "No open opportunities right now.", columns: [], rows: [] };
   let list = open, intro = "", lastCol = "Est. value";
   if (by === "probability") { list = open.slice().sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0)).slice(0, 10); intro = "Your open opportunities most likely to close (highest probability first):"; lastCol = "Probability"; }
-  else if (by === "risk") { list = open.filter((o) => STEP_ORDER.indexOf(o.current_step) <= STEP_ORDER.indexOf("scoping")).sort((a, b) => (b.est_value ?? 0) - (a.est_value ?? 0)).slice(0, 10); intro = "Big opportunities still in the early stages — at risk of stalling:"; }
+  else if (by === "risk") {
+    // Risk = big + early-stage, PLUS momentum: the linked contact has gone quiet (you messaged last, no reply).
+    // Graceful — with no thread data it's just the early-stage view as before.
+    const byUrl = new Map(d.contacts.map((c) => [c.url, c]));
+    const quiet = (o: Opportunity) => { const c = o.contact_url ? byUrl.get(o.contact_url) : undefined; return !!(c?.thread && c.thread.lastFromOwner && c.thread.inboundCount > 0); };
+    list = open
+      .filter((o) => STEP_ORDER.indexOf(o.current_step) <= STEP_ORDER.indexOf("scoping") || quiet(o))
+      .sort((a, b) => (Number(quiet(b)) - Number(quiet(a))) || (b.est_value ?? 0) - (a.est_value ?? 0))
+      .slice(0, 10);
+    intro = "At risk of stalling — big early-stage deals, and any where the contact's gone quiet on you:";
+  }
   else { list = open.slice().sort((a, b) => (b.est_value ?? 0) - (a.est_value ?? 0)).slice(0, 10); intro = "Your biggest open opportunities by value:"; }
   if (!list.length) return { intro: "Nothing matches that right now.", columns: [], rows: [] };
   return {
@@ -361,14 +420,27 @@ export function companiesWithOppAndContacts(d: BookData, min = 2): ComputeResult
 // same agenda the dashboard shows (overdue + due-soon write-ups, follow-ups, scheduled meetings, opportunity
 // + contract next-steps). Instant, accurate, and crucially NEVER hits the model — an advisory question like
 // this would otherwise inject the whole summary and stall a small on-device model on a long prefill.
+// From the enrichment/thread signals (graceful — 0 when nothing's scored): replies owed + latent opps.
+function attentionLine(d: BookData): string {
+  const owed = d.contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).length;
+  const latent = d.contacts.filter((c) => c.latentOpp?.text).length;
+  const bits: string[] = [];
+  if (owed) bits.push(`${owed} repl${owed === 1 ? "y" : "ies"} you owe`);
+  if (latent) bits.push(`${latent} opportunit${latent === 1 ? "y" : "ies"} spotted in your messages`);
+  return bits.length ? `Also worth a look: ${bits.join(" · ")} — ask me about either.` : "";
+}
 export function weeklyFocus(d: BookData, today: string): ComputeResult {
+  const attn = attentionLine(d);
   const items = buildAgenda(d.meetingRows, d.opps, today, d.sows)
     .sort((a, b) => Number(b.overdue) - Number(a.overdue) || a.daysUntil - b.daysUntil);
-  if (!items.length) return { intro: "Nothing's overdue and nothing's due in the next week — you're on top of it. Want me to surface who's gone cold, or your at-risk deals?", columns: [], rows: [] };
+  if (!items.length) {
+    const base = "Nothing's overdue and nothing's due in the next week — you're on top of it.";
+    return { intro: attn ? `${base}\n${attn}` : `${base} Want me to surface who's gone cold, or your at-risk deals?`, columns: [], rows: [] };
+  }
   const top = items.slice(0, 12);
   const when = (it: typeof items[number]) => it.overdue ? `${Math.abs(it.daysUntil)}d overdue` : it.daysUntil === 0 ? "today" : `in ${it.daysUntil}d`;
   return {
-    intro: `What to focus on this week — ${items.length} thing${items.length === 1 ? "" : "s"} due or overdue${items.length > top.length ? ` (top ${top.length})` : ""}:`,
+    intro: `What to focus on this week — ${items.length} thing${items.length === 1 ? "" : "s"} due or overdue${items.length > top.length ? ` (top ${top.length})` : ""}:${attn ? `\n${attn}` : ""}`,
     columns: ["When", "Focus", "Who"],
     rows: top.map((it) => ({ cells: [when(it), it.statusLabel, `${it.who}${it.org ? ` · ${it.org}` : ""}`], record: { tab: it.tab as ComputeRecord["tab"], id: it.openId } })),
   };
@@ -476,15 +548,59 @@ export function contactBrief(d: BookData, ref: string, today: string): ComputeRe
   if (!c) return { intro: `Hmm, I've had a good rummage and there's no "${ref}" in your book yet — want me to add them, or did you maybe mean someone else?`, columns: [], rows: [] };
   const meetings = d.meetingRows.filter((m) => m.contact_url === c.url && m.meeting_stage === "Held").sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
   const opps = d.opps.filter((o) => o.contact_url === c.url || orgMatches(o.organisation, c.organisation));
+  // Deterministic thread read: who owes the next reply, from the last message's direction.
+  const owed = c.thread && !c.thread.lastFromOwner
+    ? `You owe them a reply — they messaged last${c.thread.lastDate ? ` on ${c.thread.lastDate}` : ""}.`
+    : c.thread?.lastFromOwner ? `Ball's in their court — you messaged last${c.thread.lastDate ? ` on ${c.thread.lastDate}` : ""}.` : "";
   const lines = [
     `${fullName(c)} — ${c.position || "—"} at ${c.organisation || "—"}.`,
     `Stage: ${stageLabel(c)}.${meetings.length ? ` ${meetings.length} meeting${meetings.length === 1 ? "" : "s"}, last on ${meetings[0].date_held} (${meetings[0].sentiment || "—"}).` : " No meetings logged yet."}`,
+    c.warmthSentiment ? `Warmth: ${warmthCell(c)} (from the tone of their messages).` : "",
+    owed,
+    c.latentOpp?.text ? `Possible opportunity spotted in your messages: ${c.latentOpp.text}.` : "",
     opps.length ? `${opps.length} related opportunit${opps.length === 1 ? "y" : "ies"} at ${c.organisation}.` : "",
   ].filter(Boolean);
   return {
     intro: lines.join("\n"),
     columns: meetings.length ? ["Date", "Purpose", "Sentiment"] : [],
     rows: meetings.slice(0, 6).map((m) => ({ cells: [m.date_held || "—", m.purpose || "—", m.sentiment || "—"], record: { tab: "meetings", id: m.id } })),
+  };
+}
+
+// owedReplies — deterministic (no LLM): contacts who messaged LAST and haven't heard back (the last message
+// in the thread was theirs). Your "you left them hanging" queue — warmest first, so you chase the best ones.
+export function owedReplies(d: BookData, today: string): ComputeResult {
+  const lm = lastMeetingMap(d);
+  const owed = d.contacts
+    .filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0)
+    .sort((a, b) => warmth(b, lm, today) - warmth(a, lm, today) || (b.thread!.lastDate || "").localeCompare(a.thread!.lastDate || ""));
+  if (!owed.length) return { intro: "You're all square — no one's waiting on a reply from you right now.", columns: [], rows: [] };
+  const shown = owed.slice(0, 25);
+  return {
+    intro: `You owe a reply — they messaged last and you haven't come back${owed.length > shown.length ? ` (showing ${shown.length} of ${owed.length})` : ` (${owed.length})`}, warmest first:`,
+    columns: ["Name", "Company", "Last heard", "Warmth"],
+    rows: shown.map((c) => ({ cells: [fullName(c), c.organisation || "—", c.thread!.lastDate || "—", warmthCell(c)], record: { tab: "contacts", id: c.url } })),
+  };
+}
+
+// latentOpportunities — surfaces the needs the opt-in Opportunity Scan spotted in message threads (stored on
+// contacts as `latentOpp.text`). Empty until that scan has run (points the user to Insights).
+export function latentOpportunities(d: BookData): ComputeResult {
+  const withOpp = d.contacts.filter((c) => c.latentOpp?.text);
+  const scanned = d.contacts.some((c) => c.latentOpp);
+  if (!withOpp.length) {
+    return {
+      intro: scanned
+        ? "No latent opportunities flagged — the Opportunity scan didn't find unmet needs in the threads it read."
+        : "No opportunity scan has run yet — run it from Insights to surface needs hidden in your messages.",
+      columns: [], rows: [],
+    };
+  }
+  const shown = withOpp.slice(0, 25);
+  return {
+    intro: `Possible opportunities spotted in your messages${withOpp.length > shown.length ? ` (showing ${shown.length} of ${withOpp.length})` : ` (${withOpp.length})`}:`,
+    columns: ["Name", "Company", "Opportunity"],
+    rows: shown.map((c) => ({ cells: [fullName(c), c.organisation || "—", c.latentOpp!.text], record: { tab: "contacts", id: c.url } })),
   };
 }
 
@@ -496,8 +612,18 @@ export function accountSummary(d: BookData, company: string): ComputeResult {
   const meetings = d.meetingRows.filter((m) => orgMatches(m.contactInfo.organisation, company) && m.meeting_stage === "Held").length;
   const opps = d.opps.filter((o) => orgMatches(o.organisation, company));
   const openVal = opps.filter((o) => oppStatus(o) === "Open").reduce((s, o) => s + (o.est_value ?? 0), 0);
+  // Aggregate relationship signals across the firm's people (graceful — omitted when nothing's scored).
+  const scored = people.filter((c) => typeof c.warmthSentiment?.score === "number");
+  const avgWarmth = scored.length ? Math.round((scored.reduce((s, c) => s + c.warmthSentiment!.score, 0) / scored.length) * 10) / 10 : null;
+  const owedHere = people.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).length;
+  const latentHere = people.filter((c) => c.latentOpp?.text).length;
+  const sigBits = [
+    avgWarmth != null ? `avg warmth ${avgWarmth}/10 (${warmthLabel({ score: avgWarmth })})` : "",
+    owedHere ? `${owedHere} awaiting your reply` : "",
+    latentHere ? `${latentHere} with a spotted opportunity` : "",
+  ].filter(Boolean);
   const res: ComputeResult = {
-    intro: `${org}: ${people.length} contact${people.length === 1 ? "" : "s"}, ${meetings} meeting${meetings === 1 ? "" : "s"} held, ${opps.length} opportunit${opps.length === 1 ? "y" : "ies"}${openVal ? ` (${money(openVal)} open)` : ""}.`,
+    intro: `${org}: ${people.length} contact${people.length === 1 ? "" : "s"}, ${meetings} meeting${meetings === 1 ? "" : "s"} held, ${opps.length} opportunit${opps.length === 1 ? "y" : "ies"}${openVal ? ` (${money(openVal)} open)` : ""}.${sigBits.length ? `\nRelationship read: ${sigBits.join(" · ")}.` : ""}`,
     columns: ["Name", "Role", "Stage"],
     rows: people.slice(0, 20).map((c) => ({ cells: [fullName(c), c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
     // Hint to the caller: blend in what this organisation actually DOES (a brokered web/entity lookup),
@@ -651,6 +777,10 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   if (/what should i (?:focus on|do|prioriti[sz]e|work on|tackle)|what'?s? (?:my )?(?:focus|priorit|agenda|to-?dos?|action items?)|where should i focus|what'?s? (?:on )?my plate|what needs (?:my )?attention|plan my (?:day|week)|focus (?:for )?(?:this|the) (?:week|day)|what(?:'?s| is) (?:due|on) (?:this|next) (?:week|few days)|what'?s? next this week|what'?s? (?:overdue|slipped|slipping|fallen through|been neglected)|what have i (?:let slip|missed|dropped|neglected)|anything overdue|what'?s? (?:gone )?overdue/.test(t)) return weeklyFocus(d, today);
   // "who's my next/top priority" (NOT scoped to a company — "highest priority at EY" is a filter) → the agenda.
   if ((/\b(?:next|top|highest|main|biggest) priorit/.test(t) || /who should i (?:prioriti[sz]e|focus on|chase|call|tackle)\b/.test(t)) && !/\bat\s+[a-z]/i.test(t)) return weeklyFocus(d, today);
+  // A VAGUE business-open ("let's talk business", "catch me up", "where do things stand", "give me a rundown")
+  // has no specific ask — so LEAD with the deterministic agenda instead of free-forming a question back at them
+  // ("what's on your mind?"). Makes the copilot open like a partner who knows the book, on every tier.
+  if (/\b(?:let'?s |i (?:wanna|want to|would like to|need to) )?talk (?:business|shop)\b|\blet'?s (?:get (?:to |down to |cracking|started)|work|do (?:some )?work|crack on)\b|\bcatch me up\b|\bwhere (?:do (?:i|we|things)|are we|things) (?:stand|at)\b|\bgive me (?:a |the )?(?:rundown|run-down|snapshot|overview|update|state of play|lay of the land)\b|\bstate of (?:my |the )?(?:book|business|play|pipeline|things)\b|\bwhat'?s (?:the latest|going on|happening)\b/.test(t)) return weeklyFocus(d, today);
 
   // ── Rankings ──────────────────────────────────────────────────────────────────────────────────
   if (/gone cold|\bcold\b|re-?engage|reconnect|lapsed|gone quiet|lost touch|fallen off|drifted|follow(?:ed)?[- ]?up with|need(?:s)? (?:a )?(?:follow|chase|nudge)|chase up|reach out again/.test(t) && !/opportunit|\bdeals?\b|pipeline/.test(t)) return rankContacts(d, "cold", today);
@@ -817,6 +947,9 @@ export function runTool(call: ToolCall, d: BookData, today: string): ComputeResu
     case "rankContacts": return rankContacts(d, oneOf(a.by, ["warmth", "cold"] as const, "warmth"), today);
     case "rankOpportunities": return rankOpportunities(d, oneOf(a.by, ["value", "probability", "risk"] as const, "value"));
     case "pipelineStats": return pipelineStats(d);
+    case "weeklyFocus": return weeklyFocus(d, today);
+    case "owedReplies": return owedReplies(d, today);
+    case "latentOpportunities": return latentOpportunities(d);
     case "funnelBreakdown": return funnelBreakdown(d, str(a.dimension) === "function" ? "function" : str(a.dimension) === "seniority" ? "seniority" : "sector_group");
     case "contactBrief": return contactBrief(d, str(a.name) || str(a.contact) || "", today);
     case "accountSummary": return accountSummary(d, str(a.company) || str(a.name) || "");
@@ -875,6 +1008,32 @@ export function joinGroundingText(question: string, d: BookData, today: string):
 // null when the message isn't a privacy question. `avail` is optional (the eval has no live backend → the
 // general, still-accurate answer that covers both modes).
 type Availability = { backend?: string; byok?: boolean; onDevice?: string };
+// The canonical capabilities answer, in CODE (never the model) so it can't drift into a counsellor "what's
+// weighing on you?" register or invent a random contacts table. Rendered when the LLM ROUTER classifies a
+// message as "help" (a capability/meta question). LLM routes; code answers.
+export function capabilitiesResult(): ComputeResult {
+  return {
+    intro: [
+      "I'm your book-of-business assistant — I work over your own contacts, meetings, opportunities and messages, all on your machine. I can:",
+      "- Find & summarise — \"who do I know at EY\", \"my open opportunities\", \"meetings last month\"",
+      "- Rank & prioritise — \"who are my warmest leads\", \"who's gone cold\", \"who do I owe a reply to\"",
+      "- Brief you before a call — \"brief me on Jane Doe\", \"what's my footprint at JPMorgan\"",
+      "- Draft & log — \"draft a follow-up to my warmest lead\", \"log a meeting with Tom\", \"add a contact\"",
+      "- Spot what matters — \"what should I focus on this week\", \"any opportunities in my messages\"",
+      "Ask in your own words — what would help right now?",
+    ].join("\n"),
+    columns: [],
+    rows: [],
+  };
+}
+// Regex-gated wrapper — used ONLY on the error-fallback path (when the LLM router call failed), so a
+// capability question still gets the right answer with no model available. Not a pre-router gate.
+const CAPABILITY_Q = /\b(what can (?:you|it) (?:do|help)|what (?:do|can) you do|how (?:can|do) you help|what can you help (?:me )?with|what are you (?:able|capable)|what do you do|what('?s| is) your (?:job|purpose|role|function)|work[\s-]?wise)\b/i;
+export function capabilitiesResponse(text: string): ComputeResult | null {
+  if (!CAPABILITY_Q.test(text) || text.trim().split(/\s+/).length > 14) return null;
+  return capabilitiesResult();
+}
+
 export function privacyResponse(text: string, avail?: Availability): ComputeResult | null {
   const t = text.toLowerCase();
   // NB: no "go/goes/going" — far too common ("going to help", "how's it going") and it false-triggered the

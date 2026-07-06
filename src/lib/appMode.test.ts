@@ -61,13 +61,13 @@ describe("getAppMode — query params when no flag is set", () => {
 
   it("an unrelated query param falls through to the default", () => {
     setSearch("?foo=bar");
-    expect(getAppMode()).toBe("demo");
+    expect(getAppMode()).toBe("owned");
   });
 });
 
 describe("getAppMode — default", () => {
-  it("no flag and no params → demo", () => {
-    expect(getAppMode()).toBe("demo");
+  it("no flag and no params → owned (safe default)", () => {
+    expect(getAppMode()).toBe("owned");
   });
 });
 
@@ -77,7 +77,7 @@ describe("isDemo / isOwned", () => {
     expect(isOwned()).toBe(true);
     expect(isDemo()).toBe(false);
 
-    setSearch("");
+    setSearch("?demo=1");
     expect(isDemo()).toBe(true);
     expect(isOwned()).toBe(false);
   });

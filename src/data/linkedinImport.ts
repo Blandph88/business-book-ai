@@ -5,7 +5,7 @@
 
 import Papa from "papaparse";
 import { classifyContact } from "./classify";
-import type { Contact } from "./contacts";
+import type { Contact, InboundMessage, ThreadMeta } from "./contacts";
 
 // Stable key across both files (LinkedIn URLs vary by trailing slash / query / case).
 export function normalizeUrl(url: string | undefined): string {
@@ -54,11 +54,33 @@ function hasKeyword(text: string, words: string[]): boolean {
   return words.some((w) => t.includes(w));
 }
 
-export type FunnelSets = { messaged: Set<string>; responded: Set<string>; agreed: Set<string> };
+export type FunnelSets = {
+  messaged: Set<string>;
+  responded: Set<string>;
+  agreed: Set<string>;
+  // Each contact's INBOUND messages (their words, not the owner's) in send order — the sentiment signal.
+  inbound: Map<string, InboundMessage[]>;
+  // Per-contact thread meta, computed deterministically from BOTH sides (no LLM): who sent last + when, and
+  // message counts each way. Powers "who owes a reply" + responsiveness with zero model cost.
+  thread: Map<string, ThreadMeta>;
+};
+
+// "2026-03-26 09:15:00 UTC" → "2026-03-26" (or "" if not a leading ISO date).
+function isoDate(raw: string): string {
+  const m = (raw || "").match(/^\s*(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "";
+}
 
 export function parseMessages(text: string): FunnelSets {
-  const sets: FunnelSets = { messaged: new Set(), responded: new Set(), agreed: new Set() };
+  const sets: FunnelSets = { messaged: new Set(), responded: new Set(), agreed: new Set(), inbound: new Map(), thread: new Map() };
   if (!text || !text.trim()) return sets;
+  // Track the latest message per contact + counts each way (deterministic thread signal).
+  const noteThread = (url: string, date: string, fromOwner: boolean) => {
+    const t = sets.thread.get(url) ?? { lastDate: "", lastFromOwner: false, inboundCount: 0, outboundCount: 0 };
+    if (fromOwner) t.outboundCount++; else t.inboundCount++;
+    if (date >= t.lastDate) { t.lastDate = date; t.lastFromOwner = fromOwner; } // ties: last seen wins
+    sets.thread.set(url, t);
+  };
   const rows = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true }).data;
 
   // Detect the account OWNER: their profile URL appears in (nearly) every message, as
@@ -79,21 +101,46 @@ export function parseMessages(text: string): FunnelSets {
     const sender = normalizeUrl(r["SENDER PROFILE URL"] ?? "");
     const recipients = (r["RECIPIENT PROFILE URLS"] ?? "").split(/[\s,;]+/).map(normalizeUrl).filter(Boolean);
     const content = r["CONTENT"] ?? "";
+    const date = isoDate(r["DATE"] ?? "");
     if (sender === owner) {
       for (const c of recipients) {
         if (!c || c === owner) continue;
         sets.messaged.add(c);
         if (hasKeyword(content, PROPOSE)) proposedTo.add(c);
+        noteThread(c, date, true); // owner → contact (outbound)
       }
     } else if (sender) {
       sets.responded.add(sender);
       if (hasKeyword(content, AFFIRM)) affirmedBy.add(sender);
+      noteThread(sender, date, false); // contact → owner (inbound)
+      // Capture their inbound message (their own words) for the sentiment pass.
+      const body = content.trim();
+      if (body) {
+        const list = sets.inbound.get(sender) ?? [];
+        list.push({ date, text: body });
+        sets.inbound.set(sender, list);
+      }
     }
   }
+  // Keep each contact's inbound thread in chronological order (recency matters to the read).
+  for (const [, list] of sets.inbound) list.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   for (const c of sets.responded) {
     if (proposedTo.has(c) && affirmedBy.has(c)) sets.agreed.add(c);
   }
   return sets;
+}
+
+// Cap what we STORE per contact. The scans (sentiment.ts / oppScan.ts) only ever read the first 2 +
+// last 3 inbound messages, and contactSignalsText reads the latest — so storing every message just
+// bloats the data plane. Under the seal a purchased app's whole dataset is inlined into the frame's
+// srcdoc seed on every boot (preamble.ts), so a heavy messager's full history makes each launch slow
+// and memory-heavy for no gain. Keep only the arc the app uses; the true message count is preserved
+// in thread.inboundCount (used for warm-cohort ranking), so nothing downstream is lost.
+const KEEP_HEAD = 2, KEEP_TAIL = 3, MSG_MAX = 600;
+export function capInbound(msgs: InboundMessage[] | undefined): InboundMessage[] | undefined {
+  if (!msgs || !msgs.length) return msgs;
+  const arc = msgs.length <= KEEP_HEAD + KEEP_TAIL ? msgs : [...msgs.slice(0, KEEP_HEAD), ...msgs.slice(-KEEP_TAIL)];
+  return arc.map((m) => (m.text.length > MSG_MAX ? { ...m, text: m.text.slice(0, MSG_MAX) } : m));
 }
 
 // ── full import ─────────────────────────────────────────────────────────────────────────
@@ -119,6 +166,8 @@ export function importLinkedIn(connectionsText: string, messagesText: string): I
         agreed_to_meet: funnel.agreed.has(key),
         met: false, // a real "met" is only ever a meeting the buyer logs themselves
         phone: "",
+        inbound: capInbound(funnel.inbound.get(key)), // their own words (arc only) — scored later by the sentiment pass
+        thread: funnel.thread.get(key),   // deterministic who-owes-a-reply + responsiveness signal
       });
     } catch {
       /* skip a single unparseable row rather than failing the whole import */

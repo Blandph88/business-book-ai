@@ -255,6 +255,24 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
         <KpiCard label="Weighted pipeline" value={formatMoney(weightedPipeline)} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Open" } })} />
         <KpiCard label="Recognised" value={formatMoney(recognised)} hint="across signed engagements" onClick={() => onNavigate("revenue")} />
         <KpiCard label="Win rate" value={winRateLabel} hint={`${winLoss.won}W · ${winLoss.lost}L`} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Won" } })} />
+        {/* AI-derived "needs attention" — gated: only appear once there's a signal (owed replies from the
+            deterministic thread read; opportunities from the opt-in scan). */}
+        {contacts.filter((c) => c.thread && !c.thread.lastFromOwner).length > 0 && (
+          <KpiCard
+            label="Replies owed"
+            value={contacts.filter((c) => c.thread && !c.thread.lastFromOwner).length}
+            hint="they messaged last"
+            onClick={() => onNavigate("contacts", { filter: { key: "owed", value: "Yes" } })}
+          />
+        )}
+        {contacts.filter((c) => c.latentOpp?.text).length > 0 && (
+          <KpiCard
+            label="Opportunity signals in messages"
+            value={contacts.filter((c) => c.latentOpp?.text).length}
+            hint="leads spotted by the scan — review & pursue"
+            onClick={() => onNavigate("contacts", { filter: { key: "opportunity", value: "Yes" } })}
+          />
+        )}
       </div>
 
       {/* ── This week (urgency) — one full-width chronological table ──── */}

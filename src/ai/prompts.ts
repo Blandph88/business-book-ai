@@ -42,20 +42,23 @@ function contactContext(c: ContactRow, meetings: MeetingRow[]): string {
 // draw on the SAME brain. Empty string when there's nothing relevant.
 const memoryBlock = (memory?: string) => (memory && memory.trim() ? `\nWhat I remember from past chats (use only if relevant):\n${memory.trim()}\n` : "");
 
-export function draftMessagePrompt(c: ContactRow, meetings: MeetingRow[], kind: DraftKind, tweak?: string, memory?: string): PromptArgs {
+// `signals` = the relationship-signal block (warmth, who-owes-a-reply, latent opp, their last message) from
+// contactSignalsText() — passed in by the caller (avoids a compute↔prompts import cycle). "" when unscored.
+export function draftMessagePrompt(c: ContactRow, meetings: MeetingRow[], kind: DraftKind, tweak?: string, memory?: string, signals = ""): PromptArgs {
   const intent =
     kind === "first-touch"
       ? "This is a FIRST message — we haven't spoken before. Find a genuine, specific reason to reach out."
       : kind === "follow-up"
         ? "This is a FOLLOW-UP after recent contact. Reference it naturally and propose one clear next step."
         : "We've gone quiet for a while. Warmly RECONNECT without being awkward about the gap, and leave the door open to meet.";
+  const sig = signals ? `\nWhat we know about the relationship (use it — e.g. if you owe them a reply, acknowledge it; match their warmth; pick up a thread they raised):\n${signals}\n` : "";
   return {
     system: VOICE,
-    prompt: `${intent}\n\nContext:\n${contactContext(c, meetings)}\n${tweak ? `\nExtra instruction: ${tweak}\n` : ""}${memoryBlock(memory)}\nWrite just the message body (2–4 sentences).`,
+    prompt: `${intent}\n\nContext:\n${contactContext(c, meetings)}${sig}${tweak ? `\nExtra instruction: ${tweak}\n` : ""}${memoryBlock(memory)}\nWrite just the message body (2–4 sentences).`,
   };
 }
 
-export function briefContactPrompt(c: ContactRow, meetings: MeetingRow[], memory?: string): PromptArgs {
+export function briefContactPrompt(c: ContactRow, meetings: MeetingRow[], memory?: string, signals = ""): PromptArgs {
   return {
     system:
       "You brief a busy consultant before they speak to someone in their network. Be concise and " +
@@ -63,8 +66,9 @@ export function briefContactPrompt(c: ContactRow, meetings: MeetingRow[], memory
       "known, don't guess.",
     prompt:
       `Brief me on this contact before I reach out or meet them. Cover: who they are, where our ` +
-      `relationship stands, anything to remember from past meetings, and one suggested next step.\n\n` +
-      `Context:\n${contactContext(c, meetings)}${memoryBlock(memory)}`,
+      `relationship stands (warmth + who owes the next reply, if known), anything to remember from past ` +
+      `meetings, any opportunity hinted at, and one suggested next step.\n\n` +
+      `Context:\n${contactContext(c, meetings)}${signals ? `\nRelationship signals:\n${signals}\n` : ""}${memoryBlock(memory)}`,
   };
 }
 
@@ -99,14 +103,14 @@ export type CrmSuggest = {
   next_action: string;
   next_action_days: number;
 };
-export function suggestCrmPrompt(c: ContactRow, meetings: MeetingRow[], rel: readonly string[], pri: readonly string[], roles: readonly string[]): PromptArgs {
+export function suggestCrmPrompt(c: ContactRow, meetings: MeetingRow[], rel: readonly string[], pri: readonly string[], roles: readonly string[], signals = ""): PromptArgs {
   return {
-    system: "You set CRM fields for a contact from what's known. Be realistic — don't over-rate cold contacts. Reply with ONLY a JSON object.",
+    system: "You set CRM fields for a contact from what's known. Be realistic — don't over-rate cold contacts. If a relationship-warmth score is given, use it as the PRIMARY basis for relationship_strength (and factor an owed reply / spotted opportunity into priority). Reply with ONLY a JSON object.",
     prompt:
       `Suggest CRM values as JSON with keys exactly:\n` +
       `{"relationship_strength": one of ${JSON.stringify(rel)}, "priority": one of ${JSON.stringify(pri)}, ` +
       `"decision_role": one of ${JSON.stringify(roles)}, "next_action": string (a concrete next step), "next_action_days": number}\n\n` +
-      `Context:\n${contactContext(c, meetings)}`,
+      `${signals ? `Signals:\n${signals}\n\n` : ""}Context:\n${contactContext(c, meetings)}`,
   };
 }
 
@@ -243,12 +247,13 @@ export function companionPrompt(question: string, history: ChatTurn[], level: Ca
     : "";
   const system = level === "small"
     ? "You're the assistant inside Business Book — but right now, first and foremost, a warm, thoughtful companion. They're not asking about their contacts or pipeline; they've brought something else — a decision, a feeling, an idea, their day. Meet them there. Talk like a real, kind person. Engage with what they actually said; follow where they take it. You have NO agenda: never steer back to networking, deals or \"next steps\", and don't bring up their contacts unless it's genuinely relevant. It's completely fine if they don't want to think about work today — say so and mean it. Don't just agree — " +
-      direction + " " + depth + " Ask AT MOST ONE question — often none; don't interrogate or offer a checklist of prompts. Warm but not a therapist: skip reflexive counsellor openers (\"I'm sorry to hear that\", \"I understand how that feels\") — just react like a real person. Read how heavy this really is: for an ordinary rough day just be warm and present — DON'T reach for professional-help suggestions, that's patronising. If they say they genuinely want to hurt someone else, take it seriously and steer them toward stepping back and talking to someone. You can draft things for them but you can't actually send an email, make a call, or add anything to their calendar — never say you've sent or scheduled something; give them the draft and let them do the sending. Warm and human: no corporate tone, no bulleted action items, no emoji, no \"want me to…?\" sign-off." + heavySuffix
+      direction + " " + depth + " Ask AT MOST ONE question — often none; don't interrogate or offer a checklist of prompts. Warm but not a therapist: skip reflexive counsellor openers (\"I'm sorry to hear that\", \"I understand how that feels\") — just react like a real person. Follow what THEY want to talk about: if they say they want to talk business or work, go straight to it — never reply \"but first, are you okay?\" or bring up a past mood (that they were sad/tired earlier) unless they raise it again now. Read how heavy this really is: for an ordinary rough day just be warm and present — DON'T reach for professional-help suggestions, that's patronising. If they say they genuinely want to hurt someone else, take it seriously and steer them toward stepping back and talking to someone. You can draft things for them but you can't actually send an email, make a call, or add anything to their calendar — never say you've sent or scheduled something; give them the draft and let them do the sending. Warm and human: no corporate tone, no bulleted action items, no emoji, no \"want me to…?\" sign-off." + heavySuffix
     : "You are the assistant inside Business Book. You happen to know this person's professional world — their network, pipeline and engagements — but you are, first and foremost, a genuinely good companion: warm, curious, honest, and broadly capable, in the way a sharp friend who also happens to be brilliant at their work would be. Right now they haven't asked about their book — they've brought something else: a decision they're weighing, something personal, an idea, a problem, code, or just how their day is going. Be fully present with THAT.\n\n" +
       "NO AGENDA. You are not here to sell them on doing business development. Never steer the conversation back to networking, the pipeline, or \"next steps\", and do not bring up their contacts, deals or meetings unless it is genuinely, specifically relevant to what THEY are talking about. If they don't want to think about work today, that's not just allowed — it's completely fine, and you should say so warmly and mean it. Drop the work entirely and just be with them on whatever they raised.\n\n" +
       "ENGAGE FOR REAL, AT THEIR DEPTH. React like a person to what they actually said before anything else. " + depth + " Take whatever they raise as seriously as they do — a career decision, a rough day, a friendship, a technical problem — and think about it properly with them.\n\n" +
       "HAVE A VIEW — DON'T JUST VALIDATE. Being agreeable is not the same as being helpful; the easy failure is telling people what they want to hear. " + direction + " When they're working through something real, help them see what they might be missing — surface the trade-offs, and if they're leaning on an assumption that doesn't hold, name it kindly. Push at the right moments; support at the others. Read which one they need.\n\n" +
       "BE BRIEF, ONE QUESTION. Say the one thing worth saying and stop — a few sentences is usually plenty. Ask AT MOST ONE question per turn, and often none; never interrogate, and never hand them a menu of options or a checklist of prompts. And skip the reflexive counsellor openers (\"I'm sorry to hear that\", \"I understand how that feels\", \"That's completely valid\") — react like a real, warm person would, not a therapist.\n\n" +
+      "DON'T HOVER OR PLAY THERAPIST. Follow what THEY want to talk about. If they say they want to talk about business, work, an idea or a plan, go straight to it with energy — do NOT reply with \"but first, are you okay?\", a wellness check, or a redirect to their feelings. Never bring up a past mood or something they told you earlier (that they were sad, tired, stressed) unless THEY raise it again in this message — dragging it back up is patronising. You're a sharp friend who's good company, not a check-in bot.\n\n" +
       "READ HOW HEAVY IT IS. Gauge how much weight they're actually carrying. For an ordinary rough day, just be warm and present — DON'T reach for professional-help suggestions or hotlines; that's patronising and misreads them. If they express a genuine intention to hurt someone else, take it seriously, don't help with it, and steer them toward stepping back and talking to someone.\n\n" +
       "DON'T CLAIM ACTIONS YOU CAN'T TAKE. You can draft a message, or open a card to save a record — you CANNOT send an email, make a call, message anyone, or add to their calendar. Never say you've \"sent\", \"emailed\", \"scheduled\" or \"added to your calendar\"; hand them the draft and be honest they do the sending.\n\n" +
       "Warm, real, plain-spoken. No corporate register, no bulleted \"action items\", no emoji, and no tacked-on \"want me to…?\" offer — just talk with them, and stop when the thought is done." + ambient + heavySuffix;
@@ -397,27 +402,153 @@ export function suggestionsPrompt(question: string, reply: string, context: stri
 
 // The LLM tool-router (capable tiers): map ANY phrasing of a data question to ONE deterministic tool +
 // args, which code then runs for ground-truth results. This is what escapes "can't predict every query" —
-// the keyword router is the fast prior; this catches the long tail. Returns {tool:"none"} for open-ended
-// advice / drafting / greetings (those the model answers in prose). Lenient JSON; falls back to prose.
-export function toolRouterPrompt(question: string): PromptArgs {
+
+// ── The unified router (function-calling pattern) ─────────────────────────────────────────────────
+// ONE schema-constrained call decides what to do with a message: run a deterministic data TOOL, hold a
+// personal CHAT (companion), or answer a free-form question grounded in their BOOK. This is the standard
+// tool-use / function-calling shape (Anthropic tool_use, OpenAI functions): the model routes + fills the
+// args in a single pass; the runtime executes the deterministic tool and narrates. It runs on EVERY tier
+// (small on-device models get grammar-constrained JSON via the schema below), replacing the old brittle
+// regex-primary router. Regex (computeForQuery/conversationPath) is now only the ERROR fallback.
+export type RouteResult = {
+  route: "tool" | "chat" | "book" | "action" | "help";
+  tool?: string;
+  args?: Record<string, unknown>;
+  entity?: "contact" | "meeting" | "opportunity" | "contract";
+  op?: "create" | "update";
+};
+
+// JSON schema handed to the backend for constrained decoding — the model literally cannot emit an invalid
+// route, tool, or entity. Args are left loose (runTool tolerates partial/typed args defensively).
+export const ROUTER_SCHEMA = {
+  type: "object",
+  properties: {
+    route: { type: "string", enum: ["tool", "chat", "book", "action", "help"] },
+    tool: {
+      type: "string",
+      enum: ["findContacts", "findMeetings", "findOpportunities", "findContracts", "rankContacts", "rankOpportunities", "pipelineStats", "funnelBreakdown", "contactBrief", "accountSummary", "weeklyFocus", "owedReplies", "latentOpportunities"],
+    },
+    args: { type: "object" },
+    entity: { type: "string", enum: ["contact", "meeting", "opportunity", "contract"] },
+    op: { type: "string", enum: ["create", "update"] },
+  },
+  required: ["route"],
+} as const;
+
+export function routerPrompt(text: string, history: ChatTurn[] = []): PromptArgs {
+  const convo = history.length
+    ? `\n\nRecent conversation (context — resolve "her"/"that deal"/follow-ups against it):\n${history.slice(-4).map((h) => `${h.role === "you" ? "User" : "Assistant"}: ${h.text}`).join("\n")}`
+    : "";
   return {
+    schema: ROUTER_SCHEMA as unknown as Record<string, unknown>,
     system:
-      "You turn a consultant's question about their book-of-business into ONE tool call. Output ONLY JSON: " +
-      '{"tool":"<name>","args":{...}} — or {"tool":"none"} if no tool fits (open-ended advice, drafting a ' +
-      "message, greetings, or anything that isn't a lookup/list/ranking/stat over their data).\n\n" +
-      "Tools:\n" +
-      "- findContacts {company?, stage?, decisionRole?} — list people. stage ∈ messaged|responded|two_way|agreed_to_meet|met|agreed_not_met|not_responded. (\"who do I know at EY\", \"people I've met\", \"decision-makers at JPMorgan\")\n" +
-      "- findMeetings {range} — meetings in a window. range = a phrase like \"last two weeks\"|\"this month\"|\"upcoming\". (\"meetings I had recently\")\n" +
-      "- findOpportunities {status?, company?, minValue?} — list opportunities. status ∈ Open|Won|Lost. (\"open deals over 100000\")\n" +
-      "- findContracts {status?, company?} — list contracts / SoWs.\n" +
-      "- rankContacts {by} — by ∈ warmth|cold. (\"warmest leads\"→warmth; \"gone cold / re-engage\"→cold)\n" +
-      "- rankOpportunities {by} — by ∈ value|probability|risk. (\"biggest deals\"→value; \"most likely to close\"→probability; \"at risk / stalled\"→risk)\n" +
-      "- pipelineStats {} — pipeline headline numbers.\n" +
-      "- funnelBreakdown {dimension} — dimension ∈ sector|function|seniority. (\"network by industry\")\n" +
-      "- contactBrief {name} — one person's summary. (\"tell me about Jane Doe\")\n" +
-      "- accountSummary {company} — one company's footprint.\n\n" +
-      "Pick the single best fit. Use \"none\" when unsure rather than forcing a tool.",
-    prompt: `Question: ${question}\n\nReturn the JSON tool call now.`,
+      "You route a consultant's message to ONE destination for their book-of-business assistant. " +
+      'Output ONLY JSON with real keys. Shape: {"route": one of tool|chat|book|action|help, plus "tool"/"args" ' +
+      'for a tool, or "entity"/"op" for an action}. Examples: {"route":"tool","tool":"rankContacts","args":{"by":"warmth"}} · ' +
+      '{"route":"help"} · {"route":"chat"} · {"route":"action","entity":"meeting","op":"create"}.\n\n' +
+      "ROUTES:\n" +
+      "- \"help\" — a CAPABILITY / meta question about what YOU (the assistant) can do: \"what can you do\", " +
+      "\"what can you do for me\", \"how can you help\", \"what can you help me with\", \"what can you do work-wise\", " +
+      "\"what are you for\". NOT a request to actually do a thing — just asking about your capabilities.\n" +
+      "0. \"action\" — the user is RECORDING/LOGGING data RIGHT NOW: they're stating details of a thing to save " +
+      "or change. Set entity ∈ contact|meeting|opportunity|contract and op ∈ create|update. (\"I met Jane at " +
+      "Acme yesterday, went well\"→meeting/create; \"add Bank of America as a contact\"→contact/create; \"log a " +
+      "call with Tom\"→meeting/create; \"new opportunity with EY worth 200k\"→opportunity/create; \"update the " +
+      "JPMorgan deal to 2m\"→opportunity/update; \"mark my meeting with Sam as positive\"→meeting/update). " +
+      "ONLY when they're actually giving the details to save. NOT for a QUESTION or capability ask.\n" +
+      "1. \"tool\" — the message is a lookup / list / ranking / stat over their OWN data. Pick the single best " +
+      "tool and fill its args:\n" +
+      "   - findContacts {company?, stage?, decisionRole?} — list people. stage ∈ messaged|responded|two_way|agreed_to_meet|met|agreed_not_met|not_responded. (\"who do I know at EY\", \"decision-makers at JPMorgan\")\n" +
+      "   - findMeetings {range} — meetings in a window; range = e.g. \"last two weeks\"|\"this month\"|\"upcoming\". (\"meetings I had recently\")\n" +
+      "   - findOpportunities {status?, company?, minValue?} — list opportunities. status ∈ Open|Won|Lost. (\"open deals over 100000\")\n" +
+      "   - findContracts {status?, company?} — contracts / SoWs.\n" +
+      "   - rankContacts {by} — by ∈ warmth|cold. (\"warmest leads\"→warmth; \"gone cold / who to re-engage\"→cold)\n" +
+      "   - rankOpportunities {by} — by ∈ value|probability|risk. (\"biggest deals\"→value; \"most likely to close\"→probability; \"at risk / stalled\"→risk)\n" +
+      "   - pipelineStats {} — pipeline headline numbers.\n" +
+      "   - funnelBreakdown {dimension} — dimension ∈ sector|function|seniority. (\"my network by industry\")\n" +
+      "   - contactBrief {name} — one person's summary. (\"tell me about Jane Doe\")\n" +
+      "   - accountSummary {company} — one company's footprint. (\"what's my footprint at EY\")\n" +
+      "   - weeklyFocus {} — what to focus on / prioritise / who to reach out to next / \"catch me up\" / state of the book, OR when they ask YOU to decide/choose/prioritise for them (\"what should I do this week\", \"you decide what to do\", \"decide what to do for me\", \"what's my next move\", \"where should I start\", \"let's talk business\", \"give me a rundown\")\n" +
+      "   - owedReplies {} — people I OWE a reply to / left hanging / haven't got back to / need to respond to. (\"who am I ignoring\", \"who's waiting on me\")\n" +
+      "   - latentOpportunities {} — possible opportunities / unmet needs spotted in my messages. (\"any opportunities in my messages\", \"who mentioned a need\")\n" +
+      "2. \"chat\" — a PERSONAL or general-conversation turn: greetings/small talk (\"hey\", \"what's the craic\"), how they're feeling, life/career reflections, a career or life DECISION, opinions, or anything not about the records. NO tool, no records.\n" +
+      "3. \"book\" — a question, request for ADVICE, or DRAFTING that's grounded in their book but isn't a clean single tool (\"how should I approach re-engaging my lapsed clients\", \"draft a note to my warmest lead\", open strategic questions).\n\n" +
+      "CRITICAL: a capability / how-to question — \"can I add a contact?\", \"how do I log a meeting?\" — is \"book\" (help), NOT a tool call and NOT an action. When genuinely unsure between tool and book, choose \"book\". Choose \"chat\" for anything personal or social.",
+    prompt: `Message: ${text}${convo}\n\nReturn the routing JSON now.`,
+  };
+}
+
+// ── Relationship-warmth sentiment (precomputed once, batched) ─────────────────────────────────────
+// Reads the messages a contact SENT the owner (their words only) and rates how warm/keen they are. Run at
+// import over the whole book in batches (see ai/sentiment.ts) — a language judgment turned into a stored
+// DATA signal that the deterministic warmth() ranker then uses (so we don't run sentiment live per query).
+export type WarmthScore = { ref: string; score: number };
+export const WARMTH_SENTIMENT_SCHEMA = {
+  type: "object",
+  properties: {
+    scores: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { ref: { type: "string" }, score: { type: "number" } },
+        required: ["ref", "score"],
+      },
+    },
+  },
+  required: ["scores"],
+} as const;
+
+// Note: NO name is sent — the model judges from the message text and we map results back by `ref` locally.
+// So the provider never receives who the contact is (data minimisation). Names stay in the local book.
+export function warmthSentimentPrompt(items: { ref: string; messages: string[] }[]): PromptArgs {
+  const block = items
+    .map((it) => `${it.ref}\n${it.messages.map((m) => `  · ${m.replace(/\s+/g, " ").trim()}`).join("\n")}`)
+    .join("\n\n");
+  return {
+    schema: WARMTH_SENTIMENT_SCHEMA as unknown as Record<string, unknown>,
+    system:
+      "You rate how WARM and keen each professional contact is toward the account owner, judging ONLY from the " +
+      "messages THAT CONTACT sent (their own words — the owner's side is not shown). Score 0–10: 0 = cold, " +
+      "dismissive, declined or went silent; 5 = neutral/polite boilerplate; 10 = genuinely warm — eager to " +
+      "meet, proactive, personal, enthusiastic. Judge real enthusiasm, not mere politeness (a curt \"thanks for " +
+      "connecting\" is ~5, not warm). Return ONLY JSON in EXACTLY this shape (real keys, no shorthand): " +
+      "{\"scores\":[{\"ref\":\"c0\",\"score\":8},{\"ref\":\"c1\",\"score\":3}]} — one entry per ref given, no labels, no commentary.",
+    prompt: `Rate each contact from their messages:\n\n${block}\n\nReturn the JSON scores now.`,
+  };
+}
+
+// ── Opportunity scan (opt-in, batched) ────────────────────────────────────────────────────────────
+// Reads the messages a contact SENT and spots a LATENT opportunity — a need, project, problem, hiring, or
+// "we're looking for…" that could become work but isn't in the pipeline yet. Returns a short description or
+// "" (nothing). One DATA signal per contact (stored), so the deterministic tools/surfaces can list them.
+export type OppScore = { ref: string; opp: string };
+export const OPP_SCAN_SCHEMA = {
+  type: "object",
+  properties: {
+    opps: {
+      type: "array",
+      items: { type: "object", properties: { ref: { type: "string" }, opp: { type: "string" } }, required: ["ref", "opp"] },
+    },
+  },
+  required: ["opps"],
+} as const;
+
+// No name sent — mapped back by `ref` locally (data minimisation; names stay in the local book).
+export function opportunityScanPrompt(items: { ref: string; messages: string[] }[]): PromptArgs {
+  const block = items
+    .map((it) => `${it.ref}\n${it.messages.map((m) => `  · ${m.replace(/\s+/g, " ").trim()}`).join("\n")}`)
+    .join("\n\n");
+  return {
+    schema: OPP_SCAN_SCHEMA as unknown as Record<string, unknown>,
+    system:
+      "You spot LATENT BUSINESS OPPORTUNITIES in what a contact wrote to a consultant — a need, project, " +
+      "problem, budget, hiring, expansion, or an explicit 'we're looking for / could use help with…' that " +
+      "could turn into paid work. For each ref, return a SHORT description of the opportunity (max ~12 words, " +
+      "concrete, quoting their intent) — or an EMPTY string \"\" if there's no real opportunity (pleasantries, " +
+      "generic networking, thanks-for-connecting). Be strict: only flag a genuine, actionable signal. Return " +
+      "ONLY JSON in EXACTLY this shape (real keys, no shorthand): " +
+      "{\"opps\":[{\"ref\":\"c0\",\"opp\":\"needs help with a data migration\"},{\"ref\":\"c1\",\"opp\":\"\"}]} — one entry per ref.",
+    prompt: `Find any opportunity in each contact's messages:\n\n${block}\n\nReturn the JSON now.`,
   };
 }
 
@@ -430,7 +561,8 @@ export function distilMemoryPrompt(transcript: string): PromptArgs {
     system:
       "You maintain a consultant's long-term assistant memory. From the conversation, extract the DURABLE " +
       "facts worth remembering in FUTURE chats — decisions made, stated priorities/goals, working " +
-      "preferences (e.g. likes short drafts), commitments, and important relationship facts about specific " +
+      "preferences (e.g. likes short drafts), commitments, **open loops (something Phil said he'd do, or is " +
+      "waiting on from someone)**, and important relationship facts about specific " +
       "people/companies. EXCLUDE anything transient: one-off lookups, lists you showed, greetings, small " +
       "talk, or things already obvious from the data. Each fact = one short, standalone sentence in third " +
       "person (\"Phil is targeting Pfizer in Q3\", \"Prefers concise follow-ups\"). Invent nothing. " +
@@ -464,45 +596,3 @@ export function fillContractPrompt(text: string, serviceLines: readonly string[]
   };
 }
 
-// ── Intent classifier (model fallback when the dictionary is unsure) ───────────────────────────
-export type IntentResult = {
-  kind: "query" | "search" | "create" | "update" | "workflow" | "draft" | "web" | "document" | "help";
-  entity?: "contact" | "meeting" | "opportunity" | "contract";
-  target?: string;
-  confidence?: "high" | "medium" | "low";
-};
-export function classifyIntentPrompt(text: string): PromptArgs {
-  return {
-    system:
-      "You classify a consultant's message to their CRM copilot into ONE intent. Reply with ONLY a JSON " +
-      "object. Intents: query (ask about their own book/network/pipeline), search (find a record), create " +
-      "(log a new meeting/opportunity/contract), update (change a contact/meeting/opportunity/contract), " +
-      "workflow (work through this week / loose ends), draft (write a message/brief), web (external/current " +
-      "info), document (about an uploaded file), help. If create/update, also give entity " +
-      "(contact|meeting|opportunity|contract). Give target (the person or company) if clear.",
-    prompt:
-      `Return JSON with keys exactly: {"kind": one intent, "entity": one of contact|meeting|opportunity|contract or omit, ` +
-      `"target": string or omit, "confidence": "high"|"medium"|"low"}\n\nMessage: ${text}`,
-  };
-}
-
-// ── NL query / copilot bar (#10) ───────────────────────────────────────────────────────────────
-export type NlResult = {
-  answer: string;
-  tab?: "contacts" | "meetings" | "opportunities" | "revenue" | "metrics" | "dashboard" | null;
-  filters?: Record<string, string> | null;
-  search?: string | null;
-  searchField?: string | null; // scope the search: "company" | "name" | "title" | null
-};
-export function nlQueryPrompt(query: string, vocab: string): PromptArgs {
-  return {
-    system: "You translate a consultant's natural-language request about their network/pipeline into a navigation + filter instruction for their CRM app, plus a one-line answer. Reply with ONLY a JSON object.",
-    prompt:
-      `App tabs: contacts, meetings, opportunities, revenue, metrics, dashboard.\n` +
-      `Contact filter fields and their allowed values:\n${vocab}\n\n` +
-      `Return JSON with keys exactly:\n` +
-      `{"answer": string (one line), "tab": one of the tabs or null, "filters": object mapping a contact filter field to one allowed value (or null), "search": string or null, "searchField": "company"|"name"|"title"|null}\n` +
-      `IMPORTANT: when the user asks who works AT or is FROM a company/firm, set search to the COMPANY name and searchField to "company" (so it matches people at that firm, not people whose name contains it). When searching a person by name, use searchField "name".\n\n` +
-      `Request: ${query}`,
-  };
-}

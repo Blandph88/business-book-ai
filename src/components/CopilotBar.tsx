@@ -8,7 +8,7 @@
 //   • HISTORY: every past conversation, saved — pick one to reload and continue.
 // Read/query only — no bulk or destructive writes (9a). Opens from the top bar (Search or Chats).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { loadContacts, type Contact } from "../data/contacts";
 import { loadAllMeetings } from "../storage/meetings";
 import { buildMeetingRows, type MeetingRow } from "../data/meetings";
@@ -18,15 +18,16 @@ import { todayISO } from "../data/agenda";
 import { isCommonOrgToken } from "../data/orgTokens";
 import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searchAvailable, searchWeb, searchEntity, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
 import { BusinessBookLogo } from "./Brand";
-import { askBookPrompt, suggestionsPrompt, toolRouterPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, type ChatTurn } from "../ai/prompts";
+import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, type ComputeResult, type ToolCall } from "../ai/compute";
+import { computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, type Groups, type Hit } from "../ai/grounding";
+import { formatTokens } from "../data/format";
+import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
 import { ComputeTable } from "./ComputeTable";
 import { retrievalCharBudget } from "../ai/contextBudget";
 import { routeIntent, isActionIntent, heavyDistress } from "../ai/intents";
 import { track, lenBucket } from "../lib/analytics";
-import { decide } from "../ai/decide";
 import { SPECS, matchContacts, matchOpportunity } from "../ai/actions/actionSpecs";
 import { readDoc, type LoadedDoc } from "../ai/docs";
 import { ActionCard, type ActionCardData } from "./ActionCard";
@@ -128,6 +129,7 @@ const CHATTY_STOP = new Set([
   "is","are","am","was","were","be","been","being","do","does","did","done","have","has","had","can","could","would","should","will","shall","may","might","must","let","lets",
   "not","no","yes","yeah","ok","okay","just","really","very","too","also","then","now","here","there","some","something","anything","everything","nothing","any","all","more","most","much","many",
   "talk","talking","show","tell","think","thinking","know","feel","feeling","chat","help","today","tomorrow","time","day","work","working","book","books","thing","things","stuff","idea","ideas","people","person","want","like","need","make","making","get","got","go","going","say","said","good","great","nice","happy","sad","lonely","food","friend","friends","life","hope","maybe","sure","thanks","thank","please","sorry","hello","hi","hey",
+  "business","professional","professionals","company","companies","industry","market","world","body","challenge","challenges","opportunity","opportunities","area","areas","specific","currently","dealing","facing",
 ]);
 function entityHits(text: string, d: BookData): RelatedHit[] {
   const msg = new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !CHATTY_STOP.has(w)));
@@ -507,7 +509,19 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   // Re-checkable active backend. When it's the stub (no real on-device model), we show the setup ladder
   // instead of letting the copilot answer with placeholder text. `aiNonce` bumps after a successful setup.
   const [aiNonce, setAiNonce] = useState(0);
-  const { backend: activeBackend, label: aiLabel, model: aiModel } = useAiBackend(aiNonce);
+  const { backend: activeBackend, label: aiLabel, model: aiModel, local: activeLocal } = useAiBackend(aiNonce);
+  // Chat + a background scan share the SAME local model (on-device WebLLM, or a local LM Studio/Ollama), so a
+  // running scan makes chat crawl. A cloud key handles concurrent requests, so no contention there.
+  const sharesLocalModel = !isCapableBackend(activeBackend) || !!activeLocal;
+  // Live scan status → drives the "chatting pauses the scan" notice.
+  const scanStatus = useSyncExternalStore(subscribeWarmth, () => getWarmthState().status);
+  const [pauseNoticeDismissed, setPauseNoticeDismissed] = useState<boolean>(() => {
+    try { return localStorage.getItem("bb.chatPauseNotice.seen") === "1"; } catch { return false; }
+  });
+  const dismissPauseNotice = () => {
+    setPauseNoticeDismissed(true);
+    try { localStorage.setItem("bb.chatPauseNotice.seen", "1"); } catch { /* ignore */ }
+  };
   const [view, setView] = useState<View>(initialView);
   const [histQuery, setHistQuery] = useState("");
   const [, setInflightTick] = useState(0);
@@ -804,6 +818,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       if ((text || attached) && !aiReady) track("ai_unavailable", { backend: activeBackend || "none" });
       return;
     }
+    // Foreground wins: if a background scan is grinding the SAME local model, pause it so this reply comes
+    // through quickly. It stays paused (banner shows Resume) — the user resumes when they're done chatting.
+    if (sharesLocalModel && isAnalysisRunning()) pauseWarmthAnalysis();
     // Launcher mode (the top-bar quick palette): don't answer inline — hand the draft to the full Chat
     // surface, which opens a fresh conversation and runs it there.
     if (onAsk) { onAsk(text); setQ(""); return; }
@@ -811,10 +828,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     const freshChat = !chatIdRef.current;
     if (freshChat) chatIdRef.current = newChatId();
     const id = chatIdRef.current as string; // set above (fresh) or already present
-    const routed = await decide(text || "summarise this document", { hasDoc: !!attached });
     // Demo analytics (no-op in the owned/sealed copy; content-free — category + counts only, never the text).
+    // A cheap regex prior labels the intent for analytics only — the REAL routing is the unified LLM router
+    // inside answer() (which decides action/tool/chat/book in one schema-constrained call, on every tier).
+    const priorIntent = routeIntent(text || "summarise this document", { hasDoc: !!attached });
     if (freshChat) track("conversation_start", { backend: activeBackend || "unknown" });
-    track("ai_prompt", { intent: routed.kind, action: isActionIntent(routed), hasDoc: !!attached, len: lenBucket(text.length), backend: activeBackend || "unknown" });
+    track("ai_prompt", { intent: priorIntent.kind, action: isActionIntent(priorIntent), hasDoc: !!attached, len: lenBucket(text.length), backend: activeBackend || "unknown" });
     const display = text || (attached ? `Uploaded “${attached.name}”` : "");
     const prior = chat;
     setChat([...prior, { role: "you", text: display + (attached ? `  📎 ${attached.name}` : "") }]);
@@ -829,12 +848,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // user navigating away (the work keeps running and persists; a returning view reloads the answer).
     markBusy(id);
     try {
-      if (isActionIntent(routed) && routed.entity) {
-        const extractText = attached ? `${text}\n\n${attached.text}`.trim() : text;
-        await startAction(routed.entity, routed.op ?? "create", routed.target ?? text, display, prior, id, extractText);
-      } else {
-        await answer(text || `Summarise the document “${attached?.name}”.`, prior, id, attached?.text);
-      }
+      // One routing brain: answer() runs the unified LLM router (action/tool/chat/book) and dispatches —
+      // including opening the propose→confirm card when the model routes to an action.
+      await answer(text || `Summarise the document “${attached?.name}”.`, prior, id, attached?.text);
     } finally {
       markDone(id);
     }
@@ -871,48 +887,80 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     };
     // Confidentiality question → answer accurately from the LIVE backend (never the model, which over-promises
     // "nothing is sent anywhere" even on a cloud tier). Deterministic, so it's correct and identical every time.
+    // PRIVACY stays a deterministic accuracy floor (like the crisis floor) — the model over-promises
+    // "nothing leaves" even on a cloud tier, so we never let it answer this. Everything ELSE (incl. "what
+    // can you do") goes through the LLM router below — capabilities is a router "help" route, not a pre-gate.
     if (!docText && !isGenerate) {
       const priv = privacyResponse(text, avail);
       if (priv) { renderCompute(priv); return; }
     }
-    if (!docText && !isGenerate) {
-      // 1. Keyword router (fast prior, every tier) — date-range / ranking / list queries → exact tables.
-      // The prior user turn lets a bare follow-up ("which is the highest value one?") pick the right ranker.
-      const prevText = [...prior].reverse().find((tn) => tn.role === "you")?.text;
-      const computed = computeForQuery(text, data, today, prevText);
-      if (computed) { renderCompute(computed); return; }
-      // 2. LLM tool-router — FAST backends only (BYOK cloud / local Ollama). The model maps the long tail of
-      // phrasings to a tool+args we then run deterministically. It's an EXTRA, non-streamed model call, so we
-      // gate it on SPEED, not capability level: on WebLLM/Nano it would block "Thinking…" for seconds (cold
-      // browser GPU) before any token streams — and worse, doubles the latency (this call THEN the answer).
-      // The keyword prior above is now strong enough that on-device tiers skip straight to the streamed answer.
-      if (isCapableBackend(avail.backend)) {
-        try {
-          const call = await aiJson<ToolCall>(toolRouterPrompt(text));
-          if (call && call.tool && call.tool !== "none") {
-            const result = runTool(call, data, today);
-            if (result && (result.rows.length || result.intro)) { renderCompute(result); return; }
-          }
-        } catch { /* not a clean tool call — fall through to the free-form answer */ }
-      }
-    }
-    // TOPIC-GATE: this turn isn't a book lookup/tool. Is it a personal/general conversation (→ warm companion,
-    // no records), a serious-distress signal (→ deterministic safety floor), or a grounded question/advice
-    // about their ACTUAL book (→ the grounded path below)? Deterministic on every tier, so even a tiny model
-    // can't treat "I feel sad" as a pipeline problem or dump a contact card into an emotional conversation.
+    // DETERMINISTIC SAFETY FLOOR — a distress signal must NEVER depend on the model routing correctly. Checked
+    // before the router, on every tier, so a tiny model can't misroute "I want to end it" into a pipeline query.
     if (!docText) {
-      // Stickiness: was the PRIOR user turn a companion turn? If so, a mention of a book entity doesn't yank
-      // this personal thread back to grounded mode — only an explicit book request does.
-      const prevUserText = [...prior].reverse().find((tn) => tn.role === "you")?.text || "";
-      const prevCompanion = !!prevUserText && conversationPath(prevUserText, data) === "companion";
-      const path = conversationPath(text, data, prevCompanion);
-      if (path === "crisis") {
+      const prevUserText0 = [...prior].reverse().find((tn) => tn.role === "you")?.text || "";
+      const prevComp0 = !!prevUserText0 && conversationPath(prevUserText0, data) === "companion";
+      if (conversationPath(text, data, prevComp0) === "crisis") {
         persistTo(id, [...history, { role: "you", text }, { role: "ai", text: CRISIS_RESPONSE }]);
         if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: CRISIS_RESPONSE }]);
         setAsking(false); markDone(id);
         return;
       }
-      if (path === "companion") { await streamCompanion(text, prior, id, history, capabilityLevel(avail.backend, avail.model)); return; }
+    }
+    if (!docText && !isGenerate) {
+      // UNIFIED LLM ROUTER (function-calling pattern, EVERY tier). ONE schema-constrained call decides: run a
+      // deterministic data TOOL (routing + args in a single pass, then we execute + narrate), hold a personal
+      // CHAT (companion), or fall through to the grounded BOOK answer below. This replaces the old brittle
+      // regex-primary + capable-only tool-router. If the model call FAILS (throws / times out / empty / invalid
+      // JSON) we drop to the deterministic regex path (computeForQuery + conversationPath) as the error fallback.
+      // Cap the router so a cold/stalled model can't hang on "Thinking…" — on timeout we treat it as a failed
+      // call and drop to the instant deterministic fallback below (the user still gets a fast, correct answer).
+      let routed: RouteResult | null = null;
+      let routeTimer: ReturnType<typeof setTimeout> | undefined;
+      const routeTimeout = new Promise<null>((resolve) => { routeTimer = setTimeout(() => resolve(null), 22_000); });
+      try { routed = await Promise.race([aiJson<RouteResult>(routerPrompt(text, history)), routeTimeout]); }
+      catch { routed = null; }
+      finally { if (routeTimer) clearTimeout(routeTimer); }
+      if (routed?.route === "help") {
+        // Capability/meta question → the canonical capabilities answer (code, not the model).
+        renderCompute(capabilitiesResult());
+        return;
+      } else if (routed?.route === "action" && routed.entity) {
+        // The model says the user is recording data → open the propose→confirm card (fields extracted by the
+        // model inside startAction). text is both the display bubble and the extraction source (no attachment here).
+        await startAction(routed.entity, routed.op ?? "create", text, text, prior, id, text);
+        return;
+      } else if (routed?.route === "tool" && routed.tool) {
+        const result = runTool({ tool: routed.tool, args: routed.args }, data, today);
+        // Empty tool result → don't dead-end; fall through to the grounded book answer below.
+        if (result && (result.rows.length || result.intro)) { renderCompute(result); return; }
+      } else if (routed?.route === "chat") {
+        await streamCompanion(text, prior, id, history, capabilityLevel(avail.backend, avail.model));
+        return;
+      } else if (!routed || routed.route !== "book") {
+        // ERROR / INVALID-ROUTE FALLBACK — the model call failed, timed out, or returned an incomplete/unknown
+        // decision: null, a missing `route`, or an actionable route with the required field absent (e.g. {},
+        // {stub:true}, route:"action" with no entity, route:"tool" with no tool). Any of these must NOT silently
+        // skip to a generic book answer, so we run the deterministic regex router (old behaviour), which also
+        // covers ACTIONS (regex action-intent → the same card) and capability questions. NOTE: route:"book" is a
+        // DELIBERATE model choice and is deliberately excluded here — it falls through to the grounded book answer.
+        const cap = capabilitiesResponse(text);
+        if (cap) { renderCompute(cap); return; }
+        const rgx = routeIntent(text, { hasDoc: false });
+        if (isActionIntent(rgx) && rgx.entity) {
+          await startAction(rgx.entity, rgx.op ?? "create", rgx.target ?? text, text, prior, id, text);
+          return;
+        }
+        const prevText = [...prior].reverse().find((tn) => tn.role === "you")?.text;
+        const computed = computeForQuery(text, data, today, prevText);
+        if (computed) { renderCompute(computed); return; }
+        const prevUserText = [...prior].reverse().find((tn) => tn.role === "you")?.text || "";
+        const prevCompanion = !!prevUserText && conversationPath(prevUserText, data) === "companion";
+        if (conversationPath(text, data, prevCompanion) === "companion") {
+          await streamCompanion(text, prior, id, history, capabilityLevel(avail.backend, avail.model));
+          return;
+        }
+      }
+      // routed.route === "book" (or a tool that returned nothing) → grounded book answer below.
     }
     const g = searchBook(text, data);
     const related: RelatedHit[] = g && !g.empty ? collectRelated(g) : [];
@@ -1041,10 +1089,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         .sort((a, b) => (b.date_held || b.date_scheduled || "").localeCompare(a.date_held || a.date_scheduled || ""));
       if (theirs.length) targetId = theirs[0].id;
     }
-    // Only a capable backend (BYOK or local Ollama) runs the AI field-extraction. Small on-device tiers
-    // skip it for short commands (nothing to parse anyway) so the form opens instantly instead of "Working…"
-    // hanging on a slow call. A long input (e.g. a pasted transcript) still gets extracted everywhere.
-    const skipModel = !isCapableBackend((await aiAvailability()).backend) && extractText.length < 600;
+    // The LLM does the field-extraction on EVERY tier — it interprets which parts of the message map to which
+    // field (and leaves fields blank when the message doesn't actually contain them), rather than a brittle
+    // deterministic split that turned "Can I add a contact" into First="Can", Last="I". Worth the call.
+    const skipModel = false;
     const ctx = { op, text: extractText, subjectUrl, targetId, today, contacts, meetingRows, opps, sows, skipModel };
     let values: Record<string, string> = {};
     try { values = await spec.extract(ctx); } catch { /* card opens with blanks */ }
@@ -1219,6 +1267,11 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                 {doc ? (<><span className="copilot-doc-name">⎘ {doc.name}</span><button type="button" className="copilot-doc-x" onClick={() => setDoc(null)} aria-label="Remove">✕</button></>) : <span className="copilot-doc-note">{docNote}</span>}
               </div>
             )}
+            {aiReady && !isCapableBackend(activeBackend) && !q.trim() && (
+              <div className="copilot-capnote">
+                You're on an <strong>on-device model</strong> — private and free, but its answers can be limited and occasionally off. For sharper, more reliable results, connect a more capable model — your own API key, or a local model — in your AI settings on Freehold.
+              </div>
+            )}
             {aiReady && !q.trim() && (
               <div className="copilot-starters">
                 {starters.map((s, i) => (
@@ -1301,6 +1354,22 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         {view === "chat" && (
           <>
             <div className="copilot-chat" ref={threadRef}>
+              {/* Capability heads-up on an on-device model (WebLLM / Nano): sets expectations about quality
+                  without disparaging the privacy default. Sits at the TOP of the thread, so it's there on a
+                  new chat and simply scrolls up as the conversation grows — no nag, no dismiss needed. */}
+              {aiReady && !isCapableBackend(activeBackend) && (
+                <div className="copilot-capnote">
+                  You're on an <strong>on-device model</strong> — private and free, but its answers can be limited and occasionally off. For sharper, more reliable results, connect a more capable model — your own API key, or a local model — in your AI settings on Freehold.
+                </div>
+              )}
+              {/* Chatting shares one local model with a background scan, so we pause the scan for you when you
+                  chat. Tell them once (dismissable), so the paused banner isn't a surprise. */}
+              {aiReady && sharesLocalModel && !pauseNoticeDismissed && (scanStatus === "running" || scanStatus === "paused") && (
+                <div className="copilot-capnote copilot-capnote--info">
+                  <span>Chatting <strong>pauses your background analysis</strong> so your reply comes through quickly — resume it any time from the progress bar at the top.</span>
+                  <button type="button" className="copilot-capnote-x" onClick={dismissPauseNotice} aria-label="Dismiss">×</button>
+                </div>
+              )}
               {chat.map((t, i) =>
                 t.role === "action" && t.action ? (
                   <div key={i} className="copilot-turn copilot-turn--action">
@@ -1326,13 +1395,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                       </div>
                     )}
                     {t.role === "ai" && t.genMs != null && (
-                      <div className="copilot-genmeta">Thought for {Math.max(1, Math.round(t.genMs / 1000))}s{t.genTok ? ` · ~${t.genTok} tokens` : ""}</div>
+                      <div className="copilot-genmeta">Thought for {Math.max(1, Math.round(t.genMs / 1000))}s{t.genTok ? ` · ~${formatTokens(t.genTok)} tokens` : ""}</div>
                     )}
                   </div>
                 ),
               )}
               {!streaming && (asking || actionBusy || isBusy(chatIdRef.current)) && <div className="copilot-turn copilot-turn--ai"><div className="copilot-turn-text copilot-turn-text--thinking"><ThinkingIndicator label={aiLoad?.active ? `${aiLoad.firstRun ? "Downloading the assistant (one-time)" : "Starting the assistant"}… ${Math.round((aiLoad.progress || 0) * 100)}%` : actionBusy ? "Working…" : undefined} startMs={genStartRef.current} /></div></div>}
-              {streaming && <div className="copilot-genmeta copilot-genmeta--live">~{genTokens} tokens · {Math.max(0, Math.round((Date.now() - genStartRef.current) / 1000))}s</div>}
+              {streaming && <div className="copilot-genmeta copilot-genmeta--live">~{formatTokens(genTokens)} tokens · {Math.max(0, Math.round((Date.now() - genStartRef.current) / 1000))}s</div>}
             </div>
             {(doc || docNote) && (
               <div className="copilot-doc copilot-doc--composer">

@@ -5,10 +5,13 @@
 //             (via onImported — NOT a page reload; under the seal a reload replays the stale
 //             pre-import seed, so we remount in-place to read the data just written this session).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getAppMode } from "../lib/appMode";
 import { importLinkedIn, type ImportResult } from "../data/linkedinImport";
-import { saveImportedContacts } from "../storage/importedContacts";
+import { saveImportedContacts, hasImportedContacts } from "../storage/importedContacts";
+import { aiAvailable } from "../ai/ai";
+import { countScoreable } from "../ai/sentiment";
+import { startWarmthAnalysis } from "../ai/warmthTask";
 import "./ImportModal.css";
 
 function Steps() {
@@ -44,6 +47,27 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
+  // Relationship-warmth pass: after import we AUTO-START it as a background task (a top-of-app banner shows
+  // progress). It reads the messages each contact sent and scores how keen they are — feeding warmth ranking.
+  const [aiOn, setAiOn] = useState<boolean | null>(null);
+  const scoreable = result ? countScoreable(result.contacts) : 0;
+  // Is there already an imported book? A re-import REPLACES it (saveImportedContacts writes one keyed
+  // record — latest export wins), so repeated uploads don't accumulate. We just surface that so it's not a
+  // surprise. Owner-logged meetings/opportunities/edits live in their own stores and are kept.
+  const [hasExisting, setHasExisting] = useState(false);
+
+  useEffect(() => {
+    if (result && scoreable) aiAvailable().then(setAiOn);
+  }, [result, scoreable]);
+
+  useEffect(() => {
+    if (!demo) hasImportedContacts().then(setHasExisting);
+  }, [demo]);
+
+  // Auto-start the background analysis once, as soon as we know AI is available and there's something to score.
+  useEffect(() => {
+    if (result && scoreable && aiOn) void startWarmthAnalysis();
+  }, [result, scoreable, aiOn]);
 
   async function runImport() {
     if (!conn) return;
@@ -96,6 +120,15 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
               <li><strong>{result.counts.agreed.toLocaleString()}</strong> agreed to meet</li>
             </ul>
             <p className="imp-privacy">🔒 Everything stayed on this computer — nothing was uploaded.</p>
+            {scoreable > 0 && (
+              <div className="imp-warmth">
+                {aiOn ? (
+                  <p className="imp-warmth-lead">✨ Analysing the tone of {scoreable.toLocaleString()} message threads to rank your leads by how keen each contact <em>actually</em> was — running in the background. <strong>Open your book and keep working</strong>; progress shows at the top.</p>
+                ) : aiOn === false ? (
+                  <p className="imp-warmth-note">Set up AI to rank your leads by the tone of your message threads — you can start this any time from your book.</p>
+                ) : null}
+              </div>
+            )}
             <button className="imp-btn imp-btn-primary" onClick={onImported}>Open my book of business</button>
           </div>
         ) : (
@@ -106,8 +139,11 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
             <Steps />
             <div className="imp-pick">
               <FilePick label="Connections.csv" required file={conn} onPick={setConn} />
-              <FilePick label="messages.csv" hint="adds your outreach funnel" file={msgs} onPick={setMsgs} />
+              <FilePick label="messages.csv" hint="adds your funnel + relationship warmth" file={msgs} onPick={setMsgs} />
             </div>
+            {hasExisting && (
+              <p className="imp-replace-note">This replaces your current imported book — your logged meetings, opportunities and edits are kept.</p>
+            )}
             {error && <p className="imp-error">{error}</p>}
             <button className="imp-btn imp-btn-primary" disabled={!conn || busy} onClick={runImport}>
               {busy ? "Importing…" : "Import my network"}
