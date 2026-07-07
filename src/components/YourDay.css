@@ -15,6 +15,11 @@
 .yourday-loading, .yourday-error { font-size: 13.5px; color: var(--ink-2); margin: 10px 0 4px; }
 .yourday-error { color: var(--danger); }
 .yourday-brief { font-size: 14px; line-height: 1.6; color: var(--ink); white-space: pre-wrap; margin: 8px 0 4px; }
+/* Deterministic (no-AI) structured brief — same signals, rendered directly. */
+.yourday-sections { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 10px; }
+.yourday-sec-label { font-size: 12px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px; }
+.yourday-sec-list { margin: 0; padding-left: 18px; }
+.yourday-sec-list li { font-size: 13.5px; line-height: 1.55; color: var(--ink); }
 .yourday-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .yourday-actions-label { font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
 .yourday-chip {
