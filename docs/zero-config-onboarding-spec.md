@@ -10,8 +10,8 @@ The full Priya review, mapped to status. ✅ done · 🟡 partial · 🔴 open.
 | BB-datateloss | Scan remount nukes open forms; opp re-spot clobbers | ✅ | 7d372bd |
 | BB-stale/currency/SoW/funnel | YourDay stale cache; currency reload; SoW dangling link; Met/Agreed inversion | ✅ | 45ee8ba |
 | BB-copilot | Concurrent gen; companion/crisis gate bypass; bad tool args | ✅ | f788718 |
-| BB-emptygraphs | **Opportunity / engagement / held-meeting graphs + zero KPIs look broken on a sparse import** (contacts + meeting seeds ARE populated) | 🔴 | **B5 below** |
-| BB-warmth | Barren/slow first-run ranking (top-N cap, AI-blocked) | 🟡 | B2 — **premise was wrong**: `warmth()` is already deterministic + complete without the scan; the 300 cap is on-device-only (justified). Rescoped to UX (surface that the ranking is complete; scan = optional enrichment) |
+| BB-emptygraphs | Opportunity funnel/breakdowns looked broken on a sparse import | ✅ | 9a4fec0 — CardEmpty gates the opp funnel + hides filter-tabs when `opps.length===0`. RevenueTab already had an empty-state; DashboardTab $0 KPIs are legitimate |
+| BB-warmth | Barren/slow first-run ranking (top-N cap, AI-blocked) | ✅ | Verified already handled: `warmth()` is deterministic (renders pre-scan); temperature chart self-gates (`if(!scored.length) return null`); Warmth column shows a clean "—"; InsightsTab/WarmthBanner frame the scan as enrichment + explain the on-device cap. No change needed |
 | BB-redaction | Cloud-scan redaction is opt-in on a confidentiality product | ✅ | **Already built + already default-ON** (`scanRedactEnabled()` defaults on; `redactPII` scrubs email/link/phone/names, NOT company; cloud-only; toggle in InsightsTab). Priya's finding was stale. Only polish left (postal address regex; surface toggle in AI settings). B3-platform (generic floor for OTHER apps) = separate Freehold primitive |
 | FH-aiwall | AI-setup wall for AI-*required* apps | 🟡 | Part A (BB already AI-optional) |
 | FH-compat | Desktop-Chrome-only discovered late | 🔴 | Part A / listing pre-check |
@@ -74,12 +74,15 @@ The dashboard/metrics/funnel/rankings already render with **no AI** (no `aiReady
 
 Pre-flight code check found: **B3 already built + default-on** (Priya's finding was stale), **B2's "uncap" premise was wrong** (already deterministic; cap is on-device-only). Real remaining BB work is smaller than it looked.
 
-1. ~~**B1** YourDay deterministic brief~~ ✅ done (d305354).
-2. ~~**B3** redaction~~ ✅ already built (default-on, name/email/phone not company). Optional polish only: add postal-address regex; surface the toggle in AI settings.
-3. **B5** empty-VISUAL states — the real BB gap. ⚠️ verify each visual's true-empty predicate in code first (Win rate: gate on `won+lost===0` not `won===0`; contact funnel stays, opp funnel gates on `opps.length`). Focus the landing (MetricsTab) + RevenueTab. Watch test impact. ← next
-4. **B2** warmth UX — verify rankings render pre-scan; frame the scan as optional enrichment (NOT an algo change, keep the cap). Small.
-5. **B4** generative-degradation parity audit (AiFill / forms) — quick.
-6. **Part A** platform activation flow — bigger build, HIGH blast radius, ⚠️ hardware-validate the model default first; own design pass + fresh-model review; separate from BB.
+**BB is DONE** — after code-verification, the only real gap was B5. The rest were already handled:
+1. ~~**B1** YourDay deterministic brief~~ ✅ d305354.
+2. ~~**B3** redaction~~ ✅ already built + default-on (name/email/phone, not company). Postal-address regex deliberately skipped (fragile, high over-redaction risk, rare in LinkedIn DMs — not worth degrading the scan).
+3. ~~**B5** empty-visual states~~ ✅ 9a4fec0 (opp funnel + breakdowns on MetricsTab).
+4. ~~**B2** warmth ranking~~ ✅ already deterministic + gated + framed; no change.
+5. ~~**B4** generative degradation~~ ✅ AiFill hides cleanly; CopilotBar/InsightsTab/YourDay point to AI settings.
+
+**Remaining = Freehold only (separate repo, needs decisions/validation before building):**
+6. **Part A** platform activation flow — bigger build, HIGH blast radius, ⚠️ hardware-validate the model default first; own design pass + fresh-model review.
 7. **Freehold polish** — FH-compat (browser pre-check), FH-price (⚠️ £499→£9,999 credit is a commerce/entitlement change, not copy — plus who-this-is-for + reframe), FH-jargon (copy).
 
-**Meta-rule (learned the hard way):** every Priya finding + every "this is empty/needs X" assumption must be code-verified before building — the review over-/mis-stated redaction, warmth, and dashboard emptiness.
+**Meta-rule (learned the hard way):** every Priya finding + every "this is empty/needs X" assumption must be code-verified before building — the review over-/mis-stated redaction, warmth, and dashboard emptiness, and B2/B3/B4 turned out already-done. Verifying first saved building ~4 redundant items.
