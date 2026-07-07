@@ -42,9 +42,10 @@ const STORAGE_KEY = scopedKey("bob.contactOwnerEdits.v1");
 // that writes the same profile slightly differently (trailing slash, different
 // casing, a tracking query string) still matches edits saved earlier. This protects
 // the owner's hand-entered data from silently orphaning across pipeline refreshes.
-export function normalizeUrl(url: string): string {
-  return (url ?? "").trim().toLowerCase().split("?")[0].replace(/\/+$/, "");
-}
+// Now the single canonical helper (was a divergent copy that kept '#'); imported for internal use +
+// re-exported for existing sites/tests.
+import { normalizeUrl } from "../data/url";
+export { normalizeUrl };
 
 // Look up one contact's edits by (normalised) url. Use this everywhere instead of
 // indexing the map directly, so every read goes through the same normalisation.

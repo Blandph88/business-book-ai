@@ -7,11 +7,10 @@ import Papa from "papaparse";
 import { classifyContact } from "./classify";
 import type { Contact, InboundMessage, ThreadMeta } from "./contacts";
 
-// Stable key across both files (LinkedIn URLs vary by trailing slash / query / case).
-export function normalizeUrl(url: string | undefined): string {
-  if (!url) return "";
-  return url.trim().toLowerCase().split("?")[0].split("#")[0].replace(/\/+$/, "");
-}
+// The stable contact key — now the single canonical helper (imported for internal use + re-exported here
+// for existing import sites/tests).
+import { normalizeUrl } from "./url";
+export { normalizeUrl };
 
 // ── Connections.csv ─────────────────────────────────────────────────────────────────────
 // LinkedIn prepends a "Notes:" line, a quoted note, and a blank line before the real header.

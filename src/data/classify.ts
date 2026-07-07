@@ -15,6 +15,7 @@ import {
   OTHER_INDUSTRY_LABEL,
   INDEPENDENT_LABEL,
 } from "../config/markets";
+import { normalizeUrl } from "./url";
 
 export type SeniorityLabel =
   | "Executive Leadership"
@@ -296,6 +297,7 @@ export function classifyContact(c: RawContact): Enriched {
     sub_group: sector.subGroup,
     seniority: classifySeniority(c.title),
     function: classifyFunction(c.title),
-    url: (c.url ?? "").trim(),
+    // Canonical key at the source, so meetings/opps/owner-edits/manual-add all agree and survive re-import.
+    url: normalizeUrl(c.url),
   };
 }

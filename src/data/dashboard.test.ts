@@ -39,7 +39,7 @@ function contact(over: Partial<Contact> = {}): Contact {
     two_way: false,
     agreed_to_meet: false,
     met: false,
-    url: "https://linkedin.com/in/jane",
+    url: "https://www.linkedin.com/in/jane",
     phone: "",
     ...over,
   };
@@ -81,7 +81,7 @@ const contactInfo = (over: Partial<ContactInfo> = {}): ContactInfo => ({
 function meetingRow(over: Partial<MeetingRow> = {}): MeetingRow {
   return {
     id: "m1",
-    contact_url: "https://linkedin.com/in/jane",
+    contact_url: "https://www.linkedin.com/in/jane",
     meeting_no: 1,
     meeting_stage: "Held",
     contactInfo: contactInfo(),
@@ -93,49 +93,49 @@ function meetingRow(over: Partial<MeetingRow> = {}): MeetingRow {
 // ── staleContacts ─────────────────────────────────────────────────────────────
 describe("staleContacts", () => {
   it("includes warm contacts never met (daysSince null) and sorts them first", () => {
-    const c1 = contact({ url: "https://linkedin.com/in/warm1" });
-    const c2 = contact({ url: "https://linkedin.com/in/warm2" });
+    const c1 = contact({ url: "https://www.linkedin.com/in/warm1" });
+    const c2 = contact({ url: "https://www.linkedin.com/in/warm2" });
     const edits: Record<string, OwnerEdits> = {
-      "https://linkedin.com/in/warm1": { relationship_strength: "Warm" },
-      "https://linkedin.com/in/warm2": { relationship_strength: "Strong" },
+      "https://www.linkedin.com/in/warm1": { relationship_strength: "Warm" },
+      "https://www.linkedin.com/in/warm2": { relationship_strength: "Strong" },
     };
     // c2 met 60 days ago; c1 never met.
-    const lastMet = { "https://linkedin.com/in/warm2": "2026-04-25" };
+    const lastMet = { "https://www.linkedin.com/in/warm2": "2026-04-25" };
     const out = staleContacts([c1, c2], edits, lastMet, TODAY);
     expect(out).toHaveLength(2);
     // "never met" (null) sorts to the very top.
-    expect(out[0].contact.url).toBe("https://linkedin.com/in/warm1");
+    expect(out[0].contact.url).toBe("https://www.linkedin.com/in/warm1");
     expect(out[0].daysSince).toBeNull();
     expect(out[1].daysSince).toBe(60);
   });
 
   it("excludes Cold contacts (not worth maintaining)", () => {
-    const c = contact({ url: "https://linkedin.com/in/cold" });
+    const c = contact({ url: "https://www.linkedin.com/in/cold" });
     const edits = {
-      "https://linkedin.com/in/cold": { relationship_strength: "Cold" as const },
+      "https://www.linkedin.com/in/cold": { relationship_strength: "Cold" as const },
     };
     expect(staleContacts([c], edits, {}, TODAY)).toHaveLength(0);
   });
 
   it("excludes warm contacts met recently (within the threshold)", () => {
-    const c = contact({ url: "https://linkedin.com/in/recent" });
+    const c = contact({ url: "https://www.linkedin.com/in/recent" });
     const edits = {
-      "https://linkedin.com/in/recent": {
+      "https://www.linkedin.com/in/recent": {
         relationship_strength: "Champion" as const,
       },
     };
     // met 10 days ago, threshold default 45 → not stale.
-    const out = staleContacts(c ? [c] : [], edits, { "https://linkedin.com/in/recent": "2026-06-14" }, TODAY);
+    const out = staleContacts(c ? [c] : [], edits, { "https://www.linkedin.com/in/recent": "2026-06-14" }, TODAY);
     expect(out).toHaveLength(0);
   });
 
   it("includes a warm contact past a custom threshold", () => {
-    const c = contact({ url: "https://linkedin.com/in/x" });
+    const c = contact({ url: "https://www.linkedin.com/in/x" });
     const edits = {
-      "https://linkedin.com/in/x": { relationship_strength: "Warm" as const },
+      "https://www.linkedin.com/in/x": { relationship_strength: "Warm" as const },
     };
     // met 20 days ago, custom threshold 14 → stale.
-    const out = staleContacts([c], edits, { "https://linkedin.com/in/x": "2026-06-04" }, TODAY, 14);
+    const out = staleContacts([c], edits, { "https://www.linkedin.com/in/x": "2026-06-04" }, TODAY, 14);
     expect(out).toHaveLength(1);
     expect(out[0].daysSince).toBe(20);
   });
@@ -267,33 +267,33 @@ describe("hotOpportunities", () => {
 // ── keyContacts ───────────────────────────────────────────────────────────────
 describe("keyContacts", () => {
   it("ranks a senior decision-maker above a junior unknown", () => {
-    const exec = contact({ url: "https://linkedin.com/in/exec", seniority: "Executive Leadership" });
-    const junior = contact({ url: "https://linkedin.com/in/jr", seniority: "Associate / Analyst" });
+    const exec = contact({ url: "https://www.linkedin.com/in/exec", seniority: "Executive Leadership" });
+    const junior = contact({ url: "https://www.linkedin.com/in/jr", seniority: "Associate / Analyst" });
     const edits: Record<string, OwnerEdits> = {
-      "https://linkedin.com/in/exec": { decision_role: "Decision Maker" },
+      "https://www.linkedin.com/in/exec": { decision_role: "Decision Maker" },
     };
     const out = keyContacts([junior, exec], edits, []);
-    expect(out[0].contact.url).toBe("https://linkedin.com/in/exec");
+    expect(out[0].contact.url).toBe("https://www.linkedin.com/in/exec");
     expect(out[0].reason).toContain("Executive Leadership");
     expect(out[0].reason).toContain("Decision Maker");
   });
 
   it("boosts a contact attached to a live opportunity and labels the deal stage", () => {
-    const c = contact({ url: "https://linkedin.com/in/deal", seniority: "Manager" });
-    const noDeal = contact({ url: "https://linkedin.com/in/nodeal", seniority: "Manager" });
+    const c = contact({ url: "https://www.linkedin.com/in/deal", seniority: "Manager" });
+    const noDeal = contact({ url: "https://www.linkedin.com/in/nodeal", seniority: "Manager" });
     const o = opp({
       id: "live",
       current_step: "proposal_delivery",
-      contact_url: "https://linkedin.com/in/deal",
+      contact_url: "https://www.linkedin.com/in/deal",
     });
     const out = keyContacts([c, noDeal], {}, [o]);
-    expect(out[0].contact.url).toBe("https://linkedin.com/in/deal");
+    expect(out[0].contact.url).toBe("https://www.linkedin.com/in/deal");
     expect(out[0].reason).toContain("deal");
   });
 
   it("drops contacts with a zero score and honours the limit", () => {
     // seniority unknown → SENIORITY_RANK undefined → 0 → score 0 → filtered out.
-    const blank = contact({ url: "https://linkedin.com/in/blank", seniority: "" });
+    const blank = contact({ url: "https://www.linkedin.com/in/blank", seniority: "" });
     expect(keyContacts([blank], {}, [])).toHaveLength(0);
   });
 
@@ -361,7 +361,7 @@ describe("looseEnds", () => {
   });
 
   it("flags an open deal whose contact has no decision role, deduped by contact", () => {
-    const c = contact({ url: "https://linkedin.com/in/jane", first: "Jane", last: "Doe" });
+    const c = contact({ url: "https://www.linkedin.com/in/jane", first: "Jane", last: "Doe" });
     const o1 = opp({ id: "o1", current_step: "scoping", est_value: 1, contact_url: c.url });
     const o2 = opp({ id: "o2", current_step: "proposal_build", est_value: 1, contact_url: c.url });
     const groups = looseEnds([o1, o2], [c], {}, []);
@@ -374,10 +374,10 @@ describe("looseEnds", () => {
   });
 
   it("does not flag when the contact already has a known decision role", () => {
-    const c = contact({ url: "https://linkedin.com/in/jane" });
+    const c = contact({ url: "https://www.linkedin.com/in/jane" });
     const o = opp({ id: "o1", current_step: "scoping", est_value: 1, contact_url: c.url });
     const edits = {
-      "https://linkedin.com/in/jane": { decision_role: "Decision Maker" as const },
+      "https://www.linkedin.com/in/jane": { decision_role: "Decision Maker" as const },
     };
     const groups = looseEnds([o], [c], edits, []);
     expect(groups.find((g) => g.key === "noDecisionMaker")).toBeUndefined();
