@@ -11,8 +11,8 @@ The full Priya review, mapped to status. ✅ done · 🟡 partial · 🔴 open.
 | BB-stale/currency/SoW/funnel | YourDay stale cache; currency reload; SoW dangling link; Met/Agreed inversion | ✅ | 45ee8ba |
 | BB-copilot | Concurrent gen; companion/crisis gate bypass; bad tool args | ✅ | f788718 |
 | BB-emptygraphs | **Opportunity / engagement / held-meeting graphs + zero KPIs look broken on a sparse import** (contacts + meeting seeds ARE populated) | 🔴 | **B5 below** |
-| BB-warmth | Barren/slow first-run ranking (top-N cap, AI-blocked) | 🔴 | B2 |
-| BB-redaction | Cloud-scan redaction is opt-in on a confidentiality product | 🔴 | B3 — **buyer toggle** + broker-executed redaction (generic floor + app entity dictionary); creator spec adds a PII *declaration* (not per-feature code). Off by default; degrades PII-dependent features by the user's choice |
+| BB-warmth | Barren/slow first-run ranking (top-N cap, AI-blocked) | 🟡 | B2 — **premise was wrong**: `warmth()` is already deterministic + complete without the scan; the 300 cap is on-device-only (justified). Rescoped to UX (surface that the ranking is complete; scan = optional enrichment) |
+| BB-redaction | Cloud-scan redaction is opt-in on a confidentiality product | ✅ | **Already built + already default-ON** (`scanRedactEnabled()` defaults on; `redactPII` scrubs email/link/phone/names, NOT company; cloud-only; toggle in InsightsTab). Priya's finding was stale. Only polish left (postal address regex; surface toggle in AI settings). B3-platform (generic floor for OTHER apps) = separate Freehold primitive |
 | FH-aiwall | AI-setup wall for AI-*required* apps | 🟡 | Part A (BB already AI-optional) |
 | FH-compat | Desktop-Chrome-only discovered late | 🔴 | Part A / listing pre-check |
 | FH-price | £9,999 "all sales final", no "who is this for" | 🔴 | seq #6 |
@@ -39,7 +39,7 @@ Lives at the library/account level (host broker), shown **once** per app until A
 1. **Demo sets a HIGH quality anchor (gate-free).** The demo showcases the assistant at its best via *pre-generated example outputs* labelled "this is what a capable model you set up in one click produces" — so the ceiling is anchored to *good* before any local model runs. Neutralises the "weak-model = perceived ceiling" risk.
 2. **Activation moment (after demo / on first owned launch), reframed from a menu into a guided choice:**
    - Headline teaches: *"Your assistant runs on your computer, not ours. Your data never leaves this device."*
-   - **Primary one-click:** "Turn on the private assistant" → downloads the **most capable in-browser model the device can run** (7–8B via WebGPU — Qwen2.5-7B / Llama-3.1-8B, **not** Nano), warms in the background with progress. ~10s of clicks, no install.
+   - **Primary one-click:** "Turn on the private assistant" → downloads the most capable in-browser model **the device can actually run**, warms in the background with progress. ~10s of clicks, no install. ⚠️ **RISK — validate before building:** a 7–8B WebGPU model is a 4–5 GB download needing serious VRAM; on a typical laptop it may be slow or OOM. The current `AiSetupCard` ships ~1.9 GB (a 3B). Defaulting too heavy makes first-run WORSE (hangs/crash). Needs conservative device-capability detection (RAM/VRAM) + real-hardware testing; the "most capable" default is the single riskiest assumption in this spec.
    - **Secondary "Set it up properly →":** reveals the full tiers — Chrome built-in (instant/basic), local runtime (Ollama/LM Studio, 70B+), BYOK cloud (own key).
    - Device-aware picker: WebGPU present → best-fitting model by RAM (step down 7B→3B→1.5B); no WebGPU but Nano → offer Nano labelled "basic/fast"; else guide to desktop Chrome/Edge.
    - Shown **once**; afterwards AI config lives in Settings, never re-gated.
@@ -50,7 +50,7 @@ Lives at the library/account level (host broker), shown **once** per app until A
 The dashboard/metrics/funnel/rankings already render with **no AI** (no `aiReady` gate). Remaining gaps:
 
 - **B1. `YourDay` deterministic brief.** Today it hides entirely without AI (`if (!aiReady) return null`). It already receives every signal as props (agenda / hotOpps / stale / aging / owed / latent). Render those as a **structured, readable brief** with AI off; when AI is ready, the prose narration enhances it (shown instantly as the base, swapped when the model returns — no empty spinner). Reconnect *list* is deterministic; the per-item *Draft* button stays AI-gated (points to AI settings when off). **← THIS COMMIT.**
-- **B2. Instant, uncapped deterministic warmth ranking.** Rank *everyone* immediately by the deterministic funnel-stage + recency signal (`warmth()` in compute.ts — already model-free), no top-N cap. The AI *sentiment* pass then enriches scores in the background (the warmth banner already streams progressive updates). Initial ranking must never block the view; the slow per-message pass prioritises warmest/most-recent first.
+- **B2. Warmth ranking — RESCOPED after code check.** `warmth()` (compute.ts:59) is ALREADY fully deterministic (funnel stage + recency + thread reciprocity; the AI sentiment score is an *optional additive*), so a complete, instant ranking of everyone already works with no scan. The `300` cap is **on-device only** (`ONDEVICE_CAP`; fast backends are already uncapped) — it protects a slow WebGPU from grinding thousands of per-message calls; **do NOT remove it.** So B2 is NOT an algorithm change and NOT "uncap". Real scope = **UX**: (1) verify the ranking tables render pre-scan (not gated on scan-completion); (2) make clear the ranking is already complete on import and the sentiment pass is optional background enrichment (progressive scores, "getting sharper" not "loading/empty").
 - **B3. Redaction = a BUYER TOGGLE + platform-executed redaction. NOT per-feature dev code** (unenforceable — the guarantee would only be as good as the laziest developer). Egress happens in the broker (`byok.ts`); BB is sealed and can't send or pick the tier. So the control + mechanism live in Freehold; the dev's only job is a *declaration*.
   - **B3-platform (Freehold broker) — the control + the mechanism:**
     - **Buyer toggle** in the app's AI settings (next to BYOK/tier prefs): *"Redact identifiers before sending to your cloud AI — more confidential; some features that rely on names may be less specific."* **Off by default** (opt-in), prominently offered. When on, applies to ALL that app's BYOK egress.
@@ -70,13 +70,16 @@ The dashboard/metrics/funnel/rankings already render with **no AI** (no `aiReady
   - **Turn emptiness into onboarding:** the empty-states double as first-run guidance ("Log your first opportunity →"), so a sparse book reads as "rich network + clear next steps", not "broken".
   - **Scope to audit (gate each on ITS OWN count, verified against the data — not assumed):** MetricsTab (opp pipeline funnel + opp breakdowns → `opps.length`; any held-meeting metric → held count, NOT total meetings), RevenueTab (engagement charts → SoW count), DashboardTab (Progress activity bars + the three always-on KPIs → their own values). Contacts- and meeting-seed-derived visuals stay always-on (populated on import).
 
-## Sequencing (full Priya resolution)
+## Sequencing (revised after full-spec code reassessment)
+
+Pre-flight code check found: **B3 already built + default-on** (Priya's finding was stale), **B2's "uncap" premise was wrong** (already deterministic; cap is on-device-only). Real remaining BB work is smaller than it looked.
 
 1. ~~**B1** YourDay deterministic brief~~ ✅ done (d305354).
-2. **B5** empty-category states — small/medium, removes the "looks broken" first impression on a contacts-only import. Highest delight-per-effort left in BB. ← next
-3. **B2** instant uncapped warmth ranking + **B3** redaction-on-by-default — medium; "alive rankings" + "confidential by default" (a sales headline).
-4. **B4** generative-degradation parity audit (InsightsTab / AiFill / forms) — quick.
-5. **Part A** platform activation flow (one-click capable model + "set up properly" + tier ladder + demo high-anchor) — the bigger build; retires FH-aiwall + X-onramp.
-6. **Freehold listing polish** — FH-compat (pre-buy browser check), FH-price (who-this-is-for + £499→£9,999 credit + reframe "all sales final"), FH-jargon (plain-English copy + trust line).
+2. ~~**B3** redaction~~ ✅ already built (default-on, name/email/phone not company). Optional polish only: add postal-address regex; surface the toggle in AI settings.
+3. **B5** empty-VISUAL states — the real BB gap. ⚠️ verify each visual's true-empty predicate in code first (Win rate: gate on `won+lost===0` not `won===0`; contact funnel stays, opp funnel gates on `opps.length`). Focus the landing (MetricsTab) + RevenueTab. Watch test impact. ← next
+4. **B2** warmth UX — verify rankings render pre-scan; frame the scan as optional enrichment (NOT an algo change, keep the cap). Small.
+5. **B4** generative-degradation parity audit (AiFill / forms) — quick.
+6. **Part A** platform activation flow — bigger build, HIGH blast radius, ⚠️ hardware-validate the model default first; own design pass + fresh-model review; separate from BB.
+7. **Freehold polish** — FH-compat (browser pre-check), FH-price (⚠️ £499→£9,999 credit is a commerce/entitlement change, not copy — plus who-this-is-for + reframe), FH-jargon (copy).
 
-After 2–4, every 🔴 BB item is closed; after 5–6, the Freehold items. That's the full Priya resolution.
+**Meta-rule (learned the hard way):** every Priya finding + every "this is empty/needs X" assumption must be code-verified before building — the review over-/mis-stated redaction, warmth, and dashboard emptiness.
