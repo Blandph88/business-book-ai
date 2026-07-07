@@ -127,7 +127,8 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
 
   // AI-derived headline signals — gated so they only appear once there's a signal.
   const repliesOwed = useMemo(
-    () => contacts.filter((c) => c.thread && !c.thread.lastFromOwner).length,
+    // Same predicate as YourDay's brief (requires actual inbound) so the KPI can't disagree with it.
+    () => contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).length,
     [contacts],
   );
   const oppSignals = useMemo(

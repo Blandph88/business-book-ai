@@ -9,7 +9,7 @@ import {
   TM_GRADES,
   DELIVERABLE_CATEGORIES,
 } from "../data/vocab";
-import { formatMoney, formatPct } from "../data/format";
+import { formatMoney, formatPct, CURRENCY_SYMBOL } from "../data/format";
 import {
   Field,
   TextField,
@@ -355,7 +355,7 @@ export function RevenueForm({
                 {/* Σ deliverable prices, or Σ rate × hours — never typeable (§6 rule 4). */}
                 <span className="mform-readonly sow-total">{formatMoney(contracted)}</span>
               </Field>
-              <Field label="Recognised to date ($)">
+              <Field label={`Recognised to date (${CURRENCY_SYMBOL})`}>
                 <NumberInput
                   value={draft.recognised_to_date}
                   onChange={(v) => set("recognised_to_date", v)}

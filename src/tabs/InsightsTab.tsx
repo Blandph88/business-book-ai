@@ -126,7 +126,7 @@ export function InsightsTab() {
             // design.) Robust to incremental saves — derived from the stable total + this-run counts.
             const badgeTotal = card.total;
             const badgeDone = isThis && task.total ? Math.min(badgeTotal, card.total - task.total + task.done) : card.done;
-            const pct = badgeTotal ? Math.round((badgeDone / badgeTotal) * 100) : 0;
+            const pct = badgeTotal ? Math.min(100, Math.round((badgeDone / badgeTotal) * 100)) : 0;
             return (
               <div className="insight-card" key={card.job}>
                 <div className="insight-head">

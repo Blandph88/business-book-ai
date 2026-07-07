@@ -80,7 +80,8 @@ const OPPS_CONTROLS_BASE: ControlsConfig<Opportunity> = {
     { key: "name", label: "Opportunity", get: (o) => o.opportunity_name },
     { key: "organisation", label: "Organisation", get: (o) => o.organisation },
     { key: "service_line", label: "Service line", get: (o) => o.service_line },
-    // Sort by workflow order (the step index), not alphabetically.
+    // Sort by workflow order (the step index / phase order), not alphabetically.
+    { key: "phase", label: "Phase", get: (o) => PHASE_OPTIONS.indexOf(opportunityPhase(o)) },
     { key: "step", label: "Step", get: (o) => stepIndex(o.current_step) },
     { key: "est_value", label: "Est. value", get: (o) => o.est_value ?? 0 },
     { key: "prob", label: "Prob.", get: (o) => o.probability ?? 0 },
@@ -327,7 +328,7 @@ export function OpportunitiesTab({
                 <ColumnHeader label="Organisation" controls={controlsProps} sortKey="organisation" />
                 <ColumnHeader label="Sector group" controls={controlsProps} sortKey="sector_group" />
                 <ColumnHeader label="Service line" controls={controlsProps} sortKey="service_line" />
-                <ColumnHeader label="Phase" controls={controlsProps} sortKey="step" />
+                <ColumnHeader label="Phase" controls={controlsProps} sortKey="phase" />
                 <ColumnHeader label="Step" controls={controlsProps} sortKey="step" />
                 <ColumnHeader label="Est. value" controls={controlsProps} sortKey="est_value" className="cell-num" />
                 <ColumnHeader label="Prob." controls={controlsProps} sortKey="prob" className="cell-num" />

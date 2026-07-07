@@ -5,7 +5,7 @@
 // only job is narration/prioritisation; every input is computed by the shared helpers (no re-derivation
 // with different thresholds). Auto-generates once per session (cached), with Refresh.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Contact } from "../data/contacts";
 import type { OwnerEdits } from "../storage/ownerEdits";
 import type { MeetingRow } from "../data/meetings";
@@ -40,6 +40,9 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draftContact, setDraftContact] = useState<Contact | null>(null);
+  // Ignore an in-flight generation that resolves after the Dashboard unmounts (no setState-after-unmount).
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
 
   const nm = (c: Contact) => `${c.first} ${c.last}`.trim() + (c.organisation ? ` (${c.organisation})` : "");
 
@@ -60,6 +63,10 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
 
   function generate(force = false) {
     if (busy) return;
+    const ctx = buildContext();
+    // Nothing to narrate (empty / no-signal book) → don't burn a generation or invite invented items.
+    // buildContext joins signal sections with newlines; only the "Today: …" line means no signal.
+    if (!ctx.includes("\n")) { setText("Nothing pressing today. Add contacts, log a meeting, or run a scan and I'll brief you here."); return; }
     if (!force) {
       try {
         const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) || "null");
@@ -68,13 +75,14 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
     }
     setBusy(true);
     setError(null);
-    aiPrompt(yourDayPrompt(buildContext()))
+    aiPrompt(yourDayPrompt(ctx))
       .then((t) => {
+        if (!alive.current) return;
         setText(t.trim());
         try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ day: today, text: t.trim() })); } catch { /* ignore */ }
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Couldn't build your brief."))
-      .finally(() => setBusy(false));
+      .catch((e) => { if (alive.current) setError(e instanceof Error ? e.message : "Couldn't build your brief."); })
+      .finally(() => { if (alive.current) setBusy(false); });
   }
 
   // Auto-generate on mount (uses cache so it won't re-call on every Dashboard visit). The dashboard only

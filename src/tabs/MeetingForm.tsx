@@ -438,8 +438,9 @@ export function MeetingForm({
               {followupOverdue > 0 && (
                 <>
                   The follow-up was due {followupOverdue} day
-                  {followupOverdue === 1 ? "" : "s"} ago — action it, then update or
-                  clear <em>Follow-up date</em>.
+                  {followupOverdue === 1 ? "" : "s"} ago — action it, then update the{" "}
+                  <em>Follow-up date</em> (for a held meeting it mirrors the next meeting, so
+                  reschedule that).
                 </>
               )}
             </div>

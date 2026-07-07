@@ -32,15 +32,18 @@ export function AiSuggest({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Ignore an in-flight generation that resolves after the panel closes (no setState-after-unmount).
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
 
   const run = useCallback(
     (tweak?: string) => {
       setLoading(true);
       setError(null);
       generate(tweak)
-        .then((t) => setText(t.trim()))
-        .catch((e) => setError(e instanceof Error ? e.message : "Couldn't generate that."))
-        .finally(() => setLoading(false));
+        .then((t) => { if (alive.current) setText(t.trim()); })
+        .catch((e) => { if (alive.current) setError(e instanceof Error ? e.message : "Couldn't generate that."); })
+        .finally(() => { if (alive.current) setLoading(false); });
     },
     [generate],
   );
