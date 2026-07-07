@@ -34,6 +34,12 @@ Two halves, clean split (already reflected in the code):
 
 ## Part A — Freehold platform: the one-time "Activate your assistant" flow
 
+**→ Full design in the Freehold repo: `docs/part-a-activation-spec.md`.** Code-verified: Part A is **mostly already built** (model catalog + conservative device-tier picker `pickModel`, one-time onboarding flag, "use without AI", pre-purchase nudge, per-BYOK consent). The 7–8B-default OOM risk is moot — the recommended default is 3B, 7B only on strong GPUs.
+
+**AI-tier resolution (DECIDED):** explicit pin wins (a set-up BYOK key = a pin) → else the most capable ready **private** tier (local runtime > in-browser; most capable model within) → else prompt. **Never auto-cross to cloud** (only by explicit pin + per-use consent). This is "most private AND most capable" — private and capability only conflict at the cloud boundary; within private they align. Supersedes the old `"auto" = most-private-first`; not a visible "Automatic" card.
+
+Real gaps: **G1** guided one-click (not the accordion menu), **G2** rewrite `auto`→capability-aware-private, **G3** demo quality anchor, **G4** upgrade ladder, **G5** plain-English copy. ⚠️ Validate `pickModel` thresholds on real hardware before shipping G1.
+
 Lives at the library/account level (host broker), shown **once** per app until AI is configured; never a hard wall over the app.
 
 1. **Demo sets a HIGH quality anchor (gate-free).** The demo showcases the assistant at its best via *pre-generated example outputs* labelled "this is what a capable model you set up in one click produces" — so the ceiling is anchored to *good* before any local model runs. Neutralises the "weak-model = perceived ceiling" risk.
