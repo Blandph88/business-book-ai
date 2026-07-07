@@ -3,26 +3,14 @@ import "./DashboardTab.css";
 import { loadContacts, type Contact } from "../data/contacts";
 import { loadAllEdits, type OwnerEdits } from "../storage/ownerEdits";
 import { loadAllMeetings } from "../storage/meetings";
-import {
-  buildMeetingRows,
-  heldContactUrls,
-  lastMetByUrl,
-  type MeetingRow,
-} from "../data/meetings";
-import { loadFunnelSummary, type FunnelSummary } from "../data/funnel";
+import { buildMeetingRows, lastMetByUrl, type MeetingRow } from "../data/meetings";
 import {
   loadAllOpportunities,
   type Opportunity,
 } from "../storage/opportunities";
 import { loadAllSows, type Sow } from "../storage/revenue";
-import {
-  openWeightedPipeline,
-  pipelineByPhase,
-  opportunityStatus,
-  opportunityPhase,
-} from "../data/opportunities";
+import { openWeightedPipeline, opportunityPhase, opportunityStatus } from "../data/opportunities";
 import { totalRecognised } from "../data/revenue";
-import { computeFunnelStacked } from "../data/metrics";
 import { detectOrphans } from "../data/orphans";
 import { buildAgenda, todayISO, type AgendaItem } from "../data/agenda";
 import {
@@ -31,52 +19,30 @@ import {
   agingOpportunities,
   hotOpportunities,
   keyContacts,
-  phaseReachedFunnel,
   activityStats,
   looseEnds,
 } from "../data/dashboard";
 import { loadTargets, saveTargets, type Targets } from "../storage/targets";
 import { stepShort } from "../data/vocab";
 import { formatMoney } from "../data/format";
-import type { TabId, TabIntent, Navigate } from "../components/TabNav";
+import type { Navigate } from "../components/TabNav";
 import { YourDay } from "../components/YourDay";
 
-// The Dashboard HOME — a glance-and-go page where every number/item DEEP-LINKS to the
-// exact filtered list (and, for single records, the open slide-in form). Two clickable
-// funnels (networking→meeting and opportunity) replace the old duplicated KPI grid +
-// pipeline snapshot. "This week" is urgency (dated commitments, grouped by tab);
-// "Priorities" is importance (flags & value). All numbers reuse the same compute helpers
-// as the Metrics/CRM tabs, so they reconcile to the lists they open (CLAUDE.md §6).
+// The Dashboard HOME — a glance-and-go page focused on ONE question: "what do I do now?".
+// Everything deep-links to the exact filtered list (and, for single records, the open slide-in form),
+// and every number reuses the same deterministic helpers as the CRM tabs so it reconciles to the lists
+// it opens (CLAUDE.md §6). Deep pipeline ANALYTICS (the networking + opportunity funnels, stage
+// conversion) live on the Metrics tab — the dashboard no longer duplicates them; it's the action home.
+// Layout: AI brief · headline numbers · This week (urgency) · Focus (importance) · Progress · Housekeeping.
 
 type DashboardTabProps = {
   onNavigate: Navigate; // switch tab, optionally with a deep-link intent
 };
 
-// Map a networking-funnel stage to where its contacts live + the filter to apply.
-// Invitations has no contact list (pending invitees aren't contacts) → not linked.
-function funnelNav(label: string): { tab: TabId; intent?: TabIntent } | null {
-  switch (label) {
-    case "Your network":
-      return { tab: "contacts" };
-    case "Messaged":
-      return { tab: "contacts", intent: { filter: { key: "messaged", value: "Yes" } } };
-    case "Responded":
-      return { tab: "contacts", intent: { filter: { key: "responded", value: "Yes" } } };
-    case "Agreed to meet":
-      return { tab: "contacts", intent: { filter: { key: "agreed", value: "Yes" } } };
-    case "Met":
-      return { tab: "meetings", intent: { filter: { key: "stage", value: "Held" } } };
-    default:
-      return null;
-  }
-}
-
 export function DashboardTab({ onNavigate }: DashboardTabProps) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [edits, setEdits] = useState<Record<string, OwnerEdits>>({});
   const [meetingRows, setMeetingRows] = useState<MeetingRow[]>([]);
-  const [heldUrls, setHeldUrls] = useState<Set<string>>(new Set());
-  const [summary, setSummary] = useState<FunnelSummary | null>(null);
   const [opps, setOpps] = useState<Opportunity[]>([]);
   const [sows, setSows] = useState<Sow[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -89,13 +55,10 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
 
   // Load everything the home page summarises once, on mount.
   useEffect(() => {
-    const savedEdits = loadAllEdits();
     const savedMeetings = loadAllMeetings();
-    setEdits(savedEdits);
-    setHeldUrls(heldContactUrls(savedMeetings));
+    setEdits(loadAllEdits());
     setOpps(Object.values(loadAllOpportunities()));
     setSows(Object.values(loadAllSows()));
-    loadFunnelSummary().then(setSummary).catch(() => setSummary(null));
     loadContacts()
       .then((rows) => {
         setContacts(rows);
@@ -108,23 +71,16 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
       });
   }, []);
 
-  // ── Derived numbers (reuse the shared helpers) ──────────────────────────
-  const funnel = useMemo(
-    () => computeFunnelStacked(contacts, { summary, metUrls: heldUrls }),
-    [contacts, summary, heldUrls],
-  );
-  const pipeline = useMemo(() => pipelineByPhase(opps), [opps]);
-  const openOpps = useMemo(
-    () => opps.filter((o) => opportunityStatus(o) === "Open"),
+  // ── Derived numbers (reuse the shared deterministic helpers) ────────────
+  const openOppsCount = useMemo(
+    () => opps.filter((o) => opportunityStatus(o) === "Open").length,
     [opps],
   );
   const weightedPipeline = useMemo(() => openWeightedPipeline(opps), [opps]);
   const winLoss = useMemo(() => winLossStats(opps), [opps]);
-
-  // Recognised revenue across all signed contracts.
   const recognised = useMemo(() => totalRecognised(sows), [sows]);
 
-  // The most recent held date per contact ("last met"), shared by the agenda's Reconnect.
+  // The most recent held date per contact ("last met"), for the reconnect list.
   const lastMet = useMemo(() => lastMetByUrl(meetingRows), [meetingRows]);
 
   // This-week agenda (overdue + next 7 days), one chronological list (most overdue first).
@@ -138,32 +94,12 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
     [contacts, edits, meetingRows, opps],
   );
 
-  // Priorities (importance), computed — not manual tags. "Close these" = big deals near
-  // signature; "Key relationships" = senior decision-makers (boosted by a live deal).
+  // Focus (importance), computed — not manual tags.
   const hotOpps = useMemo(() => hotOpportunities(opps), [opps]);
   const keyPeople = useMemo(
     () => keyContacts(contacts, edits, opps),
     [contacts, edits, opps],
   );
-
-  // New cards: opportunity stage funnel, this-month activity, editable targets.
-  const phaseReached = useMemo(() => phaseReachedFunnel(opps), [opps]);
-  const activity = useMemo(
-    () => activityStats(meetingRows, opps, today),
-    [meetingRows, opps, today],
-  );
-  const [targets, setTargets] = useState<Targets>(() => loadTargets());
-  const setTarget = (patch: Targets) =>
-    setTargets((t) => saveTargets({ ...t, ...patch }));
-
-  // Loose ends — cross-record gaps to tidy (the app's data-hygiene job, not yours).
-  const loose = useMemo(
-    () => looseEnds(opps, contacts, edits, sows),
-    [opps, contacts, edits, sows],
-  );
-  const looseTotal = loose.reduce((n, g) => n + g.items.length, 0);
-
-  // Extras: stale relationships + stage-aging opportunities.
   const stale = useMemo(
     () => staleContacts(contacts, edits, lastMet, today),
     [contacts, edits, lastMet, today],
@@ -173,23 +109,31 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
     [opps, today],
   );
 
-  // Step-to-step conversion across the networking funnel.
-  const conv = useMemo(() => {
-    const count = (label: string) =>
-      funnel.find((s) => s.label === label)?.count ?? 0;
-    const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
-    const target = count("Your network");
-    const messaged = count("Messaged");
-    const responded = count("Responded");
-    const agreed = count("Agreed to meet");
-    const met = count("Met");
-    return {
-      messaged: pct(messaged, target),
-      responded: pct(responded, messaged),
-      agreed: pct(agreed, responded),
-      met: pct(met, agreed),
-    };
-  }, [funnel]);
+  // Progress: this-month activity + editable targets.
+  const activity = useMemo(
+    () => activityStats(meetingRows, opps, today),
+    [meetingRows, opps, today],
+  );
+  const [targets, setTargets] = useState<Targets>(() => loadTargets());
+  const setTarget = (patch: Targets) =>
+    setTargets((t) => saveTargets({ ...t, ...patch }));
+
+  // Housekeeping — cross-record gaps to tidy (the app's data-hygiene job, not yours).
+  const loose = useMemo(
+    () => looseEnds(opps, contacts, edits, sows),
+    [opps, contacts, edits, sows],
+  );
+  const looseTotal = loose.reduce((n, g) => n + g.items.length, 0);
+
+  // AI-derived headline signals — gated so they only appear once there's a signal.
+  const repliesOwed = useMemo(
+    () => contacts.filter((c) => c.thread && !c.thread.lastFromOwner).length,
+    [contacts],
+  );
+  const oppSignals = useMemo(
+    () => contacts.filter((c) => c.latentOpp?.text).length,
+    [contacts],
+  );
 
   if (status === "loading") {
     return <p className="home-status">Loading dashboard…</p>;
@@ -210,72 +154,35 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
     <section className="home">
       <h2 className="home-title">Dashboard</h2>
 
-      {/* AI morning brief (separate from the deterministic dashboard below). */}
-      <YourDay />
+      {/* AI morning brief — fed the SAME computed signals the cards below show, so it can never narrate
+          a different reality than the deterministic dashboard. Renders nothing when AI isn't set up. */}
+      <YourDay
+        today={today}
+        contacts={contacts}
+        edits={edits}
+        meetingRows={meetingRows}
+        agenda={agenda}
+        hotOpps={hotOpps}
+        stale={stale}
+        aging={aging}
+      />
 
-      {/* ── Orphaned-data notice (after a pipeline refresh) ─────────────── */}
-      {orphans.length > 0 && !orphansDismissed && (
-        <div className="orphan-note">
-          <div className="orphan-note-head">
-            <strong>
-              {orphans.length} saved item{orphans.length === 1 ? "" : "s"} no longer
-              match a contact in the latest data
-            </strong>
-            <button
-              type="button"
-              className="orphan-note-x"
-              title="Dismiss for now"
-              onClick={() => setOrphansDismissed(true)}
-            >
-              ✕
-            </button>
-          </div>
-          <p className="orphan-note-body">
-            A pipeline refresh dropped or changed these contacts’ URLs, so notes /
-            meetings / opportunities you entered are stranded (not lost). Re-add the
-            contact or re-link the record to recover them.
-          </p>
-          <ul className="orphan-note-list">
-            {orphans.slice(0, 8).map((o, i) => (
-              <li key={`${o.kind}-${o.url}-${i}`}>
-                <span className="orphan-kind">{o.kind}</span> {o.label}{" "}
-                <a href={o.url} target="_blank" rel="noreferrer">
-                  open profile ↗
-                </a>
-              </li>
-            ))}
-            {orphans.length > 8 && <li>…and {orphans.length - 8} more</li>}
-          </ul>
-        </div>
-      )}
-
-      {/* ── Headline stats ────────────────────────────────────────────── */}
+      {/* ── Headline numbers ──────────────────────────────────────────── */}
       <div className="kpi-grid">
-        <KpiCard label="Needs attention" value={agenda.length} hint="overdue + this week" />
-        <KpiCard label="Weighted pipeline" value={formatMoney(weightedPipeline)} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Open" } })} />
+        <KpiCard label="Weighted pipeline" value={formatMoney(weightedPipeline)} hint={`${openOppsCount} open`} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Open" } })} />
         <KpiCard label="Recognised" value={formatMoney(recognised)} hint="across signed engagements" onClick={() => onNavigate("revenue")} />
         <KpiCard label="Win rate" value={winRateLabel} hint={`${winLoss.won}W · ${winLoss.lost}L`} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Won" } })} />
-        {/* AI-derived "needs attention" — gated: only appear once there's a signal (owed replies from the
-            deterministic thread read; opportunities from the opt-in scan). */}
-        {contacts.filter((c) => c.thread && !c.thread.lastFromOwner).length > 0 && (
-          <KpiCard
-            label="Replies owed"
-            value={contacts.filter((c) => c.thread && !c.thread.lastFromOwner).length}
-            hint="they messaged last"
-            onClick={() => onNavigate("contacts", { filter: { key: "owed", value: "Yes" } })}
-          />
+        {/* AI-derived — gated: only appear once there's a signal (owed replies from the deterministic thread
+            read; opportunities from the opt-in message scan). */}
+        {repliesOwed > 0 && (
+          <KpiCard label="Replies owed" value={repliesOwed} hint="they messaged last" onClick={() => onNavigate("contacts", { filter: { key: "owed", value: "Yes" } })} />
         )}
-        {contacts.filter((c) => c.latentOpp?.text).length > 0 && (
-          <KpiCard
-            label="Opportunity signals in messages"
-            value={contacts.filter((c) => c.latentOpp?.text).length}
-            hint="leads spotted by the scan — review & pursue"
-            onClick={() => onNavigate("contacts", { filter: { key: "opportunity", value: "Yes" } })}
-          />
+        {oppSignals > 0 && (
+          <KpiCard label="Opportunity signals in messages" value={oppSignals} hint="leads spotted by the scan — review & pursue" onClick={() => onNavigate("contacts", { filter: { key: "opportunity", value: "Yes" } })} />
         )}
       </div>
 
-      {/* ── This week (urgency) — one full-width chronological table ──── */}
+      {/* ── This week (urgency) — the hero: one full-width chronological table ── */}
       <div className="home-card" data-tour="dash-week">
         <div className="home-card-head">
           <h3>This week</h3>
@@ -293,12 +200,12 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
         )}
       </div>
 
-      {/* ── Priorities (importance), computed from stage / value / seniority ── */}
+      {/* ── Focus (importance) — who & what to chase, computed not tagged ── */}
       <div className="home-card" data-tour="dash-priorities">
         <div className="home-card-head">
-          <h3>Priorities</h3>
+          <h3>Focus</h3>
           <span className="home-card-sub">
-            Where to focus — computed, not manually tagged
+            Who &amp; what to chase — computed, not manually tagged
           </span>
         </div>
         <div className="home-cols">
@@ -349,16 +256,128 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
             )}
           </div>
         </div>
+        <div className="home-cols">
+          <div>
+            <h4 className="home-sub">Reconnect</h4>
+            <p className="home-microcopy">Warm+ contacts gone quiet (45 days+).</p>
+            {stale.length === 0 ? (
+              <p className="home-empty">No warm relationships overdue a touch.</p>
+            ) : (
+              <ul className="home-list">
+                {stale.slice(0, 6).map(({ contact: c, relationship, daysSince }) => (
+                  <ClickRow
+                    key={c.url}
+                    main={`${c.first} ${c.last}`}
+                    meta={`${c.organisation} · ${relationship} · ${daysSince === null ? "never logged" : `${daysSince}d ago`}`}
+                    onClick={() => onNavigate("contacts", { search: `${c.first} ${c.last}`.trim(), openId: c.url })}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <h4 className="home-sub">Going cold</h4>
+            <p className="home-microcopy">Open opportunities with no movement (30 days+).</p>
+            {aging.length === 0 ? (
+              <p className="home-empty">No open opportunities are stalling.</p>
+            ) : (
+              <ul className="home-list">
+                {aging.slice(0, 6).map(({ opp: o, daysSince }) => (
+                  <ClickRow
+                    key={o.id}
+                    main={o.opportunity_name || o.organisation || "(unnamed)"}
+                    meta={`${opportunityPhase(o)} · ${daysSince}d since last activity`}
+                    onClick={() => onNavigate("opportunities", { openId: o.id })}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* ── Loose ends (data hygiene) ────────────────────────────────── */}
+      {/* ── Progress — targets + this-month activity (deep funnels/conversion live on Metrics) ── */}
+      <div className="home-card">
+        <div className="home-card-head">
+          <h3>Progress</h3>
+          <button type="button" className="home-link" onClick={() => onNavigate("metrics")}>
+            Full breakdown →
+          </button>
+        </div>
+        <div className="home-cols">
+          {/* Targets you set (goal + % progress). People-met is a target here — its month-over-month
+              trend is NOT repeated on the right, so no number appears twice. */}
+          <div>
+            <TargetBar
+              label="Weighted pipeline"
+              current={weightedPipeline}
+              target={targets.pipeline}
+              money
+              onTarget={(v) => setTarget({ pipeline: v })}
+            />
+            <TargetBar
+              label="People met this month"
+              current={activity.peopleMet.thisMonth}
+              target={targets.meetingsPerMonth}
+              onTarget={(v) => setTarget({ meetingsPerMonth: v })}
+            />
+          </div>
+          {/* This-month trend — only the metric that isn't already a target above. */}
+          <div className="act-stats">
+            <ActivityStat
+              label="Opportunities created"
+              now={activity.oppsCreated.thisMonth}
+              prev={activity.oppsCreated.lastMonth}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Housekeeping — data hygiene: loose ends + any orphaned records ── */}
       <div className="home-card" data-tour="dash-hygiene">
         <div className="home-card-head">
-          <h3>Loose ends</h3>
+          <h3>Housekeeping</h3>
           <span className="home-card-sub">
-            {looseTotal === 0 ? "All tidy" : `${looseTotal} to tidy`}
+            {looseTotal === 0 && orphans.length === 0 ? "All tidy" : `${looseTotal + (orphansDismissed ? 0 : orphans.length)} to tidy`}
           </span>
         </div>
+
+        {/* Orphaned-data notice (after a pipeline refresh stranded saved records). */}
+        {orphans.length > 0 && !orphansDismissed && (
+          <div className="orphan-note">
+            <div className="orphan-note-head">
+              <strong>
+                {orphans.length} saved item{orphans.length === 1 ? "" : "s"} no longer
+                match a contact in the latest data
+              </strong>
+              <button
+                type="button"
+                className="orphan-note-x"
+                title="Dismiss for now"
+                onClick={() => setOrphansDismissed(true)}
+              >
+                ✕
+              </button>
+            </div>
+            <p className="orphan-note-body">
+              A pipeline refresh dropped or changed these contacts’ URLs, so notes /
+              meetings / opportunities you entered are stranded (not lost). Re-add the
+              contact or re-link the record to recover them.
+            </p>
+            <ul className="orphan-note-list">
+              {orphans.slice(0, 8).map((o, i) => (
+                <li key={`${o.kind}-${o.url}-${i}`}>
+                  <span className="orphan-kind">{o.kind}</span> {o.label}{" "}
+                  <a href={o.url} target="_blank" rel="noreferrer">
+                    open profile ↗
+                  </a>
+                </li>
+              ))}
+              {orphans.length > 8 && <li>…and {orphans.length - 8} more</li>}
+            </ul>
+          </div>
+        )}
+
         {loose.length === 0 ? (
           <p className="home-empty">
             Nothing inconsistent — your pipeline data hangs together. ✓
@@ -393,184 +412,6 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
           </div>
         )}
       </div>
-
-      {/* ── Targets + this-month activity ────────────────────────────── */}
-      <div className="home-cols">
-        <div className="home-card">
-          <div className="home-card-head">
-            <h3>Targets</h3>
-          </div>
-          <TargetBar
-            label="Weighted pipeline"
-            current={weightedPipeline}
-            target={targets.pipeline}
-            money
-            onTarget={(v) => setTarget({ pipeline: v })}
-          />
-          <TargetBar
-            label="People met this month"
-            current={activity.peopleMet.thisMonth}
-            target={targets.meetingsPerMonth}
-            onTarget={(v) => setTarget({ meetingsPerMonth: v })}
-          />
-        </div>
-        <div className="home-card">
-          <div className="home-card-head">
-            <h3>This month</h3>
-          </div>
-          <div className="act-stats">
-            <ActivityStat
-              label="People met"
-              now={activity.peopleMet.thisMonth}
-              prev={activity.peopleMet.lastMonth}
-            />
-            <ActivityStat
-              label="Opportunities created"
-              now={activity.oppsCreated.thisMonth}
-              prev={activity.oppsCreated.lastMonth}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* ── The two funnels (clickable) ─────────────────────────────────── */}
-      <div className="home-cols">
-        <div className="home-card" data-tour="dash-net-funnel">
-          <div className="home-card-head">
-            <h3>Networking → meeting funnel</h3>
-            <button type="button" className="home-link" onClick={() => onNavigate("metrics")}>
-              Full breakdown →
-            </button>
-          </div>
-          <div className="funnel">
-            {funnel.map((stage) => {
-              const nav = funnelNav(stage.label);
-              return (
-                <FunnelRow
-                  key={stage.label}
-                  label={stage.label}
-                  count={stage.count}
-                  pct={stage.pctOfTarget}
-                  onClick={nav ? () => onNavigate(nav.tab, nav.intent) : undefined}
-                />
-              );
-            })}
-          </div>
-          <p className="funnel-conv">
-            Conversion: {conv.messaged}% messaged · {conv.responded}% responded ·{" "}
-            {conv.agreed}% agreed · {conv.met}% met
-          </p>
-        </div>
-
-        <div className="home-card" data-tour="dash-opp-funnel">
-          <div className="home-card-head">
-            <h3>Opportunity funnel</h3>
-          </div>
-          {pipeline.total === 0 ? (
-            <p className="home-empty">No opportunities in the pipeline yet.</p>
-          ) : (
-            <>
-              <div className="funnel">
-                {pipeline.items.map((it) => (
-                  <FunnelRow
-                    key={it.label}
-                    label={it.label}
-                    count={it.count}
-                    onClick={() => onNavigate("opportunities", { filter: { key: "phase", value: it.label } })}
-                  />
-                ))}
-              </div>
-              <div className="funnel-status">
-                <StatusChip label="Open" n={openOpps.length} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Open" } })} />
-                <StatusChip label="Won" n={winLoss.won} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Won" } })} />
-                <StatusChip label="Lost" n={winLoss.lost} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Lost" } })} />
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ── Opportunity stage conversion (snapshot) ──────────────────────── */}
-      {phaseReached.total > 0 && (
-        <div className="home-card">
-          <div className="home-card-head">
-            <h3>Stage conversion</h3>
-            <span className="home-card-sub">
-              Snapshot: how far deals reach · win rate {winRateLabel} ({winLoss.won}W ·{" "}
-              {winLoss.lost}L)
-            </span>
-          </div>
-          <div className="stageconv">
-            {phaseReached.items.map((it, i) => {
-              const prevReached =
-                i === 0 ? phaseReached.total : phaseReached.items[i - 1].reached;
-              const kept = prevReached
-                ? Math.round((it.reached / prevReached) * 100)
-                : 0;
-              return (
-                <div key={it.phase} className="stageconv-row">
-                  <span className="stageconv-label">{it.phase}</span>
-                  <span className="stageconv-bar">
-                    <span
-                      className="stageconv-fill"
-                      style={{ width: `${Math.round(it.pct * 100)}%` }}
-                    />
-                  </span>
-                  <span className="stageconv-n">{it.reached}</span>
-                  <span className="stageconv-kept">
-                    {i === 0 ? "" : `${kept}% kept`}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Going cold: stale relationships + aging opportunities ───────── */}
-      <div className="home-cols">
-        <div className="home-card">
-          <div className="home-card-head">
-            <h3>Reconnect</h3>
-            <span className="home-card-sub">Warm+ contacts gone quiet (45 days+)</span>
-          </div>
-          {stale.length === 0 ? (
-            <p className="home-empty">No warm relationships overdue a touch.</p>
-          ) : (
-            <ul className="home-list">
-              {stale.slice(0, 6).map(({ contact: c, relationship, daysSince }) => (
-                <ClickRow
-                  key={c.url}
-                  main={`${c.first} ${c.last}`}
-                  meta={`${c.organisation} · ${relationship} · ${daysSince === null ? "never logged" : `${daysSince}d ago`}`}
-                  onClick={() => onNavigate("contacts", { search: `${c.first} ${c.last}`.trim(), openId: c.url })}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="home-card">
-          <div className="home-card-head">
-            <h3>Going cold</h3>
-            <span className="home-card-sub">Open opportunities with no movement (30 days+)</span>
-          </div>
-          {aging.length === 0 ? (
-            <p className="home-empty">No open opportunities are stalling.</p>
-          ) : (
-            <ul className="home-list">
-              {aging.slice(0, 6).map(({ opp: o, daysSince }) => (
-                <ClickRow
-                  key={o.id}
-                  main={o.opportunity_name || o.organisation || "(unnamed)"}
-                  meta={`${opportunityPhase(o)} · ${daysSince}d since last activity`}
-                  onClick={() => onNavigate("opportunities", { openId: o.id })}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
     </section>
   );
 }
@@ -600,50 +441,6 @@ function KpiCard({
     </button>
   ) : (
     <div className="kpi-card">{inner}</div>
-  );
-}
-
-// ── One funnel stage row (clickable when given an onClick) ───────────────────
-function FunnelRow({
-  label,
-  count,
-  pct,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  pct?: number | null;
-  onClick?: () => void;
-}) {
-  const inner = (
-    <>
-      <span className="fr-count">{count}</span>
-      <span className="fr-label">{label}</span>
-      <span className="fr-pct">{pct != null ? `${pct}%` : ""}</span>
-    </>
-  );
-  return onClick ? (
-    <button type="button" className="fr fr--click" onClick={onClick}>
-      {inner}
-    </button>
-  ) : (
-    <div className="fr">{inner}</div>
-  );
-}
-
-function StatusChip({
-  label,
-  n,
-  onClick,
-}: {
-  label: string;
-  n: number;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" className="status-chip" onClick={onClick}>
-      {label} <strong>{n}</strong>
-    </button>
   );
 }
 

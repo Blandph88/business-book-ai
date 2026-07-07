@@ -1,18 +1,18 @@
-// The "Your day" AI brief that sits at the top of the Dashboard (#7). It pulls together what's
-// happening across the book today — upcoming/overdue meetings, deals near signature, who's gone
-// cold, who to reconnect with — and asks the model for a short prioritised brief. Per-item it lets
-// you draft a reconnect message on the spot (#3b). It's a SEPARATE panel for now (3a) — the
-// deterministic dashboard below is untouched. Auto-generates once per session (cached), with Refresh.
+// The "Your day" AI brief at the top of the Dashboard. It narrates a short prioritised brief from the
+// SAME deterministic signals the dashboard cards show — This week (agenda), deals near signature
+// (hotOpps), reconnect (stale), going-cold opps (aging) — passed in as props, so the AI can never say
+// something the cards below contradict. Per-item it drafts a reconnect message on the spot. The model's
+// only job is narration/prioritisation; every input is computed by the shared helpers (no re-derivation
+// with different thresholds). Auto-generates once per session (cached), with Refresh.
 
-import { useEffect, useMemo, useState } from "react";
-import { loadContacts, type Contact } from "../data/contacts";
-import { loadAllEdits, type OwnerEdits } from "../storage/ownerEdits";
-import { loadAllMeetings } from "../storage/meetings";
-import { buildMeetingRows, type MeetingRow } from "../data/meetings";
-import { loadAllOpportunities, type Opportunity } from "../storage/opportunities";
-import { opportunityStatus, opportunityPhase, weightedValue } from "../data/opportunities";
+import { useEffect, useState } from "react";
+import type { Contact } from "../data/contacts";
+import type { OwnerEdits } from "../storage/ownerEdits";
+import type { MeetingRow } from "../data/meetings";
+import { opportunityPhase, weightedValue } from "../data/opportunities";
+import type { HotOpp, StaleContact, AgingOpp } from "../data/dashboard";
+import type { AgendaItem } from "../data/agenda";
 import { formatMoney } from "../data/format";
-import { todayISO } from "../data/agenda";
 import { useAiAvailable, aiPrompt } from "../ai/ai";
 import { yourDayPrompt, draftMessagePrompt } from "../ai/prompts";
 import { contactSignalsText } from "../ai/compute";
@@ -22,79 +22,39 @@ import "./YourDay.css";
 
 const CACHE_KEY = "bob.yourday.v1"; // {day, text} — once per session/day so tab-switching doesn't re-call
 
-function daysSince(iso: string, today: string): number {
-  return Math.round((new Date(`${today}T00:00:00`).getTime() - new Date(`${iso}T00:00:00`).getTime()) / 86_400_000);
-}
+type YourDayProps = {
+  today: string;
+  contacts: Contact[];
+  edits: Record<string, OwnerEdits>;
+  meetingRows: MeetingRow[];
+  agenda: AgendaItem[]; // "This week" — dated commitments (same list the dashboard shows)
+  hotOpps: HotOpp[]; // "Close these" — biggest deals near signature
+  stale: StaleContact[]; // "Reconnect" — warm contacts gone quiet (45d+, unified with the card)
+  aging: AgingOpp[]; // "Going cold" — open opps with no movement (30d+)
+};
 
-export function YourDay() {
+export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, stale, aging }: YourDayProps) {
   const aiReady = useAiAvailable();
-  const today = useMemo(() => todayISO(), []);
-
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [edits, setEdits] = useState<Record<string, OwnerEdits>>({});
-  const [meetingRows, setMeetingRows] = useState<MeetingRow[]>([]);
-  const [opps, setOpps] = useState<Opportunity[]>([]);
-  const [loaded, setLoaded] = useState(false);
 
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draftContact, setDraftContact] = useState<Contact | null>(null);
 
-  useEffect(() => {
-    const savedMeetings = loadAllMeetings();
-    setEdits(loadAllEdits());
-    setOpps(Object.values(loadAllOpportunities()));
-    loadContacts()
-      .then((rows) => {
-        setContacts(rows);
-        setMeetingRows(buildMeetingRows(rows, savedMeetings));
-      })
-      .catch(() => setContacts([]))
-      .finally(() => setLoaded(true));
-  }, []);
-
-  // Most-recent held date per contact, for the reconnect list.
-  const lastMet = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const r of meetingRows) {
-      if (!r.date_held) continue;
-      const cur = m.get(r.contact_url);
-      if (!cur || r.date_held > cur) m.set(r.contact_url, r.date_held);
-    }
-    return m;
-  }, [meetingRows]);
-
-  const closeThese = useMemo(
-    () => opps.filter((o) => opportunityStatus(o) === "Open" && (opportunityPhase(o) === "Contract" || opportunityPhase(o) === "Propose")).slice(0, 5),
-    [opps],
-  );
-  const goingCold = useMemo(() => contacts.filter((c) => c.messaged && !c.two_way).slice(0, 6), [contacts]);
-  const reconnect = useMemo(
-    () => contacts.filter((c) => { const lm = lastMet.get(c.url); return lm && daysSince(lm, today) > 90; }).slice(0, 5),
-    [contacts, lastMet, today],
-  );
-  const upcoming = useMemo(
-    () => meetingRows.filter((m) => m.meeting_stage === "Scheduled" && m.date_scheduled && m.date_scheduled >= today).sort((a, b) => (a.date_scheduled! < b.date_scheduled! ? -1 : 1)).slice(0, 6),
-    [meetingRows, today],
-  );
-  const overdue = useMemo(
-    () => meetingRows.filter((m) => (m.meeting_stage === "Scheduled" && m.date_scheduled && m.date_scheduled < today) || (m.followup_date && m.followup_date < today)).slice(0, 6),
-    [meetingRows, today],
-  );
+  const nm = (c: Contact) => `${c.first} ${c.last}`.trim() + (c.organisation ? ` (${c.organisation})` : "");
 
   function buildContext(): string {
-    const nm = (c: Contact) => `${c.first} ${c.last}`.trim() + (c.organisation ? ` (${c.organisation})` : "");
+    const owed = contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).slice(0, 8);
+    const latent = contacts.filter((c) => c.latentOpp?.text).slice(0, 8);
     return [
       `Today: ${today}.`,
-      upcoming.length ? `Upcoming meetings:\n${upcoming.map((m) => `- ${m.contactInfo.name} on ${m.date_scheduled}`).join("\n")}` : "",
-      overdue.length ? `Overdue / slipping:\n${overdue.map((m) => `- ${m.contactInfo.name} (${m.meeting_stage})`).join("\n")}` : "",
-      closeThese.length ? `Deals near signature:\n${closeThese.map((o) => `- ${o.opportunity_name || "(unnamed)"} ${formatMoney(weightedValue(o))} [${opportunityPhase(o)}]`).join("\n")}` : "",
-      goingCold.length ? `Messaged, no reply yet:\n${goingCold.map((c) => `- ${nm(c)}`).join("\n")}` : "",
-      reconnect.length ? `Not met in 90+ days:\n${reconnect.map((c) => `- ${nm(c)}`).join("\n")}` : "",
+      agenda.length ? `This week (overdue + next 7 days):\n${agenda.slice(0, 10).map((a) => `- ${a.what}: ${a.who}${a.org ? ` (${a.org})` : ""} — ${a.statusLabel}, due ${a.date}`).join("\n")}` : "",
+      hotOpps.length ? `Deals near signature:\n${hotOpps.map(({ opp }) => `- ${opp.opportunity_name || opp.organisation || "(unnamed)"} ${formatMoney(weightedValue(opp))} [${opportunityPhase(opp)}]`).join("\n")}` : "",
+      stale.length ? `Warm contacts gone quiet (reconnect):\n${stale.slice(0, 8).map(({ contact: c, daysSince }) => `- ${nm(c)}${daysSince != null ? ` — ${daysSince}d` : ""}`).join("\n")}` : "",
+      aging.length ? `Open opportunities stalling:\n${aging.slice(0, 8).map(({ opp, daysSince }) => `- ${opp.opportunity_name || opp.organisation || "(unnamed)"} — ${daysSince}d no movement`).join("\n")}` : "",
       // Enrichment/thread signals — empty until a scan/import provides them, so this degrades gracefully.
-      (() => { const owed = contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).slice(0, 8); return owed.length ? `You owe a reply (they messaged last):\n${owed.map((c) => `- ${nm(c)}${c.thread?.lastDate ? ` since ${c.thread.lastDate}` : ""}`).join("\n")}` : ""; })(),
-      (() => { const latent = contacts.filter((c) => c.latentOpp?.text).slice(0, 8); return latent.length ? `Opportunities spotted in your messages:\n${latent.map((c) => `- ${nm(c)}: ${c.latentOpp!.text}`).join("\n")}` : ""; })(),
+      owed.length ? `You owe a reply (they messaged last):\n${owed.map((c) => `- ${nm(c)}${c.thread?.lastDate ? ` since ${c.thread.lastDate}` : ""}`).join("\n")}` : "",
+      latent.length ? `Opportunities spotted in your messages:\n${latent.map((c) => `- ${nm(c)}: ${c.latentOpp!.text}`).join("\n")}` : "",
     ].filter(Boolean).join("\n\n");
   }
 
@@ -117,16 +77,18 @@ export function YourDay() {
       .finally(() => setBusy(false));
   }
 
-  // Auto-generate once data is loaded (uses cache so it won't re-call on every Dashboard visit).
+  // Auto-generate on mount (uses cache so it won't re-call on every Dashboard visit). The dashboard only
+  // renders YourDay once its data is ready, so the props are already populated here.
   useEffect(() => {
-    if (aiReady && loaded && !text && !busy) generate();
+    if (aiReady && !text && !busy) generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiReady, loaded]);
+  }, [aiReady]);
 
-  if (!aiReady || !loaded) return null;
+  if (!aiReady) return null;
 
   const rowFor = (c: Contact): ContactRow => ({ ...c, ...(edits[c.url] || {}) });
   const meetingsFor = (c: Contact) => meetingRows.filter((m) => m.contact_url === c.url);
+  const reconnectPeople = stale.slice(0, 6).map((s) => s.contact);
 
   return (
     <section className="yourday">
@@ -142,10 +104,10 @@ export function YourDay() {
         <div className="yourday-brief">{text}</div>
       )}
 
-      {reconnect.length > 0 && (
+      {reconnectPeople.length > 0 && (
         <div className="yourday-actions">
           <span className="yourday-actions-label">Reconnect:</span>
-          {reconnect.map((c) => (
+          {reconnectPeople.map((c) => (
             <button key={c.url} type="button" className="yourday-chip" onClick={() => setDraftContact(c)}>
               Draft → {`${c.first} ${c.last}`.trim()}
             </button>
