@@ -55,6 +55,7 @@ import {
   type OppGroupBreakdown,
 } from "../data/opportunities";
 import { formatMoney } from "../data/format";
+import { CardEmpty } from "../components/CardEmpty";
 
 // The Dashboard (CLAUDE.md §4): the live, INTERACTIVE replacement for the old PDF.
 //
@@ -666,6 +667,13 @@ export function MetricsTab({
             A snapshot: how many opportunities sit in each phase now. Click a phase to
             list them. Bars sum to the total opportunities.
           </p>
+          {opps.length === 0 ? (
+            <CardEmpty
+              message="No opportunities yet — spot one from a meeting (set “Opportunity spotted = Yes”) or add it on the Opportunities tab, and your pipeline funnel appears here."
+              ctaLabel="Go to Opportunities →"
+              onCta={() => onNavigate?.("opportunities")}
+            />
+          ) : (<>
           <div className="bars">
             {OPP_PHASE_BARS.map((phase, i) => {
               const inPhase = opportunitiesForPhase(opps, phase);
@@ -699,6 +707,7 @@ export function MetricsTab({
             ok={pipeline.sumsToTotal}
             total={pipeline.total}
           />
+          </>)}
         </div>
       </div>
 
@@ -714,7 +723,9 @@ export function MetricsTab({
         </p>
 
         {/* Phase filter — the commercial analogue of the contact "Breakdowns show:" tabs.
-            Changing the phase resets the nested step filter. */}
+            Changing the phase resets the nested step filter. Hidden until there are opportunities,
+            so we never show interactive filters over an empty set. */}
+        {opps.length > 0 && (<>
         <div className="dash-pop">
           <span className="dash-pop-label">Phase:</span>
           {(["all", ...OPPORTUNITY_PHASES, "Lost"] as const).map((s) => (
@@ -764,6 +775,7 @@ export function MetricsTab({
             )}
           </div>
         )}
+        </>)}
 
         {/* Headline figures for the selected stage. */}
         <div className="dash-stats">
