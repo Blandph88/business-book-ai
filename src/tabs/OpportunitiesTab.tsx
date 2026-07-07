@@ -18,7 +18,7 @@ import {
 } from "../data/opportunities";
 import { loadContacts, type Contact } from "../data/contacts";
 import { loadAllMeetings, unlinkOpportunity, type MeetingsById } from "../storage/meetings";
-import { loadAllSows, type Sow } from "../storage/revenue";
+import { loadAllSows, unlinkOpportunityFromSows, type Sow } from "../storage/revenue";
 import { sowForOpportunity } from "../data/revenue";
 import { loadAllEdits, editsFor, type OwnerEdits } from "../storage/ownerEdits";
 import { formatMoney } from "../data/format";
@@ -277,6 +277,7 @@ export function OpportunitiesTab({
   function handleDelete(id: string) {
     setSaved(deleteOpportunity(id));
     unlinkOpportunity(id); // clear it off any meeting that sourced it (no dead "View opportunity →"; allows recreate)
+    unlinkOpportunityFromSows(id); // …and off any linked SoW on the revenue side (same dangling-link fix)
     setFormTarget(null);
     flashSaved();
   }

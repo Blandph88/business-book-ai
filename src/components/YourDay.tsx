@@ -20,7 +20,15 @@ import { AiSuggest } from "./AiSuggest";
 import type { ContactRow } from "../tabs/ContactForm";
 import "./YourDay.css";
 
-const CACHE_KEY = "bob.yourday.v1"; // {day, text} — once per session/day so tab-switching doesn't re-call
+const CACHE_KEY = "bob.yourday.v1"; // {day, sig, text} — once per (day + context signature) so tab-switching doesn't re-call, but an import/scan/log that changes the day's signals busts it
+
+// Cheap stable signature of the brief's context — so the cache regenerates when the underlying signals
+// change during the day (not just at midnight). djb2; collisions are harmless (worst case a stale reuse).
+function ctxSignature(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return String(h >>> 0);
+}
 
 type YourDayProps = {
   today: string;
@@ -67,10 +75,13 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
     // Nothing to narrate (empty / no-signal book) → don't burn a generation or invite invented items.
     // buildContext joins signal sections with newlines; only the "Today: …" line means no signal.
     if (!ctx.includes("\n")) { setText("Nothing pressing today. Add contacts, log a meeting, or run a scan and I'll brief you here."); return; }
+    const sig = ctxSignature(ctx);
     if (!force) {
       try {
         const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) || "null");
-        if (cached && cached.day === today && cached.text) { setText(cached.text); return; }
+        // Reuse only when it's the same day AND the underlying signals are unchanged — otherwise the brief
+        // would stay stale after an import/scan/logged meeting added or cleared items in the day's context.
+        if (cached && cached.day === today && cached.sig === sig && cached.text) { setText(cached.text); return; }
       } catch { /* ignore */ }
     }
     setBusy(true);
@@ -79,7 +90,7 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
       .then((t) => {
         if (!alive.current) return;
         setText(t.trim());
-        try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ day: today, text: t.trim() })); } catch { /* ignore */ }
+        try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ day: today, sig, text: t.trim() })); } catch { /* ignore */ }
       })
       .catch((e) => { if (alive.current) setError(e instanceof Error ? e.message : "Couldn't build your brief."); })
       .finally(() => { if (alive.current) setBusy(false); });

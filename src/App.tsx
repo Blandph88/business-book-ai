@@ -18,7 +18,7 @@ import { track } from "./lib/analytics";
 import { CopilotBar } from "./components/CopilotBar";
 import { SideNav } from "./components/SideNav";
 import { WarmthBanner } from "./components/WarmthBanner";
-import { CURRENCY_CODE, CURRENCY_OPTIONS, setCurrency } from "./data/format";
+import { CURRENCY_CODE, CURRENCY_OPTIONS, setCurrency, subscribeCurrency } from "./data/format";
 import { listChats, type SavedChat } from "./storage/chats";
 import { getAppMode } from "./lib/appMode";
 import { hasImportedContacts } from "./storage/importedContacts";
@@ -168,6 +168,11 @@ export default function App() {
     const t = activeTabRef.current;
     if (t === "dashboard" || t === "metrics" || t === "insights") setDataNonce((n) => n + 1);
   }, [warmthStatus]);
+
+  // Changing the display currency updates the live CURRENCY_SYMBOL binding in place; remount so every
+  // formatted value + `${CURRENCY_SYMBOL}` label re-reads it, WITHOUT a reload (which would blank the
+  // sealed-frame book). User-initiated, so remounting a form here is the expected "apply setting" flow.
+  useEffect(() => subscribeCurrency(() => setDataNonce((n) => n + 1)), []);
 
   // A scan that was mid-flight when the page was refreshed picks back up (it's resumable) — so the banner
   // "stays" and the work continues across a reload. Runs once, only when there's data to work on.

@@ -15,14 +15,29 @@ function loadCurrencyCode(): string {
   }
 }
 
-export const CURRENCY_CODE = loadCurrencyCode();
-export const CURRENCY_SYMBOL = CURRENCIES[CURRENCY_CODE];
+// Live bindings (NOT const): setCurrency updates these in place and every ESM importer sees the new
+// value, so we can re-apply the currency WITHOUT a full reload. That matters inside Freehold's sealed
+// iframe, where location.reload() replays the empty embedded seed and would blank the user's imported
+// book (the same reason the import flow avoids reload — see App.tsx). formatMoney + the few render-scope
+// `${CURRENCY_SYMBOL}` labels re-read the live value on the next render (App bumps its remount nonce via
+// subscribeCurrency), so nothing stale lingers.
+export let CURRENCY_CODE = loadCurrencyCode();
+export let CURRENCY_SYMBOL = CURRENCIES[CURRENCY_CODE];
 
-// Change the display currency. Persists + reloads so every formatted value updates (money is
-// formatted in many deep components; a soft reload is the simplest correct way to re-apply).
+const currencyListeners = new Set<() => void>();
+// Subscribe to currency changes (App uses this to soft-remount instead of reloading). Returns an unsub.
+export function subscribeCurrency(cb: () => void): () => void {
+  currencyListeners.add(cb);
+  return () => { currencyListeners.delete(cb); };
+}
+
+// Change the display currency. Persists, updates the live bindings (re-validated on read so an unknown
+// code falls back to USD rather than an undefined symbol), then notifies subscribers to re-render.
 export function setCurrency(code: string): void {
   try { localStorage.setItem(CURRENCY_STORAGE_KEY, code); } catch { /* ignore */ }
-  if (typeof location !== "undefined") location.reload();
+  CURRENCY_CODE = loadCurrencyCode();
+  CURRENCY_SYMBOL = CURRENCIES[CURRENCY_CODE];
+  currencyListeners.forEach((cb) => cb());
 }
 
 // Format a number as money, with thousand separators and no decimal places.

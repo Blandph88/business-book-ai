@@ -3,6 +3,7 @@ import {
   formatMoney,
   formatPct,
   setCurrency,
+  subscribeCurrency,
   CURRENCY_OPTIONS,
   CURRENCY_CODE,
   CURRENCY_SYMBOL,
@@ -86,34 +87,34 @@ describe("formatPct", () => {
   });
 });
 
-// ── setCurrency (persistence + reload) ──────────────────────────────────────────────────────
+// ── setCurrency (persistence + in-place update, NO reload) ────────────────────────────────────
 describe("setCurrency", () => {
-  let reloadSpy: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    // jsdom's real location.reload is non-configurable, so stub the whole global
-    // location object (setCurrency only touches location.reload).
-    reloadSpy = vi.fn();
-    vi.stubGlobal("location", { reload: reloadSpy });
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("persists the chosen currency to localStorage", () => {
     setCurrency("GBP");
     expect(localStorage.getItem(CURRENCY_STORAGE_KEY)).toBe("GBP");
   });
 
-  it("triggers a reload so formatted values re-apply", () => {
+  it("updates the live symbol in place (no reload) so formatted values re-apply", () => {
     setCurrency("EUR");
-    expect(reloadSpy).toHaveBeenCalledOnce();
+    expect(formatMoney(1000)).toBe("€1,000");
+    setCurrency("GBP");
+    expect(formatMoney(1000)).toBe("£1,000");
   });
 
-  it("persists even an unknown code (validation happens on read)", () => {
+  it("notifies subscribers so the app can re-render without a reload", () => {
+    const cb = vi.fn();
+    const unsub = subscribeCurrency(cb);
+    setCurrency("AUD");
+    expect(cb).toHaveBeenCalledOnce();
+    unsub();
+    setCurrency("USD");
+    expect(cb).toHaveBeenCalledOnce(); // no further calls after unsubscribe
+  });
+
+  it("persists any code but falls back to a safe symbol on an unknown one", () => {
     setCurrency("ZZZ");
-    expect(localStorage.getItem(CURRENCY_STORAGE_KEY)).toBe("ZZZ");
+    expect(localStorage.getItem(CURRENCY_STORAGE_KEY)).toBe("ZZZ"); // validation happens on read
+    expect(formatMoney(1000)).toBe("$1,000"); // unknown → USD symbol, never undefined
   });
 });
 

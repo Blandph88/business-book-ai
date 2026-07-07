@@ -183,11 +183,14 @@ export function MetricsTab({
   }, []);
 
   // Fold Held meetings into each contact's `met` flag, so the "Met" population and the
-  // funnel's Met stage share ONE effective flag everywhere (csv heuristic ∪ Held).
+  // funnel's Met stage share ONE effective flag everywhere (csv heuristic ∪ Held). Also set
+  // `agreed_to_meet` — the funnel is cumulative, so a contact who's Met but not Agreed would make
+  // the Agreed stage count LOWER than its own downstream Met stage (an impossible inversion). You
+  // can't have held a meeting without having agreed to one, so fold both flags together.
   const effectiveContacts = useMemo(
     () =>
       contacts.map((c) =>
-        !c.met && heldUrls.has(c.url) ? { ...c, met: true } : c,
+        !c.met && heldUrls.has(c.url) ? { ...c, met: true, agreed_to_meet: true } : c,
       ),
     [contacts, heldUrls],
   );

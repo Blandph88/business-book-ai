@@ -104,3 +104,16 @@ export function deleteSow(id: string): SowsById {
   persistLocal(STORAGE_KEY, JSON.stringify(all));
   return all;
 }
+
+// Clear a deleted opportunity off any SoW that referenced it — mirrors the meetings unlink so a removed
+// opportunity leaves no dangling "View opportunity →" back-reference on the revenue side (and lets the
+// same SoW be re-linked to a fresh opportunity later).
+export function unlinkOpportunityFromSows(oppId: string): SowsById {
+  const all = loadAllSows();
+  let changed = false;
+  for (const s of Object.values(all)) {
+    if (s.linked_opportunity_id === oppId) { delete s.linked_opportunity_id; changed = true; }
+  }
+  if (changed) persistLocal(STORAGE_KEY, JSON.stringify(all));
+  return all;
+}
