@@ -56,7 +56,8 @@ export async function scanOpportunities(contacts: Contact[], opts: OppScanOpts =
   if (todo.length > 2) { batches.push(todo.slice(0, 2)); start = 2; }
   for (let i = start; i < todo.length; i += size) batches.push(todo.slice(i, i + size));
 
-  let done = 0, tokens = 0;
+  let done = 0, tokens = 0, failed = 0;
+  let firstError: unknown = null;
   const at = new Date().toISOString().slice(0, 10);
   opts.onProgress?.({ done, total, tokens });
 
@@ -79,8 +80,11 @@ export async function scanOpportunities(contacts: Contact[], opts: OppScanOpts =
         const url = o && typeof o.ref === "string" ? refToUrl.get(o.ref) : undefined;
         if (url && typeof o.opp === "string" && o.opp.trim()) out.set(url, { at, text: o.opp.trim() });
       }
-    } catch {
-      /* batch failed — leave unscanned so a re-run retries it */
+    } catch (e) {
+      // Batch failed — leave unscanned (a re-run retries it), but remember why: if EVERY batch fails we
+      // surface the reason rather than reporting a silent "found (0)" that looks like "no opportunities".
+      failed++;
+      if (!firstError) { firstError = e; console.warn("[Business Book] opportunity scan batch failed:", e); }
     }
     done += batch.length;
     opts.onProgress?.({ done, total, tokens });
@@ -97,6 +101,12 @@ export async function scanOpportunities(contacts: Contact[], opts: OppScanOpts =
     }
   });
   await Promise.all(runners);
+  // Nothing recorded AND batches actually failed → a real error, not "scanned everyone, found none"
+  // (a clean run pre-records every contact with empty text, so out is non-empty on success).
+  if (out.size === 0 && failed > 0 && !opts.signal?.aborted) {
+    const why = firstError instanceof Error ? firstError.message : String(firstError ?? "unknown error");
+    throw new Error(`AI produced no usable results across ${failed} batch${failed === 1 ? "" : "es"} — ${why}`);
+  }
   return out;
 }
 

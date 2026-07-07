@@ -110,7 +110,8 @@ export async function scoreWarmthSentiment(contacts: Contact[], opts: SentimentO
   if (todo.length > 2) { batches.push(todo.slice(0, 2)); start = 2; }
   for (let i = start; i < todo.length; i += size) batches.push(todo.slice(i, i + size));
 
-  let done = 0, tokens = 0;
+  let done = 0, tokens = 0, failed = 0;
+  let firstError: unknown = null;
   const at = new Date().toISOString().slice(0, 10);
   opts.onProgress?.({ done, total, tokens });
 
@@ -135,8 +136,11 @@ export async function scoreWarmthSentiment(contacts: Contact[], opts: SentimentO
         if (!Number.isFinite(score)) continue;
         out.set(url, { score, at }); // label is derived from score at display time (warmthLabel), so we don't ask for it
       }
-    } catch {
-      /* batch failed — leave unscored; a later run retries it */
+    } catch (e) {
+      // Batch failed — leave unscored (a later run retries it), but REMEMBER why: if EVERY batch fails
+      // we surface the reason instead of reporting a silent, misleading "done (0)".
+      failed++;
+      if (!firstError) { firstError = e; console.warn("[Business Book] warmth scan batch failed:", e); }
     }
     done += batch.length;
     opts.onProgress?.({ done, total, tokens });
@@ -155,6 +159,13 @@ export async function scoreWarmthSentiment(contacts: Contact[], opts: SentimentO
     }
   });
   await Promise.all(runners);
+  // Nothing scored AND batches actually failed (not merely an empty/aborted run) → a real error
+  // (broker unavailable, prompt rejected, or unparseable output), so throw with the reason instead of
+  // pretending the scan completed. A PARTIAL result (some scored) still returns gracefully.
+  if (out.size === 0 && failed > 0 && !opts.signal?.aborted) {
+    const why = firstError instanceof Error ? firstError.message : String(firstError ?? "unknown error");
+    throw new Error(`AI produced no usable scores across ${failed} batch${failed === 1 ? "" : "es"} — ${why}`);
+  }
   return out;
 }
 

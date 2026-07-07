@@ -48,5 +48,8 @@
 
 /* Completion state. */
 .warmth-banner--done { background: var(--ok-tint, #e9f6ee); }
+/* Error state — the scan couldn't run; the text carries the reason. */
+.warmth-banner--error { background: var(--danger-tint, #fbecec); border-color: var(--danger, #c0392b); }
+.warmth-banner--error .warmth-banner-check { color: var(--danger, #c0392b); }
 .warmth-banner-check { flex: 0 0 auto; font-weight: 800; color: var(--ok, #1b8a4b); }
 .warmth-banner-text { flex: 1; min-width: 0; }

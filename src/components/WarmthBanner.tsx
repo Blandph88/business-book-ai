@@ -41,7 +41,19 @@ export function WarmthBanner() {
     while (s.pts.length > 2 && now - s.pts[0].t > 120_000) s.pts.shift(); // keep ~last 2 minutes
   }, [state.status, state.startedAt, state.done, tick]);
 
-  if (state.status !== "running" && state.status !== "done" && state.status !== "paused") return null;
+  if (state.status !== "running" && state.status !== "done" && state.status !== "paused" && state.status !== "error") return null;
+
+  if (state.status === "error") {
+    return (
+      <div className="warmth-banner warmth-banner--error" role="alert">
+        <span className="warmth-banner-check" aria-hidden>⚠</span>
+        <span className="warmth-banner-text">
+          {state.label} couldn’t run{state.error ? ` — ${state.error}` : "."} Check your AI is set up (a model or key that’s actually reachable), then try again.
+        </span>
+        <button className="warmth-banner-x" onClick={dismissWarmth} aria-label="Dismiss">×</button>
+      </div>
+    );
+  }
 
   if (state.status === "done") {
     return (

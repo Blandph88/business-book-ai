@@ -28,6 +28,7 @@ export type WarmthTaskState = {
   scoreable: number;
   capped: boolean;
   backend?: string;
+  error?: string; // set when status === "error" — the reason the scan couldn't run (surfaced in the banner)
 };
 
 const JOB_LABEL: Record<AnalysisJob, string> = { warmth: "Relationship warmth", opportunities: "Opportunity scan", classify: "Company sectors" };
@@ -71,7 +72,7 @@ async function run(job: AnalysisJob, force = false): Promise<void> {
   const avail = await aiAvailability();
   if (!avail.willRun) { set({ status: "idle" }); return; }
   abort = { aborted: false };
-  set({ status: "running", job, label: JOB_LABEL[job], done: 0, total: 0, tokens: 0, current: undefined, startedAt: Date.now(), scored: 0, scoreable: 0, capped: false, backend: avail.backend });
+  set({ status: "running", job, label: JOB_LABEL[job], done: 0, total: 0, tokens: 0, current: undefined, startedAt: Date.now(), scored: 0, scoreable: 0, capped: false, backend: avail.backend, error: undefined });
   try {
     if (job === "warmth") {
       const { scored, scoreable, capped } = await enrichImportedContactsWarmth({
@@ -95,8 +96,8 @@ async function run(job: AnalysisJob, force = false): Promise<void> {
       });
       if (!abort.aborted) set({ status: "done", scored: updated, scoreable: companies, capped: false });
     }
-  } catch {
-    set({ status: "error" });
+  } catch (e) {
+    set({ status: "error", error: e instanceof Error ? e.message : String(e) });
   }
 }
 
