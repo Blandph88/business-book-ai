@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import "./App.css";
 import { TabNav, type TabId, type TabIntent } from "./components/TabNav";
 import { Tutorial } from "./components/Tutorial";
@@ -41,6 +41,10 @@ export default function App() {
   // The nameless Overview (the `metrics` network-charts view) is the default home — reached via
   // the brand logo. "Dashboard" is the first visible tab.
   const [activeTab, setActiveTab] = useState<TabId>("metrics");
+  // Mirror the current tab into a ref so effects keyed on other state (e.g. warmth completion) can
+  // read the LIVE tab without taking activeTab as a dependency (which would re-fire them on every nav).
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
   // The deep-link payload for the tab we're switching to (a filter/search to preset and/or
   // a record to open). Cleared to null on a plain tab click. Since tabs are only mounted
   // while active, each consumes its intent fresh on mount.
@@ -156,7 +160,14 @@ export default function App() {
   // Subscribe to just the STATUS string (not the whole state) so the app only re-renders on transitions,
   // not on every per-batch progress tick (the banner has its own subscription for the live numbers).
   const warmthStatus = useSyncExternalStore(subscribeWarmth, () => getWarmthState().status);
-  useEffect(() => { if (warmthStatus === "done") setDataNonce((n) => n + 1); }, [warmthStatus]);
+  useEffect(() => {
+    if (warmthStatus !== "done") return;
+    // Only remount to surface new scores when the user is on a READ-ONLY overview tab. On a record/
+    // form/chat tab, a remount would silently discard whatever they're editing — and leaving that tab
+    // mounts the destination fresh anyway, so updated scores appear on next navigation without data loss.
+    const t = activeTabRef.current;
+    if (t === "dashboard" || t === "metrics" || t === "insights") setDataNonce((n) => n + 1);
+  }, [warmthStatus]);
 
   // A scan that was mid-flight when the page was refreshed picks back up (it's resumable) — so the banner
   // "stays" and the work continues across a reload. Runs once, only when there's data to work on.

@@ -15,7 +15,7 @@ import {
   deriveContactInfo,
   type MeetingRow,
 } from "../data/meetings";
-import { saveOpportunity } from "../storage/opportunities";
+import { saveOpportunity, loadAllOpportunities } from "../storage/opportunities";
 import { buildOpportunityFromMeeting } from "../data/opportunities";
 import { nextMeetingDateISO } from "../data/timeline";
 import {
@@ -274,7 +274,11 @@ export function MeetingsTab({
         contacts.find((c) => c.url === meeting.contact_url),
       );
       const opp = buildOpportunityFromMeeting(meeting, info);
-      saveOpportunity(opp);
+      // The opportunity id is DETERMINISTIC from the meeting id, so one may already exist at this id
+      // (e.g. the meeting's link was lost — a re-materialised seed, an external edit — but the
+      // opportunity, possibly since edited by the owner with a real value/stage/next_step, is still
+      // there). Don't overwrite it with freshly-derived defaults; adopt it and just restore the link.
+      if (!loadAllOpportunities()[opp.id]) saveOpportunity(opp);
       meeting = { ...meeting, linked_opportunity_id: opp.id };
     }
 
