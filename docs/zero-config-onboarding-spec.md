@@ -1,5 +1,28 @@
 # Zero-config onboarding + deterministic-first — build spec
 
+## Priya resolution scorecard (single source of truth)
+
+The full Priya review, mapped to status. ✅ done · 🟡 partial · 🔴 open.
+
+| # | Priya's turn-off | Status | Where |
+|---|---|---|---|
+| BB-YourDay | Brief renders nothing until AI is set up | ✅ | commit d305354 — deterministic brief |
+| BB-datateloss | Scan remount nukes open forms; opp re-spot clobbers | ✅ | 7d372bd |
+| BB-stale/currency/SoW/funnel | YourDay stale cache; currency reload; SoW dangling link; Met/Agreed inversion | ✅ | 45ee8ba |
+| BB-copilot | Concurrent gen; companion/crisis gate bypass; bad tool args | ✅ | f788718 |
+| BB-emptygraphs | **Opportunity/engagement/meeting graphs + zero KPIs look broken on a contacts-only import** | 🔴 | **B5 below** |
+| BB-warmth | Barren/slow first-run ranking (top-N cap, AI-blocked) | 🔴 | B2 |
+| BB-redaction | Cloud-scan redaction is opt-in on a confidentiality product | 🔴 | B3 |
+| FH-aiwall | AI-setup wall for AI-*required* apps | 🟡 | Part A (BB already AI-optional) |
+| FH-compat | Desktop-Chrome-only discovered late | 🔴 | Part A / listing pre-check |
+| FH-price | £9,999 "all sales final", no "who is this for" | 🔴 | seq #6 |
+| FH-jargon | "sealed / capability / BYOK" | 🔴 | seq #6 |
+| X-onramp | AI on-ramp asked too early (both) | 🟡 | Part A + deterministic-first (YourDay ✅, dashboard already model-free) |
+
+Note: the versioning-delivery + checkout/grant security fixes (76896d6, d8c69ef) aren't Priya-delight items, but a versioning feature that couldn't ship a patch *would* have disappointed her later — now closed.
+
+
+
 **Goal (Priya-delight):** the product is fully alive the instant her data lands, with **no AI setup asked up front**. AI setup becomes a **one-time guided "activation"** she reaches *after* she's seen value — the teaching moment for "your AI runs on your device, you control it." A modest local model never defines the perceived quality ceiling (the demo anchors that high), and there's a visible upgrade ladder she climbs at her own pace.
 
 Two halves, clean split (already reflected in the code):
@@ -30,10 +53,18 @@ The dashboard/metrics/funnel/rankings already render with **no AI** (no `aiReady
 - **B2. Instant, uncapped deterministic warmth ranking.** Rank *everyone* immediately by the deterministic funnel-stage + recency signal (`warmth()` in compute.ts — already model-free), no top-N cap. The AI *sentiment* pass then enriches scores in the background (the warmth banner already streams progressive updates). Initial ranking must never block the view; the slow per-message pass prioritises warmest/most-recent first.
 - **B3. Redaction on by default for any cloud/BYOK scan** (confidentiality product) — prefer on-device tiers for the scan so nothing leaves; opting *out* is the deliberate, explained choice. Doubles as a headline: "confidential by default."
 - **B4. Graceful generative degradation** — every AI feature off-state points to Freehold AI settings and states "everything else here works without it" (CopilotBar already does; audit InsightsTab / AiFill / forms for parity).
+- **B5. Empty-category states (contacts-only import).** A fresh import has *contacts* but no meetings / opportunities / revenue yet. Contacts-derived views are already alive (funnel stages, sector/seniority/function breakdowns, warmth, key contacts). The gap: **category-dependent GRAPHS + zero-value KPIs render a bare/broken-looking shell** — the opportunity pipeline funnel + opportunity breakdowns on the landing (MetricsTab), the revenue/engagement visuals (RevenueTab + the "Recognised" KPI), and zero KPIs (Weighted pipeline $0, Win rate —).
+  - **Pattern (already used by the dashboard, extend it):** DashboardTab already gates AI-derived KPIs (`repliesOwed > 0 &&`, `oppSignals > 0 &&`) and gives every LIST an empty message. Do the same for the *graphs*: **keep the card shell, replace the empty chart / interactive filters / zero stats with a one-line guiding empty-state + a CTA to the tab that creates that record** ("No opportunities yet — log one from a meeting or the Opportunities tab and your pipeline funnel appears here →"). Never render a zero-height funnel, an interactive phase-filter over nothing, a NaN%, or a stark $0 KPI with no guidance.
+  - **Turn emptiness into onboarding:** the empty-states double as first-run guidance ("Log your first meeting →"), so a contacts-only book reads as "rich network + clear next steps", not "broken".
+  - **Scope to audit:** MetricsTab (opp pipeline funnel + opp breakdowns card — gate on `opps.length`), RevenueTab (engagement charts — gate on SoW count), DashboardTab (Progress activity bars + the three always-on KPIs — soft empty treatment or gate like the AI KPIs). Contacts-derived visuals stay always-on (they're populated on import).
 
-## Sequencing
+## Sequencing (full Priya resolution)
 
-1. **B1** (YourDay deterministic brief) — smallest, kills the worst first-run impression. ← now
-2. **B2** (instant uncapped warmth) + **B3** (redaction default) — medium; the confidentiality + "alive rankings" wins.
-3. **Part A** activation flow (platform) — the bigger build; retires "setup wall" + "asked too early" in one move.
-4. Freehold listing polish (who-this-is-for, £499→£9,999 credit, plain-English copy, compat pre-check).
+1. ~~**B1** YourDay deterministic brief~~ ✅ done (d305354).
+2. **B5** empty-category states — small/medium, removes the "looks broken" first impression on a contacts-only import. Highest delight-per-effort left in BB. ← next
+3. **B2** instant uncapped warmth ranking + **B3** redaction-on-by-default — medium; "alive rankings" + "confidential by default" (a sales headline).
+4. **B4** generative-degradation parity audit (InsightsTab / AiFill / forms) — quick.
+5. **Part A** platform activation flow (one-click capable model + "set up properly" + tier ladder + demo high-anchor) — the bigger build; retires FH-aiwall + X-onramp.
+6. **Freehold listing polish** — FH-compat (pre-buy browser check), FH-price (who-this-is-for + £499→£9,999 credit + reframe "all sales final"), FH-jargon (plain-English copy + trust line).
+
+After 2–4, every 🔴 BB item is closed; after 5–6, the Freehold items. That's the full Priya resolution.
