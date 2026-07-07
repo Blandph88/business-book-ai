@@ -17,7 +17,7 @@ import {
   UNASSIGNED_GROUP,
 } from "../data/opportunities";
 import { loadContacts, type Contact } from "../data/contacts";
-import { loadAllMeetings, type MeetingsById } from "../storage/meetings";
+import { loadAllMeetings, unlinkOpportunity, type MeetingsById } from "../storage/meetings";
 import { loadAllSows, type Sow } from "../storage/revenue";
 import { sowForOpportunity } from "../data/revenue";
 import { loadAllEdits, editsFor, type OwnerEdits } from "../storage/ownerEdits";
@@ -276,6 +276,7 @@ export function OpportunitiesTab({
 
   function handleDelete(id: string) {
     setSaved(deleteOpportunity(id));
+    unlinkOpportunity(id); // clear it off any meeting that sourced it (no dead "View opportunity →"; allows recreate)
     setFormTarget(null);
     flashSaved();
   }

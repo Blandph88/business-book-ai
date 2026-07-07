@@ -95,6 +95,19 @@ export function saveAllMeetings(all: MeetingsById): MeetingsById {
   return all;
 }
 
+// Clear any meeting's link to an opportunity that's just been deleted — so its "View opportunity →"
+// doesn't dead-end, and re-saving the meeting can recreate the opportunity (the create guard checks
+// that the link is empty). Returns the new map.
+export function unlinkOpportunity(oppId: string): MeetingsById {
+  const all = loadAllMeetings();
+  let changed = false;
+  for (const m of Object.values(all)) {
+    if (m.linked_opportunity_id === oppId) { delete m.linked_opportunity_id; changed = true; }
+  }
+  if (changed) persistLocal(STORAGE_KEY, JSON.stringify(all));
+  return all;
+}
+
 // Save one meeting, merged into the existing map, and return the new map so the
 // caller can update React state from the same source of truth.
 export function saveMeeting(meeting: Meeting): MeetingsById {

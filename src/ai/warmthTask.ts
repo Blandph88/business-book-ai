@@ -36,6 +36,8 @@ const MARKER_KEY = "bb.activeScan.v1";
 
 let state: WarmthTaskState = { status: "idle", label: "", done: 0, total: 0, tokens: 0, startedAt: 0, scored: 0, scoreable: 0, capped: false };
 let abort = { aborted: false };
+let running = false; // an ACTUAL in-flight flag — status can be 'paused'/'idle' while a batch is still awaiting
+let runId = 0; // bumped per run; a stale loop's callbacks compare against it and no-op
 const listeners = new Set<() => void>();
 
 function emit() { for (const l of listeners) l(); }
@@ -68,36 +70,45 @@ export function dismissWarmth(): void {
 }
 
 async function run(job: AnalysisJob, force = false): Promise<void> {
-  if (state.status === "running") return; // single-slot
+  // Single-slot. `running` (not just status) catches the window where a batch is STILL awaiting after a
+  // pause/cancel flipped the status — without it, Pause→Resume (or Cancel→re-run) starts a 2nd GPU loop.
+  if (running || state.status === "running") return;
   const avail = await aiAvailability();
   if (!avail.willRun) { set({ status: "idle" }); return; }
+  running = true;
+  const myId = ++runId;
   abort = { aborted: false };
-  set({ status: "running", job, label: JOB_LABEL[job], done: 0, total: 0, tokens: 0, current: undefined, startedAt: Date.now(), scored: 0, scoreable: 0, capped: false, backend: avail.backend, error: undefined });
+  // Run-scoped set: if a stale prior loop's callbacks resolve after a newer run started, they no-op
+  // instead of clobbering the new run's progress.
+  const rset = (patch: Partial<WarmthTaskState>) => { if (myId === runId) set(patch); };
+  rset({ status: "running", job, label: JOB_LABEL[job], done: 0, total: 0, tokens: 0, current: undefined, startedAt: Date.now(), scored: 0, scoreable: 0, capped: false, backend: avail.backend, error: undefined });
   try {
     if (job === "warmth") {
       const { scored, scoreable, capped } = await enrichImportedContactsWarmth({
         force, signal: abort,
-        onMeta: (m) => set({ scoreable: m.scoreable, capped: m.capped }),
-        onProgress: (p: SentimentProgress) => set({ done: p.done, total: p.total, tokens: p.tokens, current: p.current }),
+        onMeta: (m) => rset({ scoreable: m.scoreable, capped: m.capped }),
+        onProgress: (p: SentimentProgress) => rset({ done: p.done, total: p.total, tokens: p.tokens, current: p.current }),
       });
-      if (!abort.aborted) set({ status: "done", scored, scoreable, capped });
+      if (!abort.aborted) rset({ status: "done", scored, scoreable, capped });
     } else if (job === "opportunities") {
       const { found, scoreable, capped } = await scanImportedContactsForOpportunities({
         force, signal: abort,
-        onMeta: (m) => set({ scoreable: m.scoreable, capped: m.capped }),
-        onProgress: (p: OppScanProgress) => set({ done: p.done, total: p.total, tokens: p.tokens, current: p.current }),
+        onMeta: (m) => rset({ scoreable: m.scoreable, capped: m.capped }),
+        onProgress: (p: OppScanProgress) => rset({ done: p.done, total: p.total, tokens: p.tokens, current: p.current }),
       });
-      if (!abort.aborted) set({ status: "done", scored: found, scoreable, capped });
+      if (!abort.aborted) rset({ status: "done", scored: found, scoreable, capped });
     } else {
       // classify — LLM sector classification of the unknown-firm tail (company-level, quick).
       const { updated, companies } = await enrichOtherCompanies({
         signal: abort,
-        onProgress: (done, total, current) => set({ done, total, tokens: 0, current }),
+        onProgress: (done, total, current) => rset({ done, total, tokens: 0, current }),
       });
-      if (!abort.aborted) set({ status: "done", scored: updated, scoreable: companies, capped: false });
+      if (!abort.aborted) rset({ status: "done", scored: updated, scoreable: companies, capped: false });
     }
   } catch (e) {
-    set({ status: "error", error: e instanceof Error ? e.message : String(e) });
+    rset({ status: "error", error: e instanceof Error ? e.message : String(e) });
+  } finally {
+    running = false;
   }
 }
 
