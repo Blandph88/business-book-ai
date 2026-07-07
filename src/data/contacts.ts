@@ -64,7 +64,9 @@ export type LatentOpp = { at: string; text: string };
 export type InboundMessage = { date: string; text: string };
 // The precomputed sentiment read for a contact. `at` = when it was scored (ISO), so a re-import can tell
 // which contacts are already done and skip them (the pass is resumable).
-export type WarmthSentiment = { score: number; label?: string; at?: string };
+// `inbound` = the contact's inbound-message count AT SCORING TIME, so a later re-import can tell the score
+// is stale (new replies have arrived since) and re-score, rather than keeping an old score forever.
+export type WarmthSentiment = { score: number; label?: string; at?: string; inbound?: number };
 // Deterministic thread signal. `lastFromOwner` true = owner sent last (the CONTACT owes a reply);
 // false = the contact sent last (the OWNER owes the reply). Counts are messages each way.
 export type ThreadMeta = { lastDate: string; lastFromOwner: boolean; inboundCount: number; outboundCount: number };

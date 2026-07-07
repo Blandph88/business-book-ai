@@ -9,16 +9,20 @@ import type { Contact, InboundMessage, ThreadMeta } from "./contacts";
 
 // The stable contact key — now the single canonical helper (imported for internal use + re-exported here
 // for existing import sites/tests).
-import { normalizeUrl } from "./url";
+import { normalizeUrl, syntheticContactKey } from "./url";
 export { normalizeUrl };
 
 // ── Connections.csv ─────────────────────────────────────────────────────────────────────
 // LinkedIn prepends a "Notes:" line, a quoted note, and a blank line before the real header.
 // Start parsing at the header row (the line beginning with "First Name").
 function stripPreamble(text: string): string {
-  const lines = text.split(/\r?\n/);
-  const headerIdx = lines.findIndex((l) => /^"?First Name"?\s*,/i.test(l));
-  return headerIdx > 0 ? lines.slice(headerIdx).join("\n") : text;
+  const clean = text.replace(/^\uFEFF/, ""); // a UTF-8 BOM would break header detection AND the first column
+  const lines = clean.split(/\r?\n/);
+  // The header row starts the real data. Detect it by a "First Name" column OR a "URL" column (case/quote
+  // tolerant), so a BOM or a localized "First Name" header doesn't cause the whole import to silently fail.
+  const isHeader = (l: string) => /(^|,)\s*"?first name"?\s*,/i.test(l) || /(^|,)\s*"?url"?\s*(,|$)/i.test(l);
+  const headerIdx = lines.findIndex(isHeader);
+  return headerIdx > 0 ? lines.slice(headerIdx).join("\n") : clean;
 }
 
 type RawConn = { first: string; last: string; company: string; title: string; url: string };
@@ -30,11 +34,15 @@ export function parseConnections(text: string): RawConn[] {
   });
   const out: RawConn[] = [];
   for (const row of parsed.data) {
-    const url = (row["URL"] ?? row["Url"] ?? "").trim();
-    if (!url) continue;
+    const first = (row["First Name"] ?? "").trim();
+    const last = (row["Last Name"] ?? "").trim();
+    // Keep connections whose profile URL LinkedIn omitted (restricted profiles): key them by a stable
+    // name-based synthetic id (so a re-import collapses them onto the same record) instead of dropping them.
+    const url = (row["URL"] ?? row["Url"] ?? "").trim() || syntheticContactKey(first, last);
+    if (!url) continue; // no URL AND no name → nothing to key on
     out.push({
-      first: (row["First Name"] ?? "").trim(),
-      last: (row["Last Name"] ?? "").trim(),
+      first,
+      last,
       company: (row["Company"] ?? "").trim(),
       title: (row["Position"] ?? "").trim(),
       url,

@@ -43,6 +43,15 @@ export function hasWarmthSignal(c: Contact): boolean {
   return only.length > 80 || AFFIRM.test(only); // a substantive or keen single reply
 }
 
+// A contact needs (re)scoring if never scored, OR new inbound has arrived since the last score (their
+// thread grew on a later import) — so an active conversation's warmth doesn't drift stale.
+export function warmthStale(c: Contact): boolean {
+  const s = c.warmthSentiment;
+  if (!s) return true;
+  const now = c.thread?.inboundCount ?? c.inbound?.length ?? 0;
+  return (s.inbound ?? 0) < now;
+}
+
 // Warm cohort first: agreed/met outrank a bare reply; more of their own messages = more engaged.
 function priority(c: Contact): number {
   // inbound is capped to the arc at import, so use the true count from thread meta for engagement ranking.
@@ -97,7 +106,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export async function scoreWarmthSentiment(contacts: Contact[], opts: SentimentOpts = {}): Promise<Map<string, WarmthSentiment>> {
   const out = new Map<string, WarmthSentiment>();
   let todo = contacts
-    .filter((c) => hasWarmthSignal(c) && (opts.force || !c.warmthSentiment))
+    .filter((c) => hasWarmthSignal(c) && (opts.force || warmthStale(c)))
     .sort((a, b) => priority(b) - priority(a));
   if (opts.maxContacts && todo.length > opts.maxContacts) todo = todo.slice(0, opts.maxContacts); // top-priority only
   const total = todo.length;
@@ -118,9 +127,11 @@ export async function scoreWarmthSentiment(contacts: Contact[], opts: SentimentO
   const runBatch = async (batch: Contact[]) => {
     if (opts.signal?.aborted) return;
     const refToUrl = new Map<string, string>();
+    const refToInbound = new Map<string, number>(); // inbound count at scoring time → detect stale scores later
     const items = batch.map((c, j) => {
       const ref = `c${j}`;
       refToUrl.set(ref, c.url);
+      refToInbound.set(ref, c.thread?.inboundCount ?? c.inbound?.length ?? 0);
       return { ref, messages: snippets(c, opts.redact) }; // no name; snippets redacted for cloud (data minimisation)
     });
     // Surface WHO is being scored so the banner shows live movement even mid-batch.
@@ -134,7 +145,7 @@ export async function scoreWarmthSentiment(contacts: Contact[], opts: SentimentO
         if (!url) continue;
         const score = Math.max(0, Math.min(10, Number(s.score)));
         if (!Number.isFinite(score)) continue;
-        out.set(url, { score, at }); // label is derived from score at display time (warmthLabel), so we don't ask for it
+        out.set(url, { score, at, inbound: refToInbound.get(s.ref) ?? 0 }); // label derived from score at display time
       }
     } catch (e) {
       // Batch failed — leave unscored (a later run retries it), but REMEMBER why: if EVERY batch fails
@@ -177,7 +188,7 @@ export function applyWarmthScores(contacts: Contact[], scores: Map<string, Warmt
 
 // How many contacts a pass WOULD score (the signal set) — for a pre-run estimate.
 export function countScoreable(contacts: Contact[], force = false): number {
-  return contacts.filter((c) => hasWarmthSignal(c) && (force || !c.warmthSentiment)).length;
+  return contacts.filter((c) => hasWarmthSignal(c) && (force || warmthStale(c))).length;
 }
 
 // Orchestrator: score the owner's IMPORTED book and persist incrementally (so an interrupted run keeps what

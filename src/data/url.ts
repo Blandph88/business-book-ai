@@ -11,3 +11,12 @@ export function normalizeUrl(url: string | undefined): string {
   if (m) return `https://www.linkedin.com/in/${m[1].toLowerCase()}`;
   return trimmed.toLowerCase().split("?")[0].split("#")[0].replace(/\/+$/, "");
 }
+
+// A stable, deterministic key for a contact whose LinkedIn profile URL is missing (restricted profiles),
+// derived from their name — so they're KEPT (not dropped) and a re-import collapses them onto the same
+// record instead of duplicating. Returns "" if there's no name to key on. Passes through normalizeUrl
+// unchanged (no ?#/ chars), so it can live in the same `url` field as a real URL.
+export function syntheticContactKey(first?: string, last?: string): string {
+  const slug = `${first ?? ""} ${last ?? ""}`.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug ? `name:${slug}` : "";
+}

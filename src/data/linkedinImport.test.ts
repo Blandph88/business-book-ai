@@ -98,14 +98,15 @@ describe("parseConnections", () => {
     expect(rows[0].url).toBe("https://x.com/in/sam");
   });
 
-  it("skips rows that have no URL", () => {
+  it("keeps a no-URL contact via a name-based synthetic key", () => {
     const text = connFile([
       "Jane,Doe,https://x.com/in/jane,,Microsoft,Engineer,01 Jan 2024",
       "Noprofile,Person,,,Acme,Manager,01 Jan 2024",
     ]);
     const rows = parseConnections(text);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].first).toBe("Jane");
+    expect(rows).toHaveLength(2); // the no-URL row is KEPT (restricted profiles shouldn't vanish)
+    expect(rows[1].first).toBe("Noprofile");
+    expect(rows[1].url).toBe("name:noprofile-person");
   });
 
   it("returns [] for an empty file", () => {
@@ -294,14 +295,14 @@ describe("importLinkedIn", () => {
     expect(importLinkedIn(connFile([]), "").contacts).toEqual([]);
   });
 
-  it("skips malformed rows without a URL but keeps valid ones", () => {
+  it("keeps a no-URL contact (restricted profile) via a synthetic key", () => {
     const conns = connFile([
       `Jane,Doe,${ANA},,Microsoft,Engineer,01 Jan 2024`,
       `Bad,Row,,,NoUrl Co,Manager,01 Jan 2024`,
     ]);
     const { contacts } = importLinkedIn(conns, "");
-    expect(contacts).toHaveLength(1);
-    expect(contacts[0].first).toBe("Jane");
+    expect(contacts).toHaveLength(2); // the no-URL row is kept, not dropped
+    expect(contacts.some((c) => c.url === "name:bad-row")).toBe(true);
   });
 });
 
