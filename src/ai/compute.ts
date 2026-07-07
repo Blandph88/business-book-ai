@@ -534,7 +534,7 @@ export function funnelBreakdown(d: BookData, dim: "sector_group" | "function" | 
 
 // 9 + 11. resolveContact + contactBrief — one person's full picture.
 export function resolveContact(d: BookData, ref: string, today: string): Contact | null {
-  const r = ref.trim().toLowerCase();
+  const r = String(ref ?? "").trim().toLowerCase(); // defensive: a non-string ref (bad tool arg) must not throw
   if (!r) return null;
   const lm = lastMeetingMap(d);
   if (/\b(warmest|hottest|most engaged)\b/.test(r)) return d.contacts.map((c) => ({ c, s: warmth(c, lm, today) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s)[0]?.c ?? null;
@@ -939,8 +939,19 @@ export function runTool(call: ToolCall, d: BookData, today: string): ComputeResu
   const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
   const num = (v: unknown): number | undefined => { const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/[^\d.]/g, "")) : NaN; return Number.isFinite(n) && n > 0 ? n : undefined; };
   const oneOf = <T extends string>(v: unknown, opts: readonly T[], dflt: T): T => (typeof v === "string" && (opts as readonly string[]).includes(v) ? (v as T) : dflt);
+  // Validate a model-supplied funnel stage against the KNOWN set — findContacts uses `stage` as a
+  // dynamic property key on each contact, so a hallucinated value ("hot", "closed", or worse a magic
+  // key like "__proto__") would otherwise yield a garbage/wrong list instead of a clean no-op.
+  const STAGES = ["messaged", "responded", "two_way", "agreed_to_meet", "met", "agreed_not_met", "not_responded"] as const;
+  const stageArg = (v: unknown): ContactFilter["stage"] => (typeof v === "string" && (STAGES as readonly string[]).includes(v) ? (v as ContactFilter["stage"]) : undefined);
+  // A pronoun / self reference ("her", "them", "me") names no one on its own — resolving it as a literal
+  // name substring-matches a coincidental contact (a "her" inside "Sheridan"), briefing the WRONG person.
+  // Defer to the grounded answer, which carries the person named earlier in the thread. Mirrors the
+  // deterministic ABOUT-path guard so the LLM tool-route can't bypass it.
+  const PRONOUN = /^(?:me|myself|i|her|him|them|it|that|this|they|he|she|us|those|these)\b/i;
+  const named = (v: unknown): string | undefined => { const s = str(v); return s && !PRONOUN.test(s) ? s : undefined; };
   switch (call.tool) {
-    case "findContacts": return findContacts(d, { company: str(a.company), stage: a.stage as ContactFilter["stage"], decisionRole: !!a.decisionRole });
+    case "findContacts": return findContacts(d, { company: str(a.company), stage: stageArg(a.stage), decisionRole: !!a.decisionRole });
     case "findMeetings": return findMeetings(d, today, str(a.range) || str(a.window) || "last two weeks");
     case "findOpportunities": return findOpportunities(d, { status: ["Open", "Won", "Lost"].includes(String(a.status)) ? (a.status as OppFilter["status"]) : "Open", company: str(a.company), minValue: num(a.minValue) });
     case "findContracts": return findContracts(d, { status: str(a.status), company: str(a.company) });
@@ -951,8 +962,10 @@ export function runTool(call: ToolCall, d: BookData, today: string): ComputeResu
     case "owedReplies": return owedReplies(d, today);
     case "latentOpportunities": return latentOpportunities(d);
     case "funnelBreakdown": return funnelBreakdown(d, str(a.dimension) === "function" ? "function" : str(a.dimension) === "seniority" ? "seniority" : "sector_group");
-    case "contactBrief": return contactBrief(d, str(a.name) || str(a.contact) || "", today);
-    case "accountSummary": return accountSummary(d, str(a.company) || str(a.name) || "");
+    // A pronoun/self name → null, so answer() falls through to the grounded book path (which resolves
+    // the thread's actual person) instead of briefing a coincidental substring match.
+    case "contactBrief": { const n = named(a.name) || named(a.contact); return n ? contactBrief(d, n, today) : null; }
+    case "accountSummary": { const n = named(a.company) || named(a.name); return n ? accountSummary(d, n) : null; }
     default: return null;
   }
 }

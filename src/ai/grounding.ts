@@ -60,6 +60,20 @@ export function conversationPath(text: string, d: BookData, prevCompanion = fals
   return g && !g.empty ? "book" : "companion";
 }
 
+// HIGH-CONFIDENCE personal/emotional register — the subset of conversationPath's "companion" verdict
+// that stands on the message ALONE (no book data, no conversation stickiness): small talk, an explicit
+// life/career decision, or a personal/emotional register — and, exactly as in conversationPath, ONLY
+// when there's no competing BD/book intent (a business-development ask, even one worded emotionally,
+// keeps grounding on the user's data). Deliberately EXCLUDES conversationPath's ambiguous fall-through
+// (empty-search default → companion) and stickiness, so genuinely ambiguous / capability / tool queries
+// still reach the LLM router. Used as a DETERMINISTIC pre-router floor alongside the crisis floor: a
+// clearly personal message is caught BEFORE the LLM router, so a tiny on-device model can't misroute
+// "work is grinding me down" into a pipeline/book answer. (crisis is handled separately by the caller.)
+export function clearlyPersonal(text: string): boolean {
+  if (BOOK_INTENT.test(text)) return false;
+  return SMALL_TALK.test(text) || LIFE_DECISION.test(text) || personalRegister(text);
+}
+
 export type Hit = { id: string; main: string; meta: string };
 export type Company = { org: string; count: number };
 export type Groups = { people: Hit[]; companies: Company[]; meetings: Hit[]; opps: Hit[]; contracts: Hit[]; empty: boolean };

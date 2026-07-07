@@ -21,7 +21,7 @@ import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
 import { computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
-import { searchBook, assembleGrounding, conversationPath, type Groups, type Hit } from "../ai/grounding";
+import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
 import { ComputeTable } from "./ComputeTable";
@@ -817,7 +817,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   async function ask(override?: string) {
     const text = (override ?? q).trim();
     const attached = doc;
-    if ((!text && !attached) || asking || actionBusy || !aiReady) {
+    // Block a CONCURRENT generation on this chat: `asking` only covers the pre-first-token window — once
+    // tokens start, asking flips false and streaming flips true, so we must also gate on `streaming`. And
+    // `isBusy(chatId)` is the durable cross-mount guard: the copilot can be closed + reopened mid-reply
+    // (the generation keeps running + persisting), which resets the local asking/streaming flags — without
+    // this, a second Enter would launch a racing generation that corrupts the same conversation.
+    if ((!text && !attached) || asking || streaming || actionBusy || isBusy(chatIdRef.current) || !aiReady) {
       // They tried to ask but the AI isn't ready (no on-device model / no key). Demo-only, content-free.
       if ((text || attached) && !aiReady) track("ai_unavailable", { backend: activeBackend || "none" });
       return;
@@ -909,6 +914,16 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         setAsking(false); markDone(id);
         return;
       }
+    }
+    // DETERMINISTIC PERSONAL FLOOR — the same principle as the crisis floor, one notch down. A CLEARLY
+    // personal/emotional message (small talk, a life/career decision, or a personal register with no BD
+    // intent) is routed to the companion BEFORE the LLM router runs — so a tiny on-device router can't
+    // misroute "I feel worthless, work is grinding me down" into a pipeline/book answer. The LLM router
+    // still owns all the normal routing (which tool / action / help / book); this only pre-empts the
+    // narrow, safety-relevant personal case. A genuine BD ask carries book intent and is NOT caught here.
+    if (!docText && !isGenerate && clearlyPersonal(text)) {
+      await streamCompanion(text, prior, id, history, capabilityLevel(avail.backend, avail.model));
+      return;
     }
     if (!docText && !isGenerate) {
       // UNIFIED LLM ROUTER (function-calling pattern, EVERY tier). ONE schema-constrained call decides: run a
@@ -1263,7 +1278,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                 <span className="copilot-field-spacer" />
                 {aiReady && <TierLabel />}
                 {(q.trim() || doc) && <button type="button" className="copilot-clear" onClick={() => { setQ(""); setDoc(null); inputRef.current?.focus(); }} aria-label="Clear" title="Clear">✕</button>}
-                {aiReady && (q.trim() || doc) && <button type="button" className="copilot-send2" onClick={() => ask()} aria-label="Send" title="Send (Enter)">↑</button>}
+                {aiReady && (q.trim() || doc) && <button type="button" className="copilot-send2" disabled={asking || streaming || actionBusy} onClick={() => ask()} aria-label="Send" title="Send (Enter)">↑</button>}
               </div>
             </div>
             {(doc || docNote) && (
@@ -1422,7 +1437,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                 onChange={setQ}
                 onEnter={() => ask()}
               />
-              <button type="button" className="copilot-ask" disabled={(!q.trim() && !doc) || asking} onClick={() => ask()}>{asking ? "…" : "Send"}</button>
+              <button type="button" className="copilot-ask" disabled={(!q.trim() && !doc) || asking || streaming || actionBusy} onClick={() => ask()}>{asking || streaming ? "…" : "Send"}</button>
             </div>
           </>
         )}
