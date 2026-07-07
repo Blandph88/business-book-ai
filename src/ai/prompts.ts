@@ -262,7 +262,9 @@ export function companionPrompt(question: string, history: ChatTurn[], level: Ca
 
 export function askBookPrompt(question: string, context: string, history: ChatTurn[] = [], webContext = "", compact = false): PromptArgs {
   const convo = history.length
-    ? `\n\nConversation so far:\n${history.map((t) => `${t.role === "you" ? "User" : "You"}: ${t.text}`).join("\n")}`
+    // Bound the history (like companionPrompt) so a long chat over a large book can't overflow the model
+    // context and push out the retrieved records / instructions — worse on the small on-device tier.
+    ? `\n\nConversation so far:\n${history.slice(-8).map((t) => `${t.role === "you" ? "User" : "You"}: ${t.text}`).join("\n")}`
     : "";
   const web = webContext
     ? `\n\nWeb results I looked up for this (use only for EXTERNAL facts — news, public company info — and mention them naturally):\n${webContext}`

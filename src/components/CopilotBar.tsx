@@ -690,6 +690,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   // we never ask again (a remembered flag). On accept we mark consent + clear the off flags so the very next
   // answer loads WebLLM (the broker shows download progress, no second confirm).
   function offerUpgradeIfOnNano() {
+    // Only meaningful in `npm run dev` (the dev shim owns backend switching). Sealed on Freehold the HOST
+    // owns the AI backend, so this nudge's dev-flag writes are inert — firing the confirm there just shows
+    // a dead "~1.9 GB download?" dialog that does nothing. Never run it outside dev.
+    if (!import.meta.env.DEV) return;
     try {
       if (activeBackend !== "builtin") return;            // only nudge people actually on Nano
       const caps = aiCapabilities();

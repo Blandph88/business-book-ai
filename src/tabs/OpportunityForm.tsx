@@ -24,7 +24,7 @@ import {
   probabilityLabel,
   type OpportunityStep,
 } from "../data/vocab";
-import { formatMoney } from "../data/format";
+import { formatMoney, CURRENCY_SYMBOL } from "../data/format";
 import { Field, TextField, TextArea, DateInput, NumberInput, Select, MultiSelect, SearchableSelect, type Option } from "./formControls";
 import { AiFill } from "../components/AiFill";
 
@@ -598,7 +598,7 @@ export function OpportunityForm({
           <fieldset className="mform-section">
             <legend>Value</legend>
             <div className="mform-grid">
-              <Field label="Estimated value (20 20 12 61 79 80 81 33 98 100 204 250 395 398 399 400 701">
+              <Field label={`Estimated value (${CURRENCY_SYMBOL})`}>
                 <NumberInput
                   value={draft.est_value}
                   onChange={(v) => set("est_value", v)}

@@ -63,7 +63,8 @@ export async function enrichOtherCompanies(opts: { onProgress?: (done: number, t
   // (far more accurate than the model guessing from the name alone). Otherwise fall back to recall.
   const grounded = await searchAvailable();
   const mapping: Record<string, string> = {};
-  let done = 0;
+  let done = 0, failed = 0;
+  let firstError: unknown = null;
   for (const batch of batches) {
     if (opts.signal?.aborted) break; // cancelled → stop; whatever we've mapped so far is still applied + saved below
     let entries: Entry[] = batch.map((name) => ({ name }));
@@ -77,11 +78,21 @@ export async function enrichOtherCompanies(opts: { onProgress?: (done: number, t
     }
     try {
       Object.assign(mapping, await classifyCompanies(entries, grounded));
-    } catch {
-      /* skip a failed batch rather than abort the whole run */
+    } catch (e) {
+      // Skip a failed batch rather than abort — but REMEMBER why: if EVERY batch fails we surface the
+      // reason instead of reporting a silent, misleading "done (0)" (matches the warmth/opp scans).
+      failed++;
+      if (!firstError) { firstError = e; console.warn("[Business Book] company-sector scan batch failed:", e); }
     }
     done += batch.length;
     onProgress?.(done, companies.length, batch[0]);
+  }
+
+  // Nothing classified AND batches actually failed → a real error (broker unreachable / unparseable
+  // output), not "every firm was already sorted". Throw so the scan reports it instead of "done (0)".
+  if (Object.keys(mapping).length === 0 && failed > 0 && !opts.signal?.aborted) {
+    const why = firstError instanceof Error ? firstError.message : String(firstError ?? "unknown error");
+    throw new Error(`AI produced no classifications across ${failed} batch${failed === 1 ? "" : "es"} — ${why}`);
   }
 
   const valid = new Set<string>(SECTOR_GROUPS);
