@@ -19,6 +19,11 @@
 //
 // If the endpoint is absent (e.g. a production `vite build`, which has no dev server),
 // every call degrades silently to localStorage-only — the app keeps working.
+//
+// IMPORTANT: this disk mirror is a DEV-ONLY convenience. In the sealed Freehold marketplace build it never
+// runs — there is no dev server, and localStorage there is shimmed to the buyer's per-app Freehold VAULT
+// (file- or browser-backed), which is the real durable store and is exported/imported from the host's
+// "Your data" menu. So "genuinely safe" in production means the vault + that export, NOT this file.
 
 // The localStorage keys we persist. Kept in sync with each store's own STORAGE_KEY;
 // these are stable/versioned, so they rarely change. If you add a store, add its key.
