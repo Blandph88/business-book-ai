@@ -156,12 +156,18 @@ export type ImportResult = {
   counts: { total: number; messaged: number; responded: number; agreed: number };
 };
 
-// Re-import preserves expensive analysis. LinkedIn's CSVs carry no LLM scan output, so a naive
-// re-import (importLinkedIn → saveImportedContacts REPLACES the book) wipes the relationship-warmth
-// and opportunity scores — potentially hours of scanning. Carry `warmthSentiment` + `latentOpp` over
-// for URL-matched contacts (the fresh import supplies up-to-date `thread`/`inbound` from the new
-// messages). Bonus: the warmth/opp passes skip already-scored contacts, so a re-import re-scans only
-// the genuinely new/unscored ones instead of the whole book.
+// Re-import preserves prior WORK the fresh export can't reproduce. LinkedIn's CSVs carry no LLM scan output,
+// and messages.csv is OPTIONAL — so a naive re-import (importLinkedIn → save REPLACES the book) wipes two
+// irreplaceable things:
+//   1. The relationship-warmth + opportunity scores — potentially hours of scanning.
+//   2. When messages.csv wasn't re-uploaded, the ENTIRE funnel: messaged/responded/agreed, who-owes-a-reply
+//      (thread), and every captured inbound message — because those are derived purely from the new messages,
+//      which are empty this import.
+// For each URL-matched contact we therefore carry: warmthSentiment/latentOpp when the fresh import didn't
+// recompute them; and the funnel flags (UNION — never regress a true→false) + thread/inbound/phone when the
+// fresh import supplied none. A re-upload WITH a fuller messages.csv stays authoritative (it provides fresh
+// flags/threads, so the fallbacks don't fire). Bonus: the warmth/opp passes skip already-scored contacts, so a
+// re-import re-scans only the genuinely new/unscored ones.
 export function carryOverEnrichment(fresh: Contact[], prev: Contact[]): Contact[] {
   if (!prev.length) return fresh;
   const prevByUrl = new Map<string, Contact>();
@@ -173,8 +179,20 @@ export function carryOverEnrichment(fresh: Contact[], prev: Contact[]): Contact[
     const old = prevByUrl.get(normalizeUrl(c.url));
     if (!old) return c;
     const out = { ...c };
+    // Expensive AI analysis: carry when this import didn't recompute it.
     if (out.warmthSentiment === undefined && old.warmthSentiment !== undefined) out.warmthSentiment = old.warmthSentiment;
     if (out.latentOpp === undefined && old.latentOpp !== undefined) out.latentOpp = old.latentOpp;
+    // Funnel progress: OR the flags so a Connections-only re-import (empty funnel) can never downgrade a
+    // contact you'd already messaged/heard-back-from/agreed-to-meet.
+    out.messaged = out.messaged || old.messaged;
+    out.responded = out.responded || old.responded;
+    out.two_way = out.two_way || old.two_way;
+    out.agreed_to_meet = out.agreed_to_meet || old.agreed_to_meet;
+    out.met = out.met || old.met;
+    // Message-derived detail: keep the prior thread/inbound/phone when THIS import supplied none for them.
+    if ((!out.inbound || !out.inbound.length) && old.inbound?.length) out.inbound = old.inbound;
+    if (!out.thread && old.thread) out.thread = old.thread;
+    if (!out.phone && old.phone) out.phone = old.phone;
     return out;
   });
 }

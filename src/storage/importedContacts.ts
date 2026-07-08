@@ -87,3 +87,13 @@ export async function saveImportedContacts(contacts: Contact[]): Promise<Contact
 export async function hasImportedContacts(): Promise<boolean> {
   return (await loadImportedContacts()).length > 0;
 }
+
+// Read-modify-write the imported book: load the CURRENT stored contacts, transform them, save the result.
+// Background scans (warmth/opportunity/classify) snapshot the book when they start and persist incrementally
+// for a long time; writing that snapshot back wholesale would clobber a book that changed underneath the scan
+// — most dangerously a re-import that landed mid-scan. Merging onto the freshly-loaded book instead makes each
+// incremental write order-independent: a scan can only ever set fields on contacts that still exist.
+export async function mergeImportedContacts(apply: (current: Contact[]) => Contact[]): Promise<Contact[]> {
+  const current = await loadImportedContacts();
+  return saveImportedContacts(apply(current));
+}

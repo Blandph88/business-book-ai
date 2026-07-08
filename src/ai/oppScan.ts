@@ -5,7 +5,7 @@
 
 import type { Contact, LatentOpp } from "../data/contacts";
 import { aiJson, aiAvailability, isCapableBackend } from "./ai";
-import { loadImportedContacts, saveImportedContacts } from "../storage/importedContacts";
+import { loadImportedContacts, mergeImportedContacts } from "../storage/importedContacts";
 import { opportunityScanPrompt, type OppScore } from "./prompts";
 import { hasWarmthSignal, redactPII, scanRedactEnabled } from "./sentiment";
 
@@ -131,7 +131,8 @@ export async function scanImportedContactsForOpportunities(opts: OppScanOpts = {
   const capped = !!maxContacts && scoreable > maxContacts;
   const redact = capable && !avail.local && scanRedactEnabled(); // scrub identifiers only for a CLOUD provider
   opts.onMeta?.({ scoreable, capped });
-  const persist = async (soFar: Map<string, LatentOpp>) => { await saveImportedContacts(applyOpps(contacts, soFar)); };
+  // Merge onto the CURRENT stored book (not the scan-start snapshot) so a re-import mid-scan isn't clobbered.
+  const persist = async (soFar: Map<string, LatentOpp>) => { await mergeImportedContacts((cur) => applyOpps(cur, soFar)); };
   let sinceSave = 0;
   const found = await scanOpportunities(contacts, {
     ...opts, concurrency, maxContacts, batchSize, pauseMs, redact,

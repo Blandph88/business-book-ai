@@ -354,4 +354,40 @@ describe("carryOverEnrichment", () => {
     const fresh = freshBook();
     expect(carryOverEnrichment(fresh, [])).toEqual(fresh);
   });
+
+  it("carries the funnel + thread + inbound when re-importing WITHOUT messages.csv", () => {
+    // prev = a book WITH a real two-way thread: owner messaged Ana, Ana replied.
+    const prev = importLinkedIn(
+      connFile([`Ana,A,${ANA},,Acme,Manager,01 Jan 2024`, `Ben,B,${BEN},,Globex,Director,01 Jan 2024`]),
+      msgFile([
+        msgRow("c1", OWNER, ANA, "Hi Ana, want to grab a coffee?"),
+        msgRow("c1", ANA, OWNER, "Sounds great, would love to!"),
+      ]),
+    ).contacts;
+    const anaPrev = prev.find(isAna)!;
+    expect(anaPrev.messaged).toBe(true); // sanity: prev really has funnel
+    expect(anaPrev.responded).toBe(true);
+    expect(anaPrev.inbound?.length).toBeGreaterThan(0);
+
+    // Connections-only re-import: no messages → empty funnel on the fresh book.
+    const connsOnly = importLinkedIn(
+      connFile([`Ana,A,${ANA},,Acme,Manager,01 Jan 2024`, `Ben,B,${BEN},,Globex,Director,01 Jan 2024`]),
+      "",
+    ).contacts;
+    expect(connsOnly.find(isAna)!.messaged).toBe(false); // sanity: the fresh book really lost it
+
+    const ana = carryOverEnrichment(connsOnly, prev).find(isAna)!;
+    expect(ana.messaged).toBe(true);
+    expect(ana.responded).toBe(true);
+    expect(ana.thread).toEqual(anaPrev.thread);
+    expect(ana.inbound).toEqual(anaPrev.inbound);
+  });
+
+  it("unions funnel flags — a Connections-only re-import can't downgrade prior progress", () => {
+    const prev = freshBook().map((c) => (isAna(c) ? { ...c, agreed_to_meet: true, met: true } : c));
+    const connsOnly = importLinkedIn(connFile([`Ana,A,${ANA},,Acme,Manager,01 Jan 2024`]), "").contacts;
+    const ana = carryOverEnrichment(connsOnly, prev).find(isAna)!;
+    expect(ana.agreed_to_meet).toBe(true);
+    expect(ana.met).toBe(true);
+  });
 });

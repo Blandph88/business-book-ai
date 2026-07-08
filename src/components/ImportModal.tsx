@@ -11,7 +11,7 @@ import { importLinkedIn, carryOverEnrichment, type ImportResult } from "../data/
 import { saveImportedContacts, loadImportedContacts, hasImportedContacts } from "../storage/importedContacts";
 import { aiAvailable } from "../ai/ai";
 import { countScoreable } from "../ai/sentiment";
-import { startWarmthAnalysis } from "../ai/warmthTask";
+import { startWarmthAnalysis, cancelWarmthAnalysis, awaitAnalysisStopped } from "../ai/warmthTask";
 import "./ImportModal.css";
 
 function Steps() {
@@ -82,9 +82,16 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
         setBusy(false);
         return;
       }
-      // Re-import: carry the warmth/opportunity scans over for URL-matched contacts so refreshing the
-      // book with a newer export doesn't wipe hours of analysis (the fresh import still supplies the
-      // up-to-date funnel/messages). owned-mode only — the demo book isn't imported.
+      // A background scan (warmth/opportunity/classify) snapshots the book when it starts and persists
+      // incrementally for a long time. Stop any in-flight scan and wait for its current batch to drain BEFORE
+      // we write the new import, so its write can't clobber the fresh book and so the post-import scan restarts
+      // on the new data (the runner is single-slot and would otherwise no-op while the old loop is alive).
+      // merge-on-persist backs this up, so it's safe even if a slow on-device batch outlives the wait.
+      if (!demo) { cancelWarmthAnalysis(); await awaitAnalysisStopped(); }
+      // Re-import: carry prior WORK the fresh export can't supply — the warmth/opportunity scans (hours of
+      // analysis) AND, when messages.csv wasn't re-uploaded, the funnel flags + message history. Without this a
+      // Connections-only refresh would silently wipe messaged/responded/agreed + who-owes-a-reply. owned-mode
+      // only — the demo book isn't imported.
       const prev = demo ? [] : await loadImportedContacts();
       const contacts = carryOverEnrichment(res.contacts, prev);
       await saveImportedContacts(contacts);
@@ -147,7 +154,7 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
               <FilePick label="messages.csv" hint="adds your funnel + relationship warmth" file={msgs} onPick={setMsgs} />
             </div>
             {hasExisting && (
-              <p className="imp-replace-note">This replaces your current imported book — your logged meetings, opportunities and edits are kept.</p>
+              <p className="imp-replace-note">This refreshes your imported book with the new export. Your logged meetings, opportunities, edits and relationship analysis are kept — and if you don't re-upload messages.csv, your existing funnel (who you've messaged, who replied, who owes a reply) stays too.</p>
             )}
             {error && <p className="imp-error">{error}</p>}
             <button className="imp-btn imp-btn-primary" disabled={!conn || busy} onClick={runImport}>

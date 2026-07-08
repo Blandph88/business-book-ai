@@ -18,7 +18,7 @@
 
 import type { Contact, WarmthSentiment } from "../data/contacts";
 import { aiJson, aiAvailability, isCapableBackend } from "./ai";
-import { loadImportedContacts, saveImportedContacts } from "../storage/importedContacts";
+import { loadImportedContacts, mergeImportedContacts } from "../storage/importedContacts";
 import { warmthSentimentPrompt, type WarmthScore } from "./prompts";
 
 const BATCH = 12;             // contacts per model call
@@ -209,7 +209,9 @@ export async function enrichImportedContactsWarmth(opts: SentimentOpts = {}): Pr
   const capped = !!maxContacts && scoreable > maxContacts;
   const redact = capable && !avail.local && scanRedactEnabled(); // scrub identifiers only when sending to a CLOUD provider
   opts.onMeta?.({ scoreable, capped }); // let the banner explain "top N of M" from the start of the run
-  const persist = async (soFar: Map<string, WarmthSentiment>) => { await saveImportedContacts(applyWarmthScores(contacts, soFar)); };
+  // Merge scores onto the CURRENT stored book (not the snapshot loaded at scan start), so a re-import that
+  // lands mid-scan isn't clobbered by a stale write — scores only ever attach to contacts that still exist.
+  const persist = async (soFar: Map<string, WarmthSentiment>) => { await mergeImportedContacts((cur) => applyWarmthScores(cur, soFar)); };
   // Persisting re-serialises the WHOLE book (thousands of contacts + their message text) — a heavy main-thread
   // write. Do it every few batches, not every one, so it doesn't add its own jank. The final save always runs.
   let sinceSave = 0;

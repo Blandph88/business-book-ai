@@ -3,7 +3,7 @@
 // classify each unique firm once → apply to all its contacts), which is what makes it feasible
 // on-device: a few dozen unique companies, not thousands of per-contact calls. Owned mode only.
 
-import { loadImportedContacts, saveImportedContacts } from "../storage/importedContacts";
+import { loadImportedContacts, mergeImportedContacts } from "../storage/importedContacts";
 import { OTHER_INDUSTRY_LABEL } from "../config/markets";
 import { SECTOR_GROUPS } from "../data/vocab";
 import { aiJson, searchAvailable, searchEntity, aiAvailability, isCapableBackend } from "./ai";
@@ -97,7 +97,7 @@ export async function enrichOtherCompanies(opts: { onProgress?: (done: number, t
 
   const valid = new Set<string>(SECTOR_GROUPS);
   let updated = 0;
-  const next = contacts.map((c) => {
+  const applyMapping = (list: Contact[]) => list.map((c) => {
     const org = c.organisation?.trim();
     const g = org && c.sector_group === OTHER_INDUSTRY_LABEL ? mapping[org] : undefined;
     if (g && g !== OTHER_INDUSTRY_LABEL && valid.has(g)) {
@@ -106,7 +106,9 @@ export async function enrichOtherCompanies(opts: { onProgress?: (done: number, t
     }
     return c;
   });
-  await saveImportedContacts(next);
+  // Merge onto the CURRENT stored book (not the snapshot loaded at scan start) so a re-import that landed
+  // while this scan ran isn't clobbered — sector fixes only ever attach to firms/contacts that still exist.
+  const next = await mergeImportedContacts(applyMapping);
   return { updated, companies: companies.length, contacts: next, grounded };
 }
 

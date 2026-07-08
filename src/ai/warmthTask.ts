@@ -53,6 +53,23 @@ export function getWarmthState(): WarmthTaskState { return state; }
 export function subscribeWarmth(l: () => void): () => void { listeners.add(l); return () => { listeners.delete(l); }; }
 export function isAnalysisRunning(): boolean { return state.status === "running"; }
 
+// Resolve once NO scan batch is in flight (the real `running` flag, not the status — a batch can still be
+// awaiting after a cancel flipped the status to idle). Callers await this before mutating the book (e.g. a
+// re-import) so a scan's in-flight persist can't land after the new data is written. The timeout is a safety
+// valve only: merge-on-persist already prevents a stale write from clobbering, so proceeding is safe even if a
+// slow on-device batch outlives the wait.
+export function awaitAnalysisStopped(timeoutMs = 20000): Promise<void> {
+  if (!running) return Promise.resolve();
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const tick = () => {
+      if (!running || Date.now() - startedAt > timeoutMs) resolve();
+      else setTimeout(tick, 100);
+    };
+    setTimeout(tick, 100);
+  });
+}
+
 // Pause: stop the loop but KEEP the banner (with a Resume button). Scores so far are already persisted.
 export function pauseWarmthAnalysis(): void {
   if (state.status !== "running") return;
