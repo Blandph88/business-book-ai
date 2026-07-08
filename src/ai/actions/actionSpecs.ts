@@ -93,12 +93,17 @@ function stripMeetingCommand(text: string): string {
     .replace(/^[\s:,.–—-]+/, "")
     .trim();
 }
-// "£200k", "200k", "1.5m", "200,000" → number (0 if none).
+// "£200k", "200k", "1.5m", "200,000" → number (0 if none). Requires a money-ish SIGNAL — a currency symbol,
+// a k/m/b magnitude, or thousands grouping — so a bare integer ("met on June 12", "call at 3") isn't grabbed
+// as a value. The user still reviews the prefilled Est. value on the card before confirming.
 export function parseMoney(text: string): number {
-  const m = text.match(/(?:[£$€]\s?)?(\d[\d,]*(?:\.\d+)?)\s*([kmb])?/i);
+  const m = text.match(
+    /[£$€]\s?(\d[\d,]*(?:\.\d+)?)\s*([kmb])?|\b(\d[\d,]*(?:\.\d+)?)\s*([kmb])\b|\b(\d{1,3}(?:,\d{3})+(?:\.\d+)?)\b/i,
+  );
   if (!m) return 0;
-  let n = parseFloat(m[1].replace(/,/g, ""));
-  const unit = (m[2] || "").toLowerCase();
+  const num = m[1] ?? m[3] ?? m[5];
+  const unit = (m[2] ?? m[4] ?? "").toLowerCase();
+  let n = parseFloat(num.replace(/,/g, ""));
   if (unit === "k") n *= 1_000; else if (unit === "m") n *= 1_000_000; else if (unit === "b") n *= 1_000_000_000;
   return Math.round(n);
 }
@@ -252,6 +257,9 @@ const meetingSpec: EntitySpec = {
       sentiment: (norm(values.sentiment, SENTIMENT) as Sentiment) || undefined,
       opportunity_spotted: (norm(values.opportunity_spotted, OPPORTUNITY_SPOTTED) as OpportunitySpotted) || undefined,
     });
+    // An UPDATE we couldn't tie to an existing meeting must NEVER fall through to CREATE a duplicate.
+    // startAction resolves-or-clarifies first; this is the hard backstop.
+    if (ctx.op === "update" && !ctx.targetId) throw new Error("UNRESOLVED_UPDATE");
     // UPDATE in place when we resolved an existing meeting — never spawn a duplicate.
     if (ctx.targetId) {
       const row = ctx.meetingRows.find((m) => m.id === ctx.targetId);
@@ -364,22 +372,28 @@ const contactSpec: EntitySpec = {
 
 // ── OPPORTUNITY ─────────────────────────────────────────────────────────────────────────────────
 const STEP_IDS = OPPORTUNITY_STEPS.map((s) => s.id);
+const WON_STEP: OpportunityStep = "contracting";
+// Visible outcome control on an UPDATE card, so "mark as won / lost" is explicit and reversible (Open) rather
+// than an invisible flag — the user sees and can change it before confirming.
+const OPP_OUTCOME = ["Open", "Won", "Lost"] as const;
 function stepProb(step: string): number {
   return OPPORTUNITY_STEPS.find((s) => s.id === step)?.prob ?? 0.1;
 }
+const OPP_FIELDS: FieldSpec[] = [
+  { key: "opportunity_name", label: "Name", type: "text", required: true },
+  { key: "organisation", label: "Organisation", type: "text", required: true },
+  { key: "primary_contact", label: "Primary contact", type: "text" },
+  { key: "service_line", label: "Service line", type: "enum", options: SERVICE_LINE },
+  { key: "current_step", label: "Stage", type: "enum", options: STEP_IDS },
+  { key: "est_value", label: "Est. value", type: "number" },
+  { key: "description", label: "Description", type: "textarea" },
+];
 const opportunitySpec: EntitySpec = {
   kind: "opportunity",
   label: "Opportunity",
   needsContact: false,
-  fields: [
-    { key: "opportunity_name", label: "Name", type: "text", required: true },
-    { key: "organisation", label: "Organisation", type: "text", required: true },
-    { key: "primary_contact", label: "Primary contact", type: "text" },
-    { key: "service_line", label: "Service line", type: "enum", options: SERVICE_LINE },
-    { key: "current_step", label: "Stage", type: "enum", options: STEP_IDS },
-    { key: "est_value", label: "Est. value", type: "number" },
-    { key: "description", label: "Description", type: "textarea" },
-  ],
+  // UPDATE adds a visible Won/Open/Lost control; CREATE doesn't (a new deal is Open by definition).
+  fields: (op) => (op === "update" ? [...OPP_FIELDS, { key: "outcome", label: "Outcome", type: "enum", options: OPP_OUTCOME }] : OPP_FIELDS),
   title: (ctx) => {
     if (ctx.op === "update") {
       const ex = ctx.targetId ? ctx.opps.find((o) => o.id === ctx.targetId) : undefined;
@@ -403,8 +417,16 @@ const opportunitySpec: EntitySpec = {
     } else {
       const org = extractOrg(ctx.text, ctx); if (org) v.organisation = org;
     }
-    // "mark … as won/signed/landed" → jump the stage to closed-won.
-    if (/\b(won|signed|closed[- ]?won|landed|secured|in the bag)\b/i.test(ctx.text)) v.current_step = "contracting";
+    // Won/Lost intent → set the VISIBLE Outcome (update only) so the user sees + can change it before saving.
+    // "won/signed/landed" also jumps the stage to closed-won; "lost/dead/declined" flags the deal lost.
+    const won = /\b(won|signed|closed[- ]?won|landed|secured|in the bag)\b/i.test(ctx.text);
+    const lost = /\b(lost|dead|declined|fell through|not proceeding|passed on|withdrew|went cold|no longer)\b/i.test(ctx.text);
+    if (won) v.current_step = "contracting";
+    if (existing) {
+      v.outcome = won ? "Won" : lost ? "Lost"
+        : existing.lost ? "Lost"
+        : STEP_IDS.indexOf(existing.current_step || "") >= STEP_IDS.indexOf(WON_STEP) ? "Won" : "Open";
+    }
     const money = parseMoney(ctx.text); if (money) v.est_value = String(money);
     if (ctx.skipModel) return v; // deterministic-only (on-device): the form opens pre-filled, fast
     try {
@@ -420,25 +442,39 @@ const opportunitySpec: EntitySpec = {
   },
   write: (values, ctx) => {
     const step = (norm(values.current_step, STEP_IDS) as OpportunityStep) || "meeting";
-    const WON_IDX = STEP_IDS.indexOf("contracting");
+    const WON_IDX = STEP_IDS.indexOf(WON_STEP);
     // UPDATE in place when we resolved an existing deal — never spawn a duplicate.
     const existing = ctx.targetId ? ctx.opps.find((o) => o.id === ctx.targetId) : undefined;
+    // An UPDATE we couldn't tie to a real deal must NEVER fall through to CREATE (that would silently write a
+    // duplicate with the user's confirming click on it). startAction resolves-or-clarifies first; this is a
+    // hard backstop for any path that reaches here without a target.
+    if (ctx.op === "update" && !existing) throw new Error("UNRESOLVED_UPDATE");
     if (existing) {
       const before = { ...existing };
+      // Honour the visible Outcome: Won → jump to the closed-won step + clear lost; Lost → flag lost (stage
+      // kept); Open → clear lost. With no explicit outcome, keep the "moving to a won step clears lost" rule.
+      const outcome = values.outcome || "";
+      let finalStep: OpportunityStep = step;
+      let lost = existing.lost;
+      if (outcome === "Won") { finalStep = WON_STEP; lost = false; }
+      else if (outcome === "Lost") { lost = true; }
+      else if (outcome === "Open") { lost = false; }
+      else { lost = STEP_IDS.indexOf(finalStep) >= WON_IDX ? false : existing.lost; }
       const updated: Opportunity = {
         ...existing,
         opportunity_name: values.opportunity_name || existing.opportunity_name,
         organisation: values.organisation || existing.organisation,
         primary_contact: values.primary_contact || existing.primary_contact,
         service_line: (norm(values.service_line, SERVICE_LINE) as ServiceLine) || existing.service_line,
-        current_step: step,
+        current_step: finalStep,
         est_value: values.est_value ? Number(values.est_value) : existing.est_value,
-        probability: stepProb(step),
+        probability: stepProb(finalStep),
         description: values.description || existing.description,
-        lost: STEP_IDS.indexOf(step) >= WON_IDX ? false : existing.lost, // moving to a won step clears "lost"
+        lost,
       };
       saveOpportunity(updated);
-      return { id: existing.id, summary: `Updated “${updated.opportunity_name}” — now at ${step.replace(/_/g, " ")}.`, undo: () => saveOpportunity(before) };
+      const tail = lost ? "marked lost" : outcome === "Won" ? "marked won" : `now at ${finalStep.replace(/_/g, " ")}`;
+      return { id: existing.id, summary: `Updated “${updated.opportunity_name}” — ${tail}.`, undo: () => saveOpportunity(before) };
     }
     const id = `opp:${uuid()}`;
     const opp: Opportunity = {

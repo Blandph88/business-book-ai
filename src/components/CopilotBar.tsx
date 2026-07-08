@@ -1084,6 +1084,39 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
 
   // Begin an action: resolve the subject contact, extract fields (from the message + any document),
   // and open a review card.
+  // Build a "which record did you mean?" turn for an UPDATE we couldn't resolve to a single record — so we
+  // never silently open a create-shaped card. Chips re-issue an explicit, resolvable command (routeIntent
+  // maps `Update the "X" opportunity` / `Log a meeting with N` deterministically, so this survives a flaky
+  // LLM router).
+  function buildUpdateClarification(kind: "opportunity" | "meeting", target: string, subjectUrl: string | undefined, oppCandidates: Opportunity[]): UITurn {
+    const CAP = 6;
+    if (kind === "opportunity") {
+      const pool = oppCandidates.length ? oppCandidates : opps.filter((o) => !o.lost);
+      const chips: Chip[] = pool.slice(0, CAP).map((o) => {
+        const name = o.opportunity_name || o.organisation || "opportunity";
+        return { label: name, prompt: `Update the "${name}" opportunity` };
+      });
+      chips.push({ label: "+ New opportunity", prompt: `Log a new opportunity${target ? ` for ${target}` : ""}` });
+      const text = oppCandidates.length
+        ? "A few deals could match — which one?"
+        : opps.length ? "I couldn't tell which deal you meant. Which one?"
+        : "You don't have any opportunities yet — want to log one?";
+      return { role: "ai", text, chips };
+    }
+    // meeting
+    if (subjectUrl) {
+      const c = contacts.find((x) => x.url === subjectUrl);
+      const name = c ? `${c.first} ${c.last}`.trim() : "them";
+      return { role: "ai", text: `I couldn't find a meeting logged with ${name} yet. Want to log one?`, chips: [{ label: `Log a meeting with ${name}`, prompt: `Log a meeting with ${name}` }] };
+    }
+    const cand = matchContacts(target, contacts).slice(0, CAP);
+    if (cand.length) {
+      const chips: Chip[] = cand.map((c) => { const n = `${c.first} ${c.last}`.trim(); return { label: n, prompt: `Update my meeting with ${n}` }; });
+      return { role: "ai", text: "Which contact's meeting do you mean?", chips };
+    }
+    return { role: "ai", text: "I couldn't find that contact — tell me who the meeting was with and I'll update it.", chips: [] };
+  }
+
   async function startAction(kind: "contact" | "meeting" | "opportunity" | "contract", op: "create" | "update", target: string, display: string, prior: UITurn[], id: string, extractText: string) {
     setActionBusy(true);
     const spec = SPECS[kind];
@@ -1095,11 +1128,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       if (matches.length === 1) subjectUrl = matches[0].url;
     }
     // For an UPDATE to an opportunity, resolve WHICH existing deal it is ("the JPMorgan deal") so the form
-    // pre-fills with its real values and confirming edits it in place — instead of creating a duplicate.
+    // pre-fills with its real values and confirming edits it in place. Auto-target ONLY on a single match —
+    // 0 or several are ambiguous and get clarified below (never silently pick one / create a duplicate).
     let targetId: string | undefined;
+    let oppCandidates: Opportunity[] = [];
     if (op === "update" && kind === "opportunity") {
-      const oppMatches = matchOpportunity(`${target} ${extractText}`, opps);
-      if (oppMatches.length) targetId = oppMatches[0].id;
+      oppCandidates = matchOpportunity(`${target} ${extractText}`, opps);
+      if (oppCandidates.length === 1) targetId = oppCandidates[0].id;
     }
     // For an UPDATE to a meeting, edit the resolved contact's MOST RECENT meeting in place (no duplicate).
     if (op === "update" && kind === "meeting" && subjectUrl) {
@@ -1107,6 +1142,14 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         .filter((m) => m.contact_url === subjectUrl)
         .sort((a, b) => (b.date_held || b.date_scheduled || "").localeCompare(a.date_held || a.date_scheduled || ""));
       if (theirs.length) targetId = theirs[0].id;
+    }
+    // An UPDATE we couldn't pin to ONE existing record → ASK which one (or offer to create) rather than open a
+    // create-shaped card that writes a duplicate on confirm. write() also hard-guards this as a backstop.
+    if (op === "update" && !targetId && (kind === "opportunity" || kind === "meeting")) {
+      const turn = buildUpdateClarification(kind, target, subjectUrl, oppCandidates);
+      setActionBusy(false);
+      if (chatIdRef.current === id) setChat([...prior, { role: "you", text: display }, turn]);
+      return;
     }
     // The LLM does the field-extraction on EVERY tier — it interprets which parts of the message map to which
     // field (and leaves fields blank when the message doesn't actually contain them), rather than a brittle
@@ -1145,8 +1188,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       setChat(next);
       reloadData();
       if (chatIdRef.current) persistTo(chatIdRef.current, serializeForPersist(next));
-    } catch {
-      setChat((c) => [...c, { role: "ai", text: "That didn't save — please try again." }]);
+    } catch (e) {
+      // The write layer rejects an UPDATE with no resolved target rather than creating a duplicate — surface
+      // that specifically so the user can name the record instead of hitting a generic failure.
+      const msg = e instanceof Error && e.message === "UNRESOLVED_UPDATE"
+        ? "I couldn't tell which existing record to update — tell me which one (by name) and I'll change it."
+        : "That didn't save — please try again.";
+      setChat((c) => [...c, { role: "ai", text: msg }]);
     } finally {
       setActionBusy(false);
     }
