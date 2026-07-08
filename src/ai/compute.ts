@@ -1062,7 +1062,13 @@ export function privacyResponse(text: string, avail?: Availability): ComputeResu
   if (!isPrivacyQ) return null;
   const onDevice = !!avail && (avail.backend === "webllm" || avail.backend === "builtin" || avail.backend === "ollama") && !avail.byok;
   const cloud = !!avail && (avail.byok || avail.backend === "byok");
-  const intro = onDevice
+  // The storefront demo runs a Freehold-HOSTED model (democloud) so a first visitor gets instant AI with no
+  // download — which means the questions they type ARE sent to a Freehold server. Say so plainly; do NOT give
+  // the on-device "nothing leaves" answer here.
+  const demoHosted = !!avail && avail.backend === "democloud";
+  const intro = demoHosted
+    ? "This is a hosted demo running on sample data. The questions you type here are sent to a Freehold-hosted AI model to answer them — so please don't paste real client details into the demo. In the copy you own, the AI runs privately on your device (or on your own API key) and your book never leaves your machine."
+    : onDevice
     ? "Everything stays on this device. Your book lives in your browser's local storage, and the AI model you're using runs locally too — so your question and your data never leave the machine, aren't sent to any server, and we never see them. Safe to put real client data in."
     : cloud
       ? "Your book itself never leaves this device — it's held in your browser's local storage, never uploaded to us, and we store nothing on our servers. When you ask a question, only the slice needed to answer it (your question plus the relevant records) is sent to the AI model you connected with your own API key, so your own provider processes it under your account — not us, and no one else can see it. If you'd rather nothing leaves the machine at all, switch to an on-device model."
