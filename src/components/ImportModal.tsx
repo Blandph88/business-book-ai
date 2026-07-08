@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { getAppMode } from "../lib/appMode";
 import { importLinkedIn, carryOverEnrichment, type ImportResult } from "../data/linkedinImport";
 import { saveImportedContacts, loadImportedContacts, hasImportedContacts } from "../storage/importedContacts";
-import { aiAvailable } from "../ai/ai";
+import { aiAvailability, type AiAvailability } from "../ai/ai";
 import { countScoreable } from "../ai/sentiment";
 import { startWarmthAnalysis, cancelWarmthAnalysis, awaitAnalysisStopped } from "../ai/warmthTask";
 import "./ImportModal.css";
@@ -47,9 +47,11 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
-  // Relationship-warmth pass: after import we AUTO-START it as a background task (a top-of-app banner shows
-  // progress). It reads the messages each contact sent and scores how keen they are — feeding warmth ranking.
-  const [aiOn, setAiOn] = useState<boolean | null>(null);
+  // Relationship-warmth pass. It reads the messages each contact sent and scores how keen they are. We
+  // AUTO-START it only on an ON-DEVICE model (stays on the machine); a CLOUD model (BYOK) would send message
+  // snippets off-device, so that requires an explicit opt-in (see the done screen).
+  const [avail, setAvail] = useState<AiAvailability | null>(null);
+  const [cloudScanStarted, setCloudScanStarted] = useState(false);
   const scoreable = result ? countScoreable(result.contacts) : 0;
   // Is there already an imported book? A re-import REPLACES it (saveImportedContacts writes one keyed
   // record — latest export wins), so repeated uploads don't accumulate. We just surface that so it's not a
@@ -57,17 +59,17 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
   const [hasExisting, setHasExisting] = useState(false);
 
   useEffect(() => {
-    if (result && scoreable) aiAvailable().then(setAiOn);
+    if (result && scoreable) aiAvailability().then(setAvail);
   }, [result, scoreable]);
 
   useEffect(() => {
     if (!demo) hasImportedContacts().then(setHasExisting);
   }, [demo]);
 
-  // Auto-start the background analysis once, as soon as we know AI is available and there's something to score.
+  // Auto-start the background analysis ONLY on an on-device model (no egress). Cloud (BYOK) waits for opt-in.
   useEffect(() => {
-    if (result && scoreable && aiOn) void startWarmthAnalysis();
-  }, [result, scoreable, aiOn]);
+    if (result && scoreable && avail?.willRun && !avail.byok) void startWarmthAnalysis();
+  }, [result, scoreable, avail]);
 
   async function runImport() {
     if (!conn) return;
@@ -132,13 +134,22 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
               <li><strong>{result.counts.agreed.toLocaleString()}</strong> agreed to meet</li>
             </ul>
             <p className="imp-privacy">🔒 Everything stayed on this computer — nothing was uploaded.</p>
-            {scoreable > 0 && (
+            {scoreable > 0 && avail && (
               <div className="imp-warmth">
-                {aiOn ? (
-                  <p className="imp-warmth-lead">✨ Analysing the tone of {scoreable.toLocaleString()} message threads to rank your leads by how keen each contact <em>actually</em> was — running in the background. <strong>Open your book and keep working</strong>; progress shows at the top.</p>
-                ) : aiOn === false ? (
+                {avail.willRun && !avail.byok ? (
+                  <p className="imp-warmth-lead">✨ Analysing the tone of {scoreable.toLocaleString()} message threads to rank your leads by how keen each contact <em>actually</em> was — running on your machine, in the background. <strong>Open your book and keep working</strong>; progress shows at the top.</p>
+                ) : avail.willRun && avail.byok ? (
+                  cloudScanStarted ? (
+                    <p className="imp-warmth-lead">✨ Analysing {scoreable.toLocaleString()} message threads to rank your leads — running in the background. Progress shows at the top.</p>
+                  ) : (
+                    <>
+                      <p className="imp-warmth-note">Rank your leads by the tone of your message threads? Your AI is set to your own cloud key, so this sends short, <strong>redacted</strong> message snippets to your provider to score them.</p>
+                      <button className="imp-btn imp-btn-primary" onClick={() => { setCloudScanStarted(true); void startWarmthAnalysis(); }}>Analyse my messages</button>
+                    </>
+                  )
+                ) : (
                   <p className="imp-warmth-note">Set up AI to rank your leads by the tone of your message threads — you can start this any time from your book.</p>
-                ) : null}
+                )}
               </div>
             )}
             <button className="imp-btn imp-btn-primary" onClick={onImported}>Open my book of business</button>
