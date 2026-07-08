@@ -14,6 +14,7 @@ import type {
   OpportunitySpotted,
 } from "../data/vocab";
 import { persistLocal, scopedKey } from "./persist";
+import { readJsonSafe } from "./safeRead";
 
 // One meeting (CLAUDE.md §4). Most fields are optional because a freshly-seeded or
 // freshly-added meeting only has its identity and stage filled in.
@@ -77,14 +78,8 @@ const STORAGE_KEY = scopedKey("bob.meetings.v2");
 // Read every saved meeting. Returns an empty map if nothing is stored yet or the
 // stored value is corrupt — we fail safe rather than crash the tab.
 export function loadAllMeetings(): MeetingsById {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as MeetingsById;
-  } catch {
-    console.warn("Could not parse saved meetings; starting fresh.");
-    return {};
-  }
+  // readJsonSafe backs up corrupt bytes to a sibling key so the next save can't clobber recoverable data.
+  return readJsonSafe<MeetingsById>(STORAGE_KEY, {});
 }
 
 // Replace the whole meetings map in one write. Used by the minutes importer, which

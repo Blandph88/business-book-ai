@@ -13,6 +13,7 @@ import type {
   DecisionRole,
 } from "../data/vocab";
 import { persistLocal, scopedKey } from "./persist";
+import { readJsonSafe } from "./safeRead";
 
 // The eight owner-editable fields (CLAUDE.md §4). All optional: a brand-new contact
 // has none of these set yet. Dropdown fields use the vocab union types; free-text and
@@ -59,14 +60,7 @@ export function editsFor(
 // Read every saved edit. Returns an empty map if nothing is stored yet or if the
 // stored value is somehow corrupt (we fail safe rather than crash the tab).
 export function loadAllEdits(): EditsByUrl {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as EditsByUrl;
-  } catch {
-    console.warn("Could not parse saved contact edits; starting fresh.");
-    return {};
-  }
+  return readJsonSafe<EditsByUrl>(STORAGE_KEY, {});
 }
 
 // Save one contact's edits, merged into the existing map, and return the new map so

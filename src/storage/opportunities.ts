@@ -11,6 +11,7 @@
 import type { ServiceLine, OpportunityStep } from "../data/vocab";
 import { planStepDates } from "../data/timeline";
 import { persistLocal, scopedKey } from "./persist";
+import { readJsonSafe } from "./safeRead";
 
 // One opportunity (CLAUDE.md §4).
 //
@@ -148,17 +149,10 @@ function migrateOpportunity(raw: LegacyOpp): Opportunity {
 // stored value is corrupt — we fail safe rather than crash the tab. Legacy-shaped
 // opportunities are migrated to the granular workflow on the way out.
 export function loadAllOpportunities(): OpportunitiesById {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as Record<string, LegacyOpp>;
-    const out: OpportunitiesById = {};
-    for (const [id, o] of Object.entries(parsed)) out[id] = migrateOpportunity(o);
-    return out;
-  } catch {
-    console.warn("Could not parse saved opportunities; starting fresh.");
-    return {};
-  }
+  const parsed = readJsonSafe<Record<string, LegacyOpp>>(STORAGE_KEY, {});
+  const out: OpportunitiesById = {};
+  for (const [id, o] of Object.entries(parsed)) out[id] = migrateOpportunity(o);
+  return out;
 }
 
 // Replace the whole opportunities map in one write. Used by the minutes importer,

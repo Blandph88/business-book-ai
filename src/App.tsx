@@ -40,7 +40,12 @@ const TUTORIAL_SEEN_KEY = "bob.tutorialSeen.v1";
 export default function App() {
   // The nameless Overview (the `metrics` network-charts view) is the default home — reached via
   // the brand logo. "Dashboard" is the first visible tab.
-  const [activeTab, setActiveTab] = useState<TabId>("metrics");
+  // Land where the owner left off (default to the dashboard "Your day" brief so a returning owner sees what
+  // changed, rather than always the metrics overview).
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    try { return (localStorage.getItem("bob.lastTab.v1") as TabId) || "dashboard"; } catch { return "dashboard"; }
+  });
+  useEffect(() => { try { localStorage.setItem("bob.lastTab.v1", activeTab); } catch { /* ignore */ } }, [activeTab]);
   // Mirror the current tab into a ref so effects keyed on other state (e.g. warmth completion) can
   // read the LIVE tab without taking activeTab as a dependency (which would re-fire them on every nav).
   const activeTabRef = useRef(activeTab);

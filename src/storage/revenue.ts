@@ -6,6 +6,7 @@
 
 import type { ServiceLine, RevenueStatus, ProjectType } from "../data/vocab";
 import { persistLocal, scopedKey } from "./persist";
+import { readJsonSafe } from "./safeRead";
 
 // One line of a Fixed-price SoW: a named deliverable in a category, at a price. The sum of
 // deliverable prices is the contracted revenue.
@@ -79,14 +80,7 @@ const STORAGE_KEY = scopedKey("bob.revenue.v1");
 
 // Read every saved SoW. Empty map if nothing stored or the value is corrupt.
 export function loadAllSows(): SowsById {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as SowsById;
-  } catch {
-    console.warn("Could not parse saved SoWs; starting fresh.");
-    return {};
-  }
+  return readJsonSafe<SowsById>(STORAGE_KEY, {});
 }
 
 // Save one SoW, merged into the map, returning the new map.
