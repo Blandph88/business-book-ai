@@ -131,12 +131,14 @@ export async function loadContacts(): Promise<Contact[]> {
   const base = getAppMode() === "owned"
     ? normalizeGroups(await loadImportedContacts())
     : seedDemoEnrichment(normalizeGroups(parseContactRows(await loadDemoCsv()))); // sample book: pre-lit AI signals
-  // Merge in any contacts the owner added manually (people not in their LinkedIn export). Keyed by url,
-  // owner-added winning a collision — so they appear in every list/facet exactly like an imported contact.
+  // Merge in any contacts the owner added manually (people not in their LinkedIn export). A manual contact
+  // fills a GAP — so if the SAME person later appears in the import (same URL), the IMPORTED record (with its
+  // real funnel/messages/warmth) must WIN; the manual stub must never shadow it. Owner field-edits overlay
+  // both via the ownerEdits store regardless, so nothing the owner typed is lost.
   const owned = loadOwnedContacts();
   if (!owned.length) return base;
   const byUrl = new Map(base.map((c) => [c.url, c]));
-  for (const c of normalizeGroups(owned)) byUrl.set(c.url, c);
+  for (const c of normalizeGroups(owned)) if (!byUrl.has(c.url)) byUrl.set(c.url, c);
   return [...byUrl.values()];
 }
 

@@ -93,11 +93,19 @@ export default function App() {
   // via the "?" button in the top bar.
   const [tutorialOpen, setTutorialOpen] = useState(false);
   useEffect(() => {
-    try {
-      if (!localStorage.getItem(TUTORIAL_SEEN_KEY)) setTutorialOpen(true);
-    } catch {
-      /* storage unavailable — just skip the auto-open */
-    }
+    // Don't auto-pop the onboarding tour over a real, populated owned book — its copy talks about "sample
+    // data" and re-walks LinkedIn import, which is confusing (and undercuts trust) once the buyer has
+    // imported their real network. The demo and the empty owned first-run still get it; it's always
+    // re-openable from the "?" button.
+    void hasImportedContacts().then((imported) => {
+      try {
+        if (localStorage.getItem(TUTORIAL_SEEN_KEY)) return;
+        if (getAppMode() === "owned" && imported) { localStorage.setItem(TUTORIAL_SEEN_KEY, "1"); return; }
+        setTutorialOpen(true);
+      } catch {
+        /* storage unavailable — just skip the auto-open */
+      }
+    });
   }, []);
   const closeTutorial = () => {
     setTutorialOpen(false);

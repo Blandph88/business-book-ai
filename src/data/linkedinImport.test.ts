@@ -200,15 +200,17 @@ describe("parseMessages", () => {
     expect(f.messaged.has(normalizeUrl(ANA))).toBe(true);
   });
 
-  it("handles multiple recipients in one row (space/comma/semicolon separated)", () => {
+  it("treats a message to multiple recipients as a group chat and excludes it from the 1:1 funnel", () => {
     const rows = [
-      msgRow("c1", OWNER, `${ANA} ${BEN}`, "hello both"),
-      // pad owner so it's the most frequent
-      msgRow("c2", OWNER, CAS, "hi"),
+      msgRow("c1", OWNER, `${ANA} ${BEN}`, "hello both"), // 3-participant thread → group
+      msgRow("c2", OWNER, CAS, "hi"),                       // a genuine 1:1
     ];
     const f = parseMessages(msgFile(rows));
-    expect(f.messaged.has(normalizeUrl(ANA))).toBe(true);
-    expect(f.messaged.has(normalizeUrl(BEN))).toBe(true);
+    // The group thread must NOT mark its members as personally messaged — that's the funnel-poisoning bug.
+    expect(f.messaged.has(normalizeUrl(ANA))).toBe(false);
+    expect(f.messaged.has(normalizeUrl(BEN))).toBe(false);
+    // ...but a real 1:1 message still counts.
+    expect(f.messaged.has(normalizeUrl(CAS))).toBe(true);
   });
 
   it("returns empty sets when there are no profile URLs at all", () => {

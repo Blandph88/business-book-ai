@@ -183,15 +183,18 @@ export function MetricsTab({
       });
   }, []);
 
-  // Fold Held meetings into each contact's `met` flag, so the "Met" population and the
-  // funnel's Met stage share ONE effective flag everywhere (csv heuristic ∪ Held). Also set
-  // `agreed_to_meet` — the funnel is cumulative, so a contact who's Met but not Agreed would make
-  // the Agreed stage count LOWER than its own downstream Met stage (an impossible inversion). You
-  // can't have held a meeting without having agreed to one, so fold both flags together.
+  // Fold Held meetings into each contact's `met` flag, so the "Met" population and the funnel's Met stage
+  // share ONE effective flag everywhere (csv heuristic ∪ Held). The funnel is CUMULATIVE, so a Met contact
+  // must also count in every earlier stage or the bars invert (Met/Agreed exceeding Responded/Messaged — an
+  // impossible state). A contact you've met (or one you added manually and logged a meeting for) may have no
+  // LinkedIn message history, so fold ALL the upstream flags together: you can't have met someone without
+  // having agreed, responded and been in contact.
   const effectiveContacts = useMemo(
     () =>
       contacts.map((c) =>
-        !c.met && heldUrls.has(c.url) ? { ...c, met: true, agreed_to_meet: true } : c,
+        !c.met && heldUrls.has(c.url)
+          ? { ...c, met: true, agreed_to_meet: true, responded: true, two_way: true, messaged: true }
+          : c,
       ),
     [contacts, heldUrls],
   );

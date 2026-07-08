@@ -102,6 +102,21 @@ export function parseMessages(text: string): FunnelSets {
   for (const [u, n] of tally) if (n > max) { max = n; owner = u; }
   if (!owner) return sets;
 
+  // GROUP-CHAT GUARD: one message to a group thread must NOT mark every member as personally messaged /
+  // agreed-to-meet — that poisons the 1:1 outreach funnel (the product's core value). Count distinct
+  // participants per CONVERSATION ID; a thread with >2 people is a group and is skipped for the funnel +
+  // inbound below. Falls back to the per-message recipient count when the export carries no conversation id.
+  const convoParticipants = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const cid = (r["CONVERSATION ID"] ?? "").trim();
+    if (!cid) continue;
+    const set = convoParticipants.get(cid) ?? new Set<string>();
+    const s = normalizeUrl(r["SENDER PROFILE URL"] ?? ""); if (s) set.add(s);
+    for (const u of (r["RECIPIENT PROFILE URLS"] ?? "").split(/[\s,;]+/).map(normalizeUrl)) if (u) set.add(u);
+    convoParticipants.set(cid, set);
+  }
+  const isGroupConvo = (cid: string) => (convoParticipants.get(cid)?.size ?? 0) > 2;
+
   const proposedTo = new Set<string>();   // contacts the owner proposed a meeting to
   const affirmedBy = new Set<string>();   // contacts who affirmed in a reply
   for (const r of rows) {
@@ -109,6 +124,11 @@ export function parseMessages(text: string): FunnelSets {
     const recipients = (r["RECIPIENT PROFILE URLS"] ?? "").split(/[\s,;]+/).map(normalizeUrl).filter(Boolean);
     const content = r["CONTENT"] ?? "";
     const date = isoDate(r["DATE"] ?? "");
+    // Exclude group-thread messages from all funnel/inbound attribution.
+    const cid = (r["CONVERSATION ID"] ?? "").trim();
+    const nonOwnerRecipients = recipients.filter((c) => c && c !== owner);
+    const group = cid ? isGroupConvo(cid) : (nonOwnerRecipients.length > 1 || (sender !== owner && nonOwnerRecipients.length >= 1));
+    if (group) continue;
     if (sender === owner) {
       for (const c of recipients) {
         if (!c || c === owner) continue;
