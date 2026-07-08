@@ -18,8 +18,8 @@ function Steps() {
   return (
     <ol className="imp-steps">
       <li>On LinkedIn: <strong>Settings &amp; Privacy → Data Privacy → Get a copy of your data</strong>.</li>
-      <li>Tick <strong>Connections</strong> and <strong>Messages</strong>, request the archive, then download the ZIP when it's ready (usually a few minutes).</li>
-      <li>Unzip it, and upload <strong>Connections.csv</strong> and <strong>messages.csv</strong> here.</li>
+      <li>Tick <strong>Connections</strong> (ready in a few minutes) and, for the outreach funnel + warmth, <strong>Messages</strong> — note the archive <strong>with messages can take up to 24 hours</strong>.</li>
+      <li>When LinkedIn emails you the ZIP, unzip it and upload <strong>Connections.csv</strong> here. You can start with Connections now and add <strong>messages.csv</strong> later — re-importing keeps everything you've done.</li>
     </ol>
   );
 }
