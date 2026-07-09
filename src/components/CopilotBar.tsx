@@ -1196,8 +1196,19 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // deterministic split that turned "Can I add a contact" into First="Can", Last="I". Worth the call.
     const skipModel = false;
     const ctx = { op, text: extractText, subjectUrl, targetId, today, contacts, meetingRows, opps, sows, skipModel };
+    // The model field-extraction is best-effort — a slow/stuck cloud call must NOT hang the card behind the
+    // "thinking" spinner (a real 150s+ stall was observed). Bound it, and on timeout fall back to the INSTANT
+    // deterministic prefill (skipModel) so the card opens right away with what code could parse.
     let values: Record<string, string> = {};
-    try { values = await spec.extract(ctx); } catch { /* card opens with blanks */ }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error("extract-timeout")), 12000); });
+      values = await Promise.race([spec.extract(ctx), timeout]);
+    } catch {
+      try { values = await spec.extract({ ...ctx, skipModel: true }); } catch { /* card opens with blanks */ }
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     const fields = typeof spec.fields === "function" ? spec.fields(op) : spec.fields;
     const card: ActionCardData = { kind, op, title: spec.title(ctx), fields, values, needsContact, subjectUrl, targetId, status: "draft" };
     let lead = op === "create" ? `Here's a draft ${spec.label.toLowerCase()} from what you said — check it${needsContact && !subjectUrl ? ", pick the contact" : ""} and confirm to save.` : `Here's the change — review and confirm to update.`;
