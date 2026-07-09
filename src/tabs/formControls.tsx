@@ -239,12 +239,16 @@ export function SearchableSelect({
   onChange,
   placeholder,
   allowFreeText = false,
+  filterMode = "includes",
 }: {
   value?: string;
   options: readonly Option[];
   onChange: (v: string) => void;
   placeholder?: string;
   allowFreeText?: boolean;
+  // "namePrefix" (contact pickers): match only the NAME part (before " · Org") by word-PREFIX, so typing a
+  // few letters of a person's name doesn't also surface everyone whose COMPANY contains those letters.
+  filterMode?: "includes" | "namePrefix";
 }) {
   const selectedLabel = useMemo(
     () => options.find((o) => o.value === value)?.label ?? (allowFreeText ? (value ?? "") : ""),
@@ -255,7 +259,15 @@ export function SearchableSelect({
   const [open, setOpen] = useState(false);
 
   const q = query.trim().toLowerCase();
-  const matches = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  const matches = q
+    ? options.filter((o) => {
+        if (filterMode === "namePrefix") {
+          const name = o.label.split(" · ")[0].toLowerCase(); // name only, not the " · Org" suffix
+          return name.startsWith(q) || name.split(/\s+/).some((w) => w.startsWith(q));
+        }
+        return o.label.toLowerCase().includes(q);
+      })
+    : options;
   const canAddNew = allowFreeText && q !== "" && !options.some((o) => o.label.toLowerCase() === q);
 
   const pick = (v: string) => { onChange(v); setQuery(""); setEditing(false); setOpen(false); };

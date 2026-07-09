@@ -80,6 +80,7 @@ export function ActionCard({
             value={subjectUrl ?? ""}
             options={contactOptions}
             placeholder="Search your contacts…"
+            filterMode="namePrefix"
             onChange={(v) => setSubjectUrl(v || undefined)}
           />
         </label>
