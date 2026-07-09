@@ -752,33 +752,36 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     } catch { /* enrichment is best-effort — the table already rendered */ }
   }
 
-  // The compute→interpret combo: a tool has computed the ground-truth table (already on screen); now stream
-  // an ANALYSIS of it below — what stands out + one next move — so the answer reads like a partner, not a
-  // database. The figures stay code-computed and un-fabricatable (the model is told they're ground truth and
-  // never restates/alters them); this only ADDS insight. CAPABLE backends only — same speed gate as the
-  // tool-router/chips: a slow on-device model would block after the instant table, and the table already
-  // answers on its own. Best-effort and non-blocking; mirrors enrichCompany's append-after-table pattern.
-  async function interpretCompute(question: string, md: string, id: string, display: UITurn[], persisted: ChatTurn[]) {
-    let streamedAny = false;
+  // The compute→interpret combo: a deterministic tool computed the ground-truth table; now stream an ANALYSIS
+  // of it — what stands out + one next move — so the answer reads like a partner, not a database. The figures
+  // stay code-computed and un-fabricatable (the model is told they're ground truth and never restates/alters
+  // them); this only ADDS insight. `position`: "above" (CAPABLE tiers — the narrative reads FIRST, the table
+  // sits below as evidence) or "below" (WebLLM — the table is already up as an instant anchor and the slower
+  // narrative streams underneath). The working indicator runs the WHOLE time (asking→streaming) so it never
+  // looks finished before the narrative lands. Best-effort and non-blocking.
+  async function interpretCompute(question: string, md: string, id: string, base: UITurn[], tableTurn: UITurn, persisted: ChatTurn[], tablePersist: ChatTurn, position: "above" | "below") {
+    const compose = (narr: string): UITurn[] => position === "above" ? [...base, { role: "ai", text: narr }, tableTurn] : [...base, tableTurn, { role: "ai", text: narr }];
+    let firstTok = true;
     try {
-      if (!isCapableBackend((await aiAvailability()).backend) || chatIdRef.current !== id) return;
+      if (chatIdRef.current !== id) return;
+      // Table-first: the table is already on screen, so show the live meter immediately (never looks finished).
+      // Narrative-first: the question is up with a Thinking indicator (asking) until the first token arrives.
+      if (position === "below") { setStreaming(true); setGenTokens(0); }
       let acc = "";
       const streamed = await aiPromptStream(interpretResultPrompt(question, md), (full) => {
         if (chatIdRef.current !== id) return;
         acc = full;
-        // Drive the shared `streaming` state (on the first token) so the streamed analysis shows the SAME live
-        // token meter + gets the same "Thought for Xs · ~N tokens" stamp as a companion reply — the token
-        // count now shows consistently on every streamed turn, not just some (#5).
-        if (!streamedAny) { streamedAny = true; setStreaming(true); }
+        if (firstTok) { firstTok = false; setAsking(false); setStreaming(true); setGenTokens(0); }
         setGenTokens(approxTokens(full));
-        setChat([...display, { role: "ai", text: full }]);
+        setChat(compose(full));
       });
       const finalText = (streamed || acc).trim();
-      if (!finalText || chatIdRef.current !== id) { setChat(display); return; }
-      setChat([...display, { role: "ai", text: finalText }]);
-      persistTo(id, [...persisted, { role: "ai", text: finalText }]);
-    } catch { /* best-effort — the table already answered on its own */ }
-    finally { if (streamedAny) setStreaming(false); }
+      if (!finalText || chatIdRef.current !== id) { setChat([...base, tableTurn]); persistTo(id, [...persisted, tablePersist]); return; }
+      setChat(compose(finalText));
+      const narr: ChatTurn = { role: "ai", text: finalText };
+      persistTo(id, position === "above" ? [...persisted, narr, tablePersist] : [...persisted, tablePersist, narr]);
+    } catch { setChat([...base, tableTurn]); }
+    finally { setAsking(false); setStreaming(false); }
   }
 
   // The COMPANION stream: for a personal / general / advice turn the topic-gate routed AWAY from the book.
@@ -899,21 +902,34 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // Only derive chips when there are REAL records — a "can't find / nothing matches" reply has no
       // entities worth anchoring to, and deriving them produces non-sequiturs (a stray "Smith" → "DS Smith").
       const chips = computed.rows.length ? chipsFromAnswer(md, data) : [];
-      const display: UITurn[] = [...prior, { role: "you", text }, { role: "ai", text: md, compute: computed, chips: chips.length ? chips : undefined }];
-      const persisted: ChatTurn[] = [...history, { role: "you", text }, { role: "ai", text: md, chips: chips.length ? chips : undefined }];
-      persistTo(id, persisted);
-      if (chatIdRef.current === id) setChat(display);
-      setAsking(false);
-      markDone(id);
-      // AFTER the instant table: add a follow-on read. The factual "About <company>" web blurb is appended ONLY
-      // when the user is actually asking about the COMPANY (what does X do / tell me about X) — NOT for a
-      // footprint/depth question ("how deep am I at X", "lay of the land"), where a Wikipedia paragraph is
-      // irrelevant padding. Otherwise any analytical result gets the compute→interpret read (what stands out +
-      // a next move). Mutually exclusive so the two never race on setChat.
+      const base: UITurn[] = [...prior, { role: "you", text }];
+      const tableTurn: UITurn = { role: "ai", text: md, compute: computed, chips: chips.length ? chips : undefined };
+      const persisted: ChatTurn[] = [...history, { role: "you", text }];
+      const tablePersist: ChatTurn = { role: "ai", text: md, chips: chips.length ? chips : undefined };
+      // The follow-on read. The factual "About <company>" web blurb is appended ONLY when the user asks about
+      // the COMPANY itself (what does X do / tell me about X) — NOT on a footprint/depth question ("how deep at
+      // X", "lay of the land"), where a Wikipedia paragraph is irrelevant padding. Otherwise an analytical
+      // result gets the compute→interpret read (what stands out + a next move), on every tier with a real model.
       const wantsCompanyFacts = /\b(what (?:does|do)\b[^?]*\bdo\b|tell me about|background on|profile of|overview of|describe|what kind of (?:company|business|firm|outfit))\b/i.test(text)
         && !/\b(how deep|lay of the land|footprint|presence|coverage|penetration|what do i (?:know|have)|my (?:relationship|history|contacts?|footprint|presence))\b/i.test(text);
-      if (computed.enrich?.kind === "company" && wantsCompanyFacts) void enrichCompany(computed.enrich.name, id, display, persisted);
-      else if (shouldInterpretResult(text, computed)) void interpretCompute(text, md, id, display, persisted);
+      const willEnrich = computed.enrich?.kind === "company" && wantsCompanyFacts;
+      const cap = isCapableBackend(avail.backend);
+      const willInterpret = !willEnrich && (cap || avail.backend === "webllm") && shouldInterpretResult(text, computed);
+      // CAPABLE → narrative-first (table below, streams in above); WebLLM → table-first (instant anchor, narrative
+      // streams below with the working indicator still running so it never looks finished).
+      const narrativeFirst = willInterpret && cap;
+      persistTo(id, [...persisted, tablePersist]);
+      markDone(id);
+      if (narrativeFirst) {
+        // Show the question with a Thinking indicator (asking stays true from ask()); interpretCompute streams
+        // the narrative in, then the table below it. No instant table — the narrative reads first.
+        if (chatIdRef.current === id) setChat(base);
+      } else {
+        if (chatIdRef.current === id) setChat([...base, tableTurn]);
+        setAsking(false);
+      }
+      if (willEnrich) void enrichCompany(computed.enrich!.name, id, [...base, tableTurn], [...persisted, tablePersist]);
+      else if (willInterpret) void interpretCompute(text, md, id, base, tableTurn, persisted, tablePersist, narrativeFirst ? "above" : "below");
     };
     // Confidentiality question → answer accurately from the LIVE backend (never the model, which over-promises
     // "nothing is sent anywhere" even on a cloud tier). Deterministic, so it's correct and identical every time.
