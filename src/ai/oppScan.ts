@@ -74,11 +74,14 @@ export async function scanOpportunities(contacts: Contact[], opts: OppScanOpts =
     try {
       const res = await aiJson<{ opps: OppScore[] }>(args);
       tokens += approxTokens((args.system || "") + args.prompt + JSON.stringify(res ?? {}));
-      // Record EVERY contact in the batch (empty text = scanned, none) so the pass is resumable.
-      for (const c of batch) out.set(c.url, { at, text: "" });
+      // Mark each ref the model ACTUALLY returned (the prompt asks for one entry per ref; empty string =
+      // scanned, no opportunity). A ref the model OMITTED is deliberately left unscanned so a later pass
+      // retries it — otherwise a single omission would be permanently recorded as "nothing found" and never
+      // re-scanned (the resume filter skips any contact that already has a latentOpp).
       for (const o of res?.opps ?? []) {
         const url = o && typeof o.ref === "string" ? refToUrl.get(o.ref) : undefined;
-        if (url && typeof o.opp === "string" && o.opp.trim()) out.set(url, { at, text: o.opp.trim() });
+        if (!url) continue;
+        out.set(url, { at, text: typeof o.opp === "string" ? o.opp.trim() : "" });
       }
     } catch (e) {
       // Batch failed — leave unscanned (a re-run retries it), but remember why: if EVERY batch fails we

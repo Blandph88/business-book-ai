@@ -120,12 +120,13 @@ export function InsightsTab() {
           {cards.map((card) => {
             const info = SCAN_INFO[card.job];
             const isThis = running && task.job === card.job;
-            // The CARD shows OVERALL progress against the whole book. While THIS scan runs it climbs live:
-            // overall done = (all candidates) − (this run's remaining) = card.total − task.total + task.done.
-            // (The BANNER separately shows just this run's progress over its remaining batch — they differ by
-            // design.) Robust to incremental saves — derived from the stable total + this-run counts.
+            // The CARD shows OVERALL progress against the whole book. While THIS scan runs it climbs live as
+            // (already-scored before this run) + (this run's done). `card.done` is the scored count from the
+            // book, which only reloads when the scan finishes — so during the run it IS the pre-run total, the
+            // right base to add task.done to. (Deriving from card.total − task.total broke on a CAPPED scan,
+            // where task.total is the cap, not the full remainder, and the bar jumped to ~90% with 0 scored.)
             const badgeTotal = card.total;
-            const badgeDone = isThis && task.total ? Math.min(badgeTotal, card.total - task.total + task.done) : card.done;
+            const badgeDone = isThis ? Math.min(badgeTotal, card.done + task.done) : card.done;
             const pct = badgeTotal ? Math.min(100, Math.round((badgeDone / badgeTotal) * 100)) : 0;
             return (
               <div className="insight-card" key={card.job}>
@@ -152,9 +153,10 @@ export function InsightsTab() {
         <label className="insights-privacy">
           <input type="checkbox" checked={redact} onChange={(e) => { setRedact(e.target.checked); setScanRedact(e.target.checked); }} />
           <span>
-            <strong>Redact identities before sending to your cloud model.</strong> Names, emails and phone numbers are
-            stripped from your messages before a scan sends them to your provider — the scans judge tone/intent, so
-            scores are unaffected. Your local book keeps the originals; only the outgoing snippets are scrubbed.
+            <strong>Redact identities before sending to your cloud model.</strong> The contact's own name, plus emails,
+            phone numbers and links, are removed from each snippet before a scan sends it to your provider (other names
+            mentioned in the text may remain). The scans judge tone/intent, so scores are unaffected. Your local book
+            keeps the originals; only the outgoing snippets are scrubbed.
           </span>
         </label>
       )}
