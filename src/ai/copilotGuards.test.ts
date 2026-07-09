@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { clearlyPersonal, conversationPath } from "./grounding";
-import { runTool, computeExact, resolveContact, contactBrief } from "./compute";
+import { runTool, computeExact, resolveContact, contactBrief, computeForQuery } from "./compute";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
 
@@ -168,5 +168,32 @@ describe("contactBrief bare-name disambiguation (R7a)", () => {
   it("briefs directly when given the full name", () => {
     const r = contactBrief(d, "Jose Marquez", TODAY);
     expect(r.intro).toContain("Jose Marquez");
+  });
+});
+
+// ── R-E: "who do I know in <sector>" lists that sector, not the whole book ────────────────────────
+describe("computeForQuery sector scope (R-E)", () => {
+  const d = book({ contacts: [
+    contact({ first: "Ed", last: "Grid", organisation: "TotalEnergies", sector_group: "Energy & Industrial" }),
+    contact({ first: "Fay", last: "Vault", organisation: "Barclays", sector_group: "Financial Services" }),
+  ] });
+  it("scopes to the sector rather than dumping every contact", () => {
+    const r = computeForQuery("who do I know in energy", d, TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/Energy & Industrial/);
+    expect(r!.rows.length).toBe(1);
+    expect(r!.rows[0].cells[0]).toBe("Ed Grid");
+  });
+});
+
+// ── R-A: conversational BD phrasings route deterministically, not to the chatty companion ─────────
+describe("computeForQuery BD routing (R-A)", () => {
+  const d = book({ contacts: [contact()] });
+  it("routes 'who did I speak to' and diary/coming-up to the meetings tool (non-null)", () => {
+    expect(computeForQuery("who did I speak to in the last two weeks", d, TODAY)).not.toBeNull();
+    expect(computeForQuery("what's coming up in my diary", d, TODAY)).not.toBeNull();
+  });
+  it("routes a vague business-open to the deterministic agenda", () => {
+    expect(computeForQuery("where do things stand", d, TODAY)).not.toBeNull();
   });
 });
