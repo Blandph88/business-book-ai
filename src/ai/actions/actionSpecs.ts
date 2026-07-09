@@ -85,6 +85,24 @@ function notACommand(s: string | undefined): string {
   if (/opportunit(y|ies)$/i.test(t) && t.split(/\s+/).length <= 3) return "";
   return t;
 }
+// Guard against the chatty cloud model INVENTING an identity field the user never typed. A bare "I want to
+// add an opportunity" made the model hallucinate a name of "Phil's opp" (from the owner) and an org of
+// "Stratique: when you want more customers." — junk that then persisted as a real pipeline record. An
+// extracted name/org is only trusted if a DISTINCTIVE word from it actually appears in the user's text;
+// otherwise it's fabricated and we leave the field blank for the user to fill (like the meeting-contact
+// field already does). Not applied to free-text description, which the model may legitimately paraphrase.
+const GROUND_STOP = new Set(
+  "the a an and or of for to in on at by with from your you our we us it is are be am new add log create make made record open opportunity opportunities deal deals pipeline engagement engagements client clients customer customers company companies firm firms want wants need needs like about into more this that they them their who what when want".split(" "),
+);
+function groundedIn(value: string | undefined, source: string): string {
+  const v = (value || "").trim();
+  if (!v) return "";
+  const fold = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+  const src = fold(source);
+  const distinctive = (fold(v).match(/[a-z0-9]{3,}/g) || []).filter((w) => !GROUND_STOP.has(w));
+  if (distinctive.length === 0) return ""; // all-generic value ("the new deal") is itself junk
+  return distinctive.some((w) => new RegExp(`\\b${w}\\b`).test(src)) ? v : "";
+}
 // Strip a leading "log/record a meeting with <name>" command, keeping any REAL notes typed after it (so
 // "log a meeting with Adam: discussed pricing" → "discussed pricing", but a bare command → "").
 function stripMeetingCommand(text: string): string {
@@ -436,8 +454,8 @@ const opportunitySpec: EntitySpec = {
     if (ctx.skipModel) return v; // deterministic-only (on-device): the form opens pre-filled, fast
     try {
       const ex = await aiJson<OppFill>(fillOpportunityPrompt(ctx.text, SERVICE_LINE));
-      const name = notACommand(ex.opportunity_name); if (name && !existing) v.opportunity_name = name;
-      if (ex.organisation && !v.organisation) v.organisation = ex.organisation;
+      const name = groundedIn(notACommand(ex.opportunity_name), ctx.text); if (name && !existing) v.opportunity_name = name;
+      const org = groundedIn(ex.organisation, ctx.text); if (org && !v.organisation) v.organisation = org;
       if (ex.primary_contact && !v.primary_contact) v.primary_contact = ex.primary_contact;
       if (!existing) { const sl = norm(ex.service_line, SERVICE_LINE); if (sl) v.service_line = sl; }
       if (!v.est_value && ex.est_value) v.est_value = String(ex.est_value);
@@ -517,8 +535,8 @@ const contractSpec: EntitySpec = {
     if (ctx.skipModel) return v; // deterministic-only (on-device, short command)
     try {
       const ex = await aiJson<ContractFill>(fillContractPrompt(ctx.text, SERVICE_LINE, REVENUE_STATUS));
-      if (ex.engagement_name) v.engagement_name = ex.engagement_name;
-      if (ex.organisation) v.organisation = ex.organisation;
+      const eName = groundedIn(ex.engagement_name, ctx.text); if (eName) v.engagement_name = eName;
+      const eOrg = groundedIn(ex.organisation, ctx.text); if (eOrg) v.organisation = eOrg;
       v.service_line = norm(ex.service_line, SERVICE_LINE) || "Strategy";
       v.status = norm(ex.status, REVENUE_STATUS) || "Active";
     } catch { v.service_line = "Strategy"; }
