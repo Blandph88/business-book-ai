@@ -130,6 +130,9 @@ const CHATTY_STOP = new Set([
   "not","no","yes","yeah","ok","okay","just","really","very","too","also","then","now","here","there","some","something","anything","everything","nothing","any","all","more","most","much","many",
   "talk","talking","show","tell","think","thinking","know","feel","feeling","chat","help","today","tomorrow","time","day","work","working","book","books","thing","things","stuff","idea","ideas","people","person","want","like","need","make","making","get","got","go","going","say","said","good","great","nice","happy","sad","lonely","food","friend","friends","life","hope","maybe","sure","thanks","thank","please","sorry","hello","hi","hey",
   "business","professional","professionals","company","companies","industry","market","world","body","challenge","challenges","opportunity","opportunities","area","areas","specific","currently","dealing","facing",
+  // Ordinary words that ALSO happen to be (part of) a one-off company name in a big book — matched junk orgs
+  // like "In Kind Direct" / "Together — loans" / "Ready Event & Creative" from casual phrasing. Stop them.
+  "kind","together","ready","creative","event","events","self","employed","open","role","crack","cracks","start","started","begin",
 ]);
 function entityHits(text: string, d: BookData): RelatedHit[] {
   const msg = new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !CHATTY_STOP.has(w)));
@@ -158,7 +161,12 @@ function entityHits(text: string, d: BookData): RelatedHit[] {
     // A 2-char token only counts when it IS the whole org (e.g. "EY") — never a short suffix like the
     // "Re" in "Swiss Re"/"Munich Re", which else matches stray tokens like the "re" in "re-engage".
     const toks = words.filter((w) => !ORG_STOP.has(w) && !ORG_NOISE.has(w) && !isCommonOrgToken(w) && !claimed.has(w) && (w.length >= 3 || words.length === 1));
-    if (toks.some((w) => msg.has(w))) orgHits.push({ org, count });
+    const present = toks.filter((w) => msg.has(w));
+    // Require a DISTINCTIVE match, so one ordinary word can't conjure a company that merely contains it:
+    // either 2+ of the org's tokens are named, OR a single STRONG token (len>=5 and not a conversational
+    // word) is. ("kind"→"In Kind Direct", "josé"→"…José Cela", "KIND" alone are all rejected by this.)
+    const strong = (w: string) => w.length >= 5 && !CHATTY_STOP.has(w);
+    if (present.length >= 2 || (present.length === 1 && strong(present[0]))) orgHits.push({ org, count });
   }
   orgHits.sort((a, b) => b.count - a.count);
   const hits: RelatedHit[] = orgHits.slice(0, 3).map(({ org, count }) => ({ kind: "company", org, main: org, meta: `${count} ${count === 1 ? "person" : "people"}` }));
