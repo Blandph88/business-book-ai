@@ -20,7 +20,7 @@ import { useAiAvailable, aiAvailability, aiPromptStream, aiJson, searchAvailable
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeExact, computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -934,13 +934,15 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       return;
     }
     if (!docText && !isGenerate) {
-      // NARROW DETERMINISTIC RAIL (every tier, before the LLM router): exact maths / anti-joins / joins are
-      // COMPUTED here — a wrong aggregate number or a missed anti-join is unforgivable, and these tools aren't
-      // in the router's catalog, so without this a capable model routes them to a coarse list and fabricates
-      // an "average" (the cross-tier inversion), while a weak model mis-routes them entirely. Narrow by design
-      // (returns null for everything it doesn't own), so all other routing still flows to the LLM router below.
-      const exact = computeExact(text, data, today);
-      if (exact) { renderCompute(exact); return; }
+      // DETERMINISTIC BD PRE-PASS (before the LLM router, every tier): unambiguous book questions — the agenda,
+      // meetings by date, rankings, pipeline stats, sector filters, account/contact briefs, exact maths — are
+      // routed IN CODE so the (chatty) LLM router can't mis-send them to companion/chit-chat. Real testing on a
+      // 26k book showed the cloud router routing "who should I chase", "footprint at X", "who did I speak to",
+      // "what's in my diary" all to the companion. computeForQuery DEFERS genuinely nuanced/advice/drafting
+      // queries (isReasoningRequest → null) to the LLM router below; the crisis/personal floors already ran.
+      const prevUserText = [...prior].reverse().find((tn) => tn.role === "you")?.text;
+      const pre = computeForQuery(text, data, today, prevUserText);
+      if (pre) { renderCompute(pre); return; }
       // UNIFIED LLM ROUTER (function-calling pattern, EVERY tier). ONE schema-constrained call decides: run a
       // deterministic data TOOL (routing + args in a single pass, then we execute + narrate), hold a personal
       // CHAT (companion), or fall through to the grounded BOOK answer below. This replaces the old brittle

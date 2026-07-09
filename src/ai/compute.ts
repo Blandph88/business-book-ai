@@ -862,6 +862,11 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // ── Meetings ──────────────────────────────────────────────────────────────────────────────────
   // by date window / upcoming / "today"/"tomorrow"
   if (/\bmeetings?\b/.test(t) && /\b(last|past|recent(?:ly)?|this|upcoming|scheduled|coming up|next|today|tomorrow|week|month|quarter|fortnight|\d+\s*(?:day|week))\b/.test(t)) return findMeetings(d, today, t);
+  // "who did I speak to / meet with / talk to / catch up with" (± a time window) → recent meetings. These
+  // phrasings carry no literal "meeting", so the chatty LLM router mis-sent them to the companion.
+  if (/\bwho\b[^?]*\bi\s+(?:speak|spoke|spoken|meet|met|talk|talked|catch(?:ing)?\s+up|caught up|see|saw|sit down|sat down)\b/.test(t) && !/\bshould\b/.test(t)) return findMeetings(d, today, t);
+  // "what's in my diary / calendar / schedule", "what's coming up / on the horizon" → upcoming meetings.
+  if ((/\b(diary|calendar|schedule)\b/.test(t) && !/\b(clear|block|free up|open up)\b/.test(t)) || /\bwhat'?s?\s+(?:coming up|on the horizon|ahead|in store|lined up)\b/.test(t) || /\bmy upcoming (?:meetings?|calls?|schedule)\b/.test(t)) return findMeetings(d, today, "upcoming");
 
   // ── Weekly focus / priorities (deterministic agenda — never the model) ──────────────────────────
   if (/what should i (?:focus on|do|prioriti[sz]e|work on|tackle)|what'?s? (?:my )?(?:focus|priorit|agenda|to-?dos?|action items?)|where should i focus|what'?s? (?:on )?my plate|what needs (?:my )?attention|plan my (?:day|week)|focus (?:for )?(?:this|the) (?:week|day)|what(?:'?s| is) (?:due|on) (?:this|next) (?:week|few days)|what'?s? next this week|what'?s? (?:overdue|slipped|slipping|fallen through|been neglected)|what have i (?:let slip|missed|dropped|neglected)|anything overdue|what'?s? (?:gone )?overdue/.test(t)) return weeklyFocus(d, today);
@@ -971,6 +976,14 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // This is a request for THEIR own numbers, NOT a contact lookup — guard it before ABOUT, or "...about
   // me" fuzzy-matches a person whose name contains "me" (e.g. A·ME·lia). Breakdowns ("by sector") win.
   if (/\babout me\b|\bknow about me\b|\babout myself\b|tell me about myself|summari[sz]e (?:my )?(?:book|network|business|pipeline)|summary of my (?:book|network|business|pipeline)|how'?s my (?:book|network)|what(?:'?s| is) in my (?:book|network)|how big is my (?:book|network|pipeline)/.test(t) && !/by sector|by function|by seniority|by role|by industry/.test(t)) return personalSnapshot(d, today);
+
+  // "my footprint / presence / coverage / how deep am I at X" → the company's whole account footprint.
+  // (Distinct from "everyone at X" below — these phrasings name no people-noun, so they were falling to the
+  // LLM router, which chatted about "your impact and presence" instead of showing the account.)
+  {
+    const m = t.match(/\b(?:footprint|presence|coverage|penetration|standing|how (?:deep|strong|big|well[- ]connected)(?:\s+am\s+i)?)\b[^?]*\bat\s+(.+?)(?:\?|$)/);
+    if (m) { const co = extractCompany(`at ${m[1].trim()}`, d); if (co) return accountSummary(d, co); }
+  }
 
   // ── Single-record / account ─────────────────────────────────────────────────────────────────────
   const about = text.match(ABOUT);
