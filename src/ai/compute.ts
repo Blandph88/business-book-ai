@@ -849,7 +849,7 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
   // Pipeline aggregate MATHS — average / weighted / total / raw-vs-weighted gap. Computed, never the model.
   {
     const aggWord = /\b(average|avg|mean|median|typical|weight(?:ed|ing)?|total|sum)\b/.test(t);
-    const valueWord = /\b(value|worth|size|£|\$|pounds?|dollars?)\b/.test(t);
+    const valueWord = /\b(value|worth|size|£|\$|pounds?|dollars?|pipeline)\b/.test(t);
     if ((aggWord && valueWord) || /\baverage (?:deal|opportunit|open)\b/.test(t) || /\bgap between\b/.test(t) || (/\bweight/.test(t) && /\b(raw|unweighted|probability|total|pipeline)\b/.test(t))) {
       const agg = pipelineAggregate(d, t);
       if (agg) return agg;
@@ -940,7 +940,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // metric — the tools can't compute it, so it must reach the model) are BOTH excluded.
   {
     const aggWord = /\b(average|avg|mean|median|typical|weight(?:ed|ing)?|total|sum)\b/.test(t);
-    const valueWord = /\b(value|worth|size|£|\$|pounds?|dollars?)\b/.test(t);
+    const valueWord = /\b(value|worth|size|£|\$|pounds?|dollars?|pipeline)\b/.test(t);
     if (
       (aggWord && valueWord) ||
       /\baverage (?:deal|opportunit|open)\b/.test(t) ||

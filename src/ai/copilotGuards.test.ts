@@ -223,6 +223,11 @@ describe("pipelineAggregate pluralization (R-J #20)", () => {
     expect(r!.intro).toMatch(/1 opportunity\b/);
     expect(r!.intro).not.toMatch(/1 opportunities/);
   });
+  it("routes 'total open pipeline' deterministically ('pipeline' counts as a value word)", () => {
+    const r = computeForQuery("what's my total open pipeline", book({ opps: [oneOpp] }), TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/pipeline totals/i);
+  });
 });
 
 // ── #1: capabilities answer tailors to a named domain + varies its general opener ─────────────────
