@@ -54,8 +54,6 @@ const TITLES_BY_TIER = {
   ic: ["Senior Analyst", "Financial Analyst", "Software Engineer", "Data Scientist", "Compliance Specialist", "Account Executive", "Consultant", "Operations Specialist", "Business Analyst", "Associate"],
 } as const;
 const TIERS = ["exec", "head", "vpsm", "mgr", "ic"] as const;
-const TIER_W = [0.16, 0.2, 0.22, 0.22, 0.2];
-function pickTier() { let r = rnd(); for (let i = 0; i < TIERS.length; i++) { r -= TIER_W[i]; if (r <= 0) return TIERS[i]; } return "ic" as const; }
 
 // ── unique company pool + CLUSTER plan (some companies get 2/3/4 contacts) ───────────────────
 // Dedup the dictionary PRESERVING ORDER (no shuffle): COMPANY_DICTIONARY lists the marquee
@@ -69,42 +67,113 @@ const DICT = COMPANY_DICTIONARY.filter((c) => {
   if (!Array.isArray(c.regions) || !(c.regions.includes("north-america") || c.regions.includes("europe"))) return false;
   const k = c.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true;
 });
-// Group by industry (prominence order preserved), then round-robin across industries so the
-// FIRST companies we hand out are each industry's leaders. The biggest firms therefore get the
-// biggest clusters (4 contacts), which is what a real consultant's network looks like.
+// ── PERSONA-weighted, POWER-LAW benches + an UNKNOWN long tail ─────────────────────────────────
+// A real BD book is LOPSIDED — deep in the consultant's own sectors, with a messy long tail of small/unknown
+// firms — never a uniform sample. This demo is a strategy/risk consultant: network anchors in Financial
+// Services, Professional Services and Energy; thins through Tech/Consumer; trails off across Public/Health/
+// Real Estate + hundreds of tiny boutiques the org dictionary has never heard of.
+const SECTOR_WEIGHT: Record<string, number> = {
+  "financial-services": 3.2, "professional-services": 2.5, "energy-industrial": 2.2,
+  "technology": 1.4, "consumer-retail": 1.0, "healthcare": 0.7, "public-sector": 0.7, "real-estate": 0.5,
+};
+// Draw dictionary firms in SECTOR-WEIGHTED prominence order: dominant-sector marquee names first + more
+// often. The dictionary is already prominence-ordered within an industry, so we just advance a cursor.
 const byIndustry = new Map<string, typeof DICT>();
 for (const c of DICT) { const a = byIndustry.get(c.industry) ?? []; a.push(c); byIndustry.set(c.industry, a); }
-const groups = [...byIndustry.values()];
-const maxRows = Math.max(...groups.map((g) => g.length));
+const cursor = new Map<string, number>([...byIndustry.keys()].map((k) => [k, 0]));
 const ORDERED: typeof DICT = [];
-for (let row = 0; row < maxRows; row++) for (const g of groups) if (row < g.length) ORDERED.push(g[row]);
+{
+  const inds = [...byIndustry.keys()];
+  for (;;) {
+    const avail = inds.filter((k) => cursor.get(k)! < byIndustry.get(k)!.length);
+    if (!avail.length) break;
+    const total = avail.reduce((s, k) => s + (SECTOR_WEIGHT[k] ?? 1), 0);
+    let r = rnd() * total, chosen = avail[0];
+    for (const k of avail) { r -= SECTOR_WEIGHT[k] ?? 1; if (r <= 0) { chosen = k; break; } }
+    const idx = cursor.get(chosen)!; ORDERED.push(byIndustry.get(chosen)![idx]); cursor.set(chosen, idx + 1);
+  }
+}
+
+type Tier = (typeof TIERS)[number];
 type Contact = { first: string; last: string; company: string; title: string; url: string; email: string; connectedOn: string; tier: string };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function makeContact(company: string): Contact {
-  const first = pick(FIRST), last = pick(LAST), tier = pickTier();
-  const title = pick(TITLES_BY_TIER[tier]);
+
+// Small/unknown firms for the long tail — boutiques, startups, personal consultancies the dictionary can't
+// place (so they land in "Other / smaller firms", exactly like a real export — and exercise the classify tool).
+const FIRM_STEM = ["Harlow", "Meridian", "Brookfield", "Oakwood", "Ashcroft", "Calder", "Thornton", "Kingsley", "Halston", "Redwood", "Blackwell", "Marlow", "Pinnacle", "Vantage", "Kestrel", "Whitfield", "Sinclair", "Ashworth", "Crestline", "Fairbanks", "Langley", "Whitmore", "Beacon", "Northgate", "Wexford", "Camden", "Ellison", "Fenwick", "Granby", "Holloway", "Marsden", "Pembroke", "Rowan", "Selby", "Tavistock", "Bramwell", "Cobalt", "Larkfield", "Everly", "Standen"];
+const FIRM_TYPE = ["Advisory", "Consulting", "Partners", "Associates", "Capital", "Ventures", "Group", "Solutions", "Analytics", "Advisers", "Strategy", "Studio", "Consulting Group", "Advisory Partners"];
+const SMALL_FIRM_OWNER = ["Founder", "Managing Partner", "Managing Director", "Principal", "Owner", "Director"];
+function genUnknownFirm(): string {
+  const r = rnd();
+  if (r < 0.30) return `${pick(LAST)} & Partners`;
+  if (r < 0.45) return `${pick(LAST)} ${pick(["Advisory", "Consulting", "Associates", "& Co"])}`;
+  return `${pick(FIRM_STEM)} ${pick(FIRM_TYPE)}`;
+}
+
+// One contact with an EXPLICIT tier + title, so a whole bench can be shaped as a realistic org pyramid.
+function makeOne(company: string, tier: string, title: string): Contact {
+  const first = pick(FIRST), last = pick(LAST);
   const url = `https://www.linkedin.com/in/demo-${slug(first)}-${slug(last)}-${Math.floor(rnd() * 90000 + 10000)}`;
   const email = chance(0.25) ? `${slug(first)}.${slug(last)}@${slug(company).slice(0, 14)}.com` : "";
   const connectedOn = `${String(Math.floor(rnd() * 28) + 1).padStart(2, "0")} ${pick(MONTHS)} ${2018 + Math.floor(rnd() * 7)}`;
   return { first, last, company, title, url, email, connectedOn, tier };
 }
-const contacts: Contact[] = [];
-// DEEP benches on the marquee accounts so the sector×seniority and org×function matrices have real depth
-// (multiple people per cell across varying levels + functions), not a sea of 1s. 50 companies × 8, 80 × 6,
-// 150 × 4, 270 × 3 (= 2,290), then a SHORT long tail of singletons to the target. The clustered companies
-// are the most prominent (front of ORDERED), so the biggest firms get the biggest benches — like a real book.
-const TARGET_CONTACTS = 2319;
-const plan: number[] = [...Array(50).fill(8), ...Array(80).fill(6), ...Array(150).fill(4), ...Array(270).fill(3)];
-let ci = 0;
-for (let p = 0; p < plan.length; p++) {
-  const company = (ORDERED[p] ?? DICT[ci++ % DICT.length]).name;
-  for (let k = 0; k < plan[p]; k++) contacts.push(makeContact(company));
+
+// A company's BENCH as an org PYRAMID: a fixed, UNIQUE C-suite up top (never two COOs), thinning down to
+// analysts. Tiny firms are mostly ICs with the occasional founder/owner.
+function makeBench(company: string, n: number, tiny = false): Contact[] {
+  const usedExec = new Set<string>();
+  const tiers: Tier[] = [];
+  if (tiny) {
+    for (let k = 0; k < n; k++) tiers.push(k === 0 && chance(0.4) ? "exec" : chance(0.3) ? "head" : chance(0.4) ? "mgr" : "ic");
+  } else {
+    const nExec = n >= 25 ? 2 : n >= 6 ? 1 : chance(0.5) ? 1 : 0;
+    const nHead = Math.max(1, Math.round(n * 0.15));
+    const nVp = Math.round(n * 0.24);
+    const nMgr = Math.round(n * 0.28);
+    for (let k = 0; k < nExec; k++) tiers.push("exec");
+    for (let k = 0; k < nHead; k++) tiers.push("head");
+    for (let k = 0; k < nVp; k++) tiers.push("vpsm");
+    for (let k = 0; k < nMgr; k++) tiers.push("mgr");
+    while (tiers.length < n) tiers.push("ic");
+    tiers.length = n;
+  }
+  return tiers.map((tier) => {
+    if (tiny && tier === "exec") return makeOne(company, "exec", pick(SMALL_FIRM_OWNER));
+    let title = pick(TITLES_BY_TIER[tier]);
+    if (tier === "exec") {
+      let tries = 0;
+      while (usedExec.has(title) && tries++ < 8) title = pick(TITLES_BY_TIER.exec);
+      if (usedExec.has(title)) return makeOne(company, "head", pick(TITLES_BY_TIER.head)); // out of unique C-suite → a Head
+      usedExec.add(title);
+    }
+    return makeOne(company, tier, title);
+  });
 }
-const tail = shuffle(ORDERED.slice(plan.length));
-let si = 0;
+
+const contacts: Contact[] = [];
+const TARGET_CONTACTS = 2319;
+// POWER-LAW: 5 deep anchors ("I know everyone here"), an upper-mid tier, a mid tier, then small firms — the
+// biggest benches on the dominant-sector marquee accounts (front of ORDERED). The remaining ~1,300 are a LONG
+// TAIL of 1–2 person firms, ~55% of them small/unknown boutiques the dictionary never sees.
+const benchPlan: number[] = [
+  40, 34, 30, 26, 22,                              // anchors
+  18, 16, 15, 13, 12, 11, 10, 9,                   // upper-mid
+  ...Array(16).fill(0).map((_, i) => 6 + (i % 3)), // mid (6–8)
+  ...Array(45).fill(4),
+  ...Array(85).fill(3),
+  ...Array(150).fill(2),
+];
+let oi = 0;
+for (const size of benchPlan) {
+  if (contacts.length >= TARGET_CONTACTS) break;
+  const company = (ORDERED[oi++] ?? { name: genUnknownFirm() }).name;
+  for (const c of makeBench(company, size)) { if (contacts.length >= TARGET_CONTACTS) break; contacts.push(c); }
+}
+// Long tail — mostly generated unknown boutiques (1–2 people), plus the dictionary's own long tail.
 while (contacts.length < TARGET_CONTACTS) {
-  const company = (tail[si++] ?? DICT[ci++ % DICT.length]).name;
-  contacts.push(makeContact(company));
+  const company = chance(0.55) ? genUnknownFirm() : (ORDERED[oi++]?.name ?? genUnknownFirm());
+  for (const c of makeBench(company, chance(0.25) ? 2 : 1, true)) { if (contacts.length >= TARGET_CONTACTS) break; contacts.push(c); }
 }
 
 // ── messages → derive the contacts-first funnel ──────────────────────────────────────────────
@@ -116,7 +185,9 @@ const messages: Msg[] = [];
 const messagedSet = new Set<string>(), respondedSet = new Set<string>(), agreedSet = new Set<string>();
 let conv = 1000;
 contacts.forEach((c, i) => {
-  if (!chance(0.55)) return;
+  // ~43% of the network has been messaged (aspirational but believable — and the app nudges you to DM more),
+  // then the funnel tapers: of those, ~45% reply, a subset agree to meet, fewer are met.
+  if (!chance(0.43)) return;
   const cid = `conv-${conv++}`, full = `${c.first} ${c.last}`, proposes = chance(0.5);
   const opener = proposes
     ? `Hi ${c.first}, great to be connected. I'd love to ${pick(PROPOSE)} sometime to compare notes. Would you be open to that?`
@@ -270,9 +341,15 @@ function buildSow(id: string, organisation: string, sl: string, idx: number, lin
   const wantWindow = !completed && contractInWindow < 3 && idx % 4 === 1;
   if (wantWindow) contractInWindow++;
   const nextActionDate = completed ? undefined : wantWindow ? isoDay(pick([1, 3, 6])) : isoDay(15 + (idx % 90));
+  // Dates must always run signed ≤ start ≤ end (the old end_date could land BEFORE start). Signed in the past,
+  // starts shortly after, then a 3–9 month engagement — so completed ones ended in the past and active ones
+  // still have runway ahead.
+  const signedOff = -(20 + (idx % 200));
+  const startOff = signedOff + 8 + (idx % 14);
+  const endOff = startOff + 90 + (idx % 180);
   return {
     id, linked_opportunity_id: linkedId, organisation, engagement_name: `${sl} engagement`,
-    signed_date: isoDay(-(20 + (idx % 200))), start_date: isoDay(-(10 + (idx % 120))), end_date: isoDay((idx % 160) - 30),
+    signed_date: isoDay(signedOff), start_date: isoDay(startOff), end_date: isoDay(endOff),
     service_line: sl, project_type: isTM ? "Time & materials" : "Fixed price", deliverables, rate_card,
     recognised_to_date: Math.round(contracted * recPct),
     next_action: completed ? undefined : pick(["Invoice milestone 2", "Deliver phase 1", "Send the status report", "Chase the deposit", "Confirm scope for next phase", "Book the close-out review"]),
