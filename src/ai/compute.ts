@@ -458,20 +458,48 @@ function attentionLine(d: BookData): string {
   if (latent) bits.push(`${latent} opportunit${latent === 1 ? "y" : "ies"} spotted in your messages`);
   return bits.length ? `Also worth a look: ${bits.join(" · ")} — ask me about either.` : "";
 }
+// Message-derived agenda signal for a FRESH import: on day one there are almost no logged meetings or dated
+// next-actions, so the pure due-date agenda is nearly empty and the copilot looks blind to a 26k book. Backfill
+// with what a partner would actually chase first — replies the user owes (the other side messaged last) and
+// their warmest un-met leads. Returns [] once the book has real dated activity (weeklyFocus only calls it then).
+function freshSignals(d: BookData, today: string): ComputeRow[] {
+  const lm = lastMeetingMap(d);
+  const w = (c: typeof d.contacts[number]) => warmth(c, lm, today);
+  const owed = d.contacts
+    .filter((c) => c.thread && !c.thread.lastFromOwner)
+    .sort((a, b) => w(b) - w(a))
+    .slice(0, 5);
+  const owedUrls = new Set(owed.map((c) => c.url));
+  const warm = d.contacts
+    .filter((c) => !owedUrls.has(c.url) && !c.met && w(c) > 0)
+    .sort((a, b) => w(b) - w(a))
+    .slice(0, 5);
+  const rows: ComputeRow[] = [];
+  for (const c of owed) rows.push({ cells: ["reply owed", `Reply to ${fullName(c)}${c.thread?.lastDate ? ` — they messaged ${c.thread.lastDate}` : ""}`, c.organisation || "—"], record: { tab: "contacts", id: c.url } });
+  for (const c of warm) rows.push({ cells: ["warm lead", `Advance ${fullName(c)}`, c.organisation || "—"], record: { tab: "contacts", id: c.url } });
+  return rows.slice(0, 8);
+}
 export function weeklyFocus(d: BookData, today: string): ComputeResult {
   const attn = attentionLine(d);
   const items = buildAgenda(d.meetingRows, d.opps, today, d.sows)
     .sort((a, b) => Number(b.overdue) - Number(a.overdue) || a.daysUntil - b.daysUntil);
-  if (!items.length) {
+  const when = (it: typeof items[number]) => it.overdue ? `${Math.abs(it.daysUntil)}d overdue` : it.daysUntil === 0 ? "today" : `in ${it.daysUntil}d`;
+  const top = items.slice(0, 12);
+  const agendaRows: ComputeRow[] = top.map((it) => ({ cells: [when(it), it.statusLabel, `${it.who}${it.org ? ` · ${it.org}` : ""}`], record: { tab: it.tab as ComputeRecord["tab"], id: it.openId } }));
+  // A thin agenda (fresh import) gets backfilled with message-derived signal so the first impression isn't a
+  // near-empty list on a full book. A mature book with plenty of dated actions skips this.
+  const signals = items.length < 6 ? freshSignals(d, today) : [];
+  if (!items.length && !signals.length) {
     const base = "Nothing's overdue and nothing's due in the next week — you're on top of it.";
     return { intro: attn ? `${base}\n${attn}` : `${base} Want me to surface who's gone cold, or your at-risk deals?`, columns: [], rows: [] };
   }
-  const top = items.slice(0, 12);
-  const when = (it: typeof items[number]) => it.overdue ? `${Math.abs(it.daysUntil)}d overdue` : it.daysUntil === 0 ? "today" : `in ${it.daysUntil}d`;
+  if (!items.length) {
+    return { intro: `No dated actions are due yet, so here's where I'd start on your book:${attn ? `\n${attn}` : ""}`, columns: ["When", "Focus", "Who"], rows: signals };
+  }
   return {
     intro: `What to focus on this week — ${items.length} thing${items.length === 1 ? "" : "s"} due or overdue${items.length > top.length ? ` (top ${top.length})` : ""}:${attn ? `\n${attn}` : ""}`,
     columns: ["When", "Focus", "Who"],
-    rows: top.map((it) => ({ cells: [when(it), it.statusLabel, `${it.who}${it.org ? ` · ${it.org}` : ""}`], record: { tab: it.tab as ComputeRecord["tab"], id: it.openId } })),
+    rows: [...agendaRows, ...signals],
   };
 }
 

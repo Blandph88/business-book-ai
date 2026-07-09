@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { clearlyPersonal, conversationPath } from "./grounding";
-import { runTool, computeExact, resolveContact, contactBrief, computeForQuery } from "./compute";
+import { runTool, computeExact, resolveContact, contactBrief, computeForQuery, weeklyFocus } from "./compute";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
 
@@ -210,5 +210,20 @@ describe("computeForQuery 'what do I know about' grounding (R-D)", () => {
     const r = computeForQuery("what do I know about Meridain Capitl", d, TODAY);
     expect(r).not.toBeNull();
     expect(r!.intro).toMatch(/no .* in your book|book yet/i);
+  });
+});
+
+// ── R-F: a fresh import (no dated agenda) still leads with message-derived signal ─────────────────
+describe("weeklyFocus fresh-import backfill (R-F)", () => {
+  it("surfaces an owed reply when there are no dated actions yet", () => {
+    const d = book({ contacts: [contact({
+      first: "Owen", last: "Reid", organisation: "Northwind",
+      messaged: true, responded: true, two_way: true,
+      thread: { lastDate: "2026-06-20", lastFromOwner: false, inboundCount: 1, outboundCount: 1 },
+    })] });
+    const r = weeklyFocus(d, TODAY);
+    expect(r.intro).toMatch(/where I'd start|focus on this week/i);
+    expect(JSON.stringify(r.rows)).toMatch(/reply owed/i);
+    expect(JSON.stringify(r.rows)).toMatch(/Owen Reid/);
   });
 });
