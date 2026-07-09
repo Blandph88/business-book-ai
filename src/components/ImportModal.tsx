@@ -5,7 +5,7 @@
 //             (via onImported — NOT a page reload; under the seal a reload replays the stale
 //             pre-import seed, so we remount in-place to read the data just written this session).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getAppMode } from "../lib/appMode";
 import { importLinkedIn, carryOverEnrichment, type ImportResult } from "../data/linkedinImport";
 import { saveImportedContacts, loadImportedContacts, hasImportedContacts } from "../storage/importedContacts";
@@ -57,6 +57,30 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
   // record — latest export wins), so repeated uploads don't accumulate. We just surface that so it's not a
   // surprise. Owner-logged meetings/opportunities/edits live in their own stores and are kept.
   const [hasExisting, setHasExisting] = useState(false);
+
+  // A11y: this is a modal dialog, so move focus in on open, TRAP Tab within it, close on Escape, and restore
+  // focus to whatever opened it on close — otherwise keyboard/screen-reader users get stranded behind it.
+  const modalRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    const focusables = () => Array.from(
+      modalRef.current?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') ?? [],
+    ).filter((el) => !el.hasAttribute("disabled") && el.offsetParent !== null);
+    (focusables()[0] ?? modalRef.current)?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onCloseRef.current(); return; }
+      if (e.key !== "Tab") return;
+      const f = focusables();
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("keydown", onKey); prev?.focus?.(); };
+  }, []);
 
   useEffect(() => {
     if (result && scoreable) aiAvailability().then(setAvail);
@@ -111,7 +135,7 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
 
   return (
     <div className="imp-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Import your LinkedIn">
-      <div className="imp-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="imp-modal" ref={modalRef} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         <button className="imp-close" onClick={onClose} aria-label="Close">×</button>
         <h2 className="imp-title">Import your LinkedIn network</h2>
 
