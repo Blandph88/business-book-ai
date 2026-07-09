@@ -110,6 +110,22 @@
 }
 .imp-done-stats strong { color: var(--primary, #1f3b63); }
 
+/* Non-fatal import warnings (unreadable rows, unmatched messages, unrecognised headers). */
+.imp-warn {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--warn-fg, #7a4e00);
+  background: var(--warn-bg, #fff7e6);
+  border: 1px solid var(--warn-bd, #f2d38a);
+  border-radius: 8px;
+}
+
 /* Relationship-warmth analysis step (post-import). */
 .imp-warmth { border-top: 1px solid var(--line, #e6e8ec); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
 .imp-btn-secondary { align-self: flex-start; background: var(--brand-tint, #eef3fb); color: var(--primary, #1f3b63); box-shadow: inset 0 0 0 1px var(--primary, #1f3b63); }

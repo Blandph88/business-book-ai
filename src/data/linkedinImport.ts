@@ -27,11 +27,14 @@ function stripPreamble(text: string): string {
 
 type RawConn = { first: string; last: string; company: string; title: string; url: string };
 
-export function parseConnections(text: string): RawConn[] {
+export function parseConnections(text: string, warn?: (msg: string) => void): RawConn[] {
   const parsed = Papa.parse<Record<string, string>>(stripPreamble(text), {
     header: true,
     skipEmptyLines: true,
   });
+  // Surface (don't swallow) structural parse problems — a mismatched-quote or ragged row otherwise silently
+  // drops people from the book with no hint why.
+  if (warn && parsed.errors.length) warn(`${parsed.errors.length} row(s) in Connections.csv couldn't be read and were skipped — if a lot are missing, re-download the export from LinkedIn.`);
   const out: RawConn[] = [];
   for (const row of parsed.data) {
     const first = (row["First Name"] ?? "").trim();
@@ -77,29 +80,44 @@ function isoDate(raw: string): string {
   const m = (raw || "").match(/^\s*(\d{4}-\d{2}-\d{2})/);
   return m ? m[1] : "";
 }
+// Full lexicographically-sortable timestamp: "2026-03-26 09:15:00 UTC" → "2026-03-26 09:15:00".
+// Used ONLY to order messages within a thread so a same-day back-and-forth resolves by the actual
+// time (who truly messaged last), not by the export's row order. Falls back to the date if no time.
+function fullTs(raw: string): string {
+  const m = (raw || "").match(/^\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)/);
+  return m ? m[1] : "";
+}
 
-export function parseMessages(text: string): FunnelSets {
+export function parseMessages(text: string, warn?: (msg: string) => void): FunnelSets {
   const sets: FunnelSets = { messaged: new Set(), responded: new Set(), agreed: new Set(), inbound: new Map(), thread: new Map() };
   if (!text || !text.trim()) return sets;
-  // Track the latest message per contact + counts each way (deterministic thread signal).
-  const noteThread = (url: string, date: string, fromOwner: boolean) => {
+  // Track the latest message per contact + counts each way (deterministic thread signal). Ordering uses the
+  // full timestamp (`ts`) so same-day exchanges resolve by clock time; `date` is the date-only display value.
+  const lastTsByUrl = new Map<string, string>();
+  const noteThread = (url: string, date: string, ts: string, fromOwner: boolean) => {
     const t = sets.thread.get(url) ?? { lastDate: "", lastFromOwner: false, inboundCount: 0, outboundCount: 0 };
     if (fromOwner) t.outboundCount++; else t.inboundCount++;
-    if (date >= t.lastDate) { t.lastDate = date; t.lastFromOwner = fromOwner; } // ties: last seen wins
+    const prevTs = lastTsByUrl.get(url) ?? "";
+    if (ts >= prevTs) { lastTsByUrl.set(url, ts); t.lastDate = date; t.lastFromOwner = fromOwner; } // ties: last seen wins
     sets.thread.set(url, t);
   };
-  const rows = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true }).data;
+  const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+  if (warn && parsed.errors.length) warn(`${parsed.errors.length} row(s) in messages.csv couldn't be read and were skipped — the outreach funnel may be incomplete.`);
+  const rows = parsed.data;
 
-  // Detect the account OWNER: their profile URL appears in (nearly) every message, as
-  // sender or recipient. The most frequent profile URL across all rows is the owner.
-  const tally = new Map<string, number>();
-  const bump = (u: string) => { const n = normalizeUrl(u); if (n) tally.set(n, (tally.get(n) ?? 0) + 1); };
-  for (const r of rows) {
-    bump(r["SENDER PROFILE URL"] ?? "");
-    for (const u of (r["RECIPIENT PROFILE URLS"] ?? "").split(/[\s,;]+/)) bump(u);
-  }
+  // Detect the account OWNER: their profile URL appears in (nearly) every conversation, as sender or
+  // recipient. We rank by the number of DISTINCT conversations a URL appears in — not raw message count —
+  // so a chatty single thread or a lopsided tiny export doesn't crown the wrong person. Rows with no
+  // conversation id fall back to a per-row bucket so each still counts once.
+  const convosPerUrl = new Map<string, Set<string>>();
+  rows.forEach((r, i) => {
+    const cid = (r["CONVERSATION ID"] ?? "").trim() || `__row${i}`;
+    const add = (u: string) => { const n = normalizeUrl(u); if (!n) return; const s = convosPerUrl.get(n) ?? new Set<string>(); s.add(cid); convosPerUrl.set(n, s); };
+    add(r["SENDER PROFILE URL"] ?? "");
+    for (const u of (r["RECIPIENT PROFILE URLS"] ?? "").split(/[\s,;]+/)) add(u);
+  });
   let owner = "", max = -1;
-  for (const [u, n] of tally) if (n > max) { max = n; owner = u; }
+  for (const [u, s] of convosPerUrl) if (s.size > max) { max = s.size; owner = u; }
   if (!owner) return sets;
 
   // GROUP-CHAT GUARD: one message to a group thread must NOT mark every member as personally messaged /
@@ -124,6 +142,7 @@ export function parseMessages(text: string): FunnelSets {
     const recipients = (r["RECIPIENT PROFILE URLS"] ?? "").split(/[\s,;]+/).map(normalizeUrl).filter(Boolean);
     const content = r["CONTENT"] ?? "";
     const date = isoDate(r["DATE"] ?? "");
+    const ts = fullTs(r["DATE"] ?? "");
     // Exclude group-thread messages from all funnel/inbound attribution.
     const cid = (r["CONVERSATION ID"] ?? "").trim();
     const nonOwnerRecipients = recipients.filter((c) => c && c !== owner);
@@ -134,12 +153,12 @@ export function parseMessages(text: string): FunnelSets {
         if (!c || c === owner) continue;
         sets.messaged.add(c);
         if (hasKeyword(content, PROPOSE)) proposedTo.add(c);
-        noteThread(c, date, true); // owner → contact (outbound)
+        noteThread(c, date, ts, true); // owner → contact (outbound)
       }
     } else if (sender) {
       sets.responded.add(sender);
       if (hasKeyword(content, AFFIRM)) affirmedBy.add(sender);
-      noteThread(sender, date, false); // contact → owner (inbound)
+      noteThread(sender, date, ts, false); // contact → owner (inbound)
       // Capture their inbound message (their own words) for the sentiment pass.
       const body = content.trim();
       if (body) {
@@ -149,6 +168,11 @@ export function parseMessages(text: string): FunnelSets {
       }
     }
   }
+  // COLD-INBOUND GUARD: "responded" means they replied to the OWNER'S outreach. A cold inbound (a recruiter
+  // InMail, a stranger's pitch) where the owner never messaged them first must not be counted as a response —
+  // it would inflate the funnel's response/two-way rate. Require an outbound before crediting the reply.
+  // (Their message is still captured in `inbound` for the sentiment read; it just isn't a funnel "response".)
+  for (const c of [...sets.responded]) if (!sets.messaged.has(c)) sets.responded.delete(c);
   // Keep each contact's inbound thread in chronological order (recency matters to the read).
   for (const [, list] of sets.inbound) list.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   for (const c of sets.responded) {
@@ -174,6 +198,9 @@ export function capInbound(msgs: InboundMessage[] | undefined): InboundMessage[]
 export type ImportResult = {
   contacts: Contact[];
   counts: { total: number; messaged: number; responded: number; agreed: number };
+  // Non-fatal problems worth showing the owner (unreadable rows, unrecognised headers, an unmatched
+  // messages.csv). The import still succeeds; these explain why a number looks lower than expected.
+  warnings: string[];
 };
 
 // Re-import preserves prior WORK the fresh export can't reproduce. LinkedIn's CSVs carry no LLM scan output,
@@ -218,8 +245,18 @@ export function carryOverEnrichment(fresh: Contact[], prev: Contact[]): Contact[
 }
 
 export function importLinkedIn(connectionsText: string, messagesText: string): ImportResult {
-  const raw = parseConnections(connectionsText);
-  const funnel = parseMessages(messagesText);
+  const warnings: string[] = [];
+  const warn = (m: string) => { if (!warnings.includes(m)) warnings.push(m); };
+  const raw = parseConnections(connectionsText, warn);
+  const funnel = parseMessages(messagesText, warn);
+  // Headers not recognised (localized export, wrong file, or all-blank columns): rows parsed but none had a
+  // name OR a URL to key on, so nothing could be imported.
+  if (connectionsText.trim() && raw.length === 0)
+    warn("We couldn't read any connections from that file — check it's your LinkedIn Connections.csv (with First Name / Last Name / URL columns).");
+  // Messages provided but not one matched a connection (owner mis-detected, or the two exports came from
+  // different accounts) — the whole funnel would read empty and look like you'd done no outreach.
+  if (messagesText.trim() && funnel.messaged.size === 0 && funnel.responded.size === 0)
+    warn("Your messages file didn't match any of your connections, so the outreach funnel is empty — check both files were exported from the same LinkedIn account.");
   const byUrl = new Map<string, Contact>();
   for (const r of raw) {
     const key = normalizeUrl(r.url);
@@ -250,5 +287,6 @@ export function importLinkedIn(connectionsText: string, messagesText: string): I
       responded: contacts.filter((c) => c.responded).length,
       agreed: contacts.filter((c) => c.agreed_to_meet).length,
     },
+    warnings,
   };
 }

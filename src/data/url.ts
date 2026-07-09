@@ -17,6 +17,9 @@ export function normalizeUrl(url: string | undefined): string {
 // record instead of duplicating. Returns "" if there's no name to key on. Passes through normalizeUrl
 // unchanged (no ?#/ chars), so it can live in the same `url` field as a real URL.
 export function syntheticContactKey(first?: string, last?: string): string {
-  const slug = `${first ?? ""} ${last ?? ""}`.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  // Keep ANY Unicode letter/number (\p{L}\p{N}), not just ASCII, so a fully non-Latin name (e.g. Chinese,
+  // Arabic, Cyrillic) still produces a stable key instead of collapsing to "" and dropping the contact.
+  // Separators (spaces, punctuation, and any ?#/ that would confuse normalizeUrl) collapse to "-".
+  const slug = `${first ?? ""} ${last ?? ""}`.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
   return slug ? `name:${slug}` : "";
 }

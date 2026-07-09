@@ -133,6 +133,11 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
               <li><strong>{result.counts.responded.toLocaleString()}</strong> responded</li>
               <li><strong>{result.counts.agreed.toLocaleString()}</strong> agreed to meet</li>
             </ul>
+            {result.warnings.length > 0 && (
+              <ul className="imp-warn" role="status">
+                {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            )}
             <p className="imp-privacy">🔒 Everything stayed on this computer — nothing was uploaded.</p>
             {scoreable > 0 && avail && (
               <div className="imp-warmth">

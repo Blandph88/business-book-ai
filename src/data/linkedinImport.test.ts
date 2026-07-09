@@ -393,3 +393,71 @@ describe("carryOverEnrichment", () => {
     expect(ana.met).toBe(true);
   });
 });
+
+// ── Tier-4 import-correctness fixes ─────────────────────────────────────────────────────────
+// A message row with an explicit date/time (the default msgRow hardcodes a date-only value).
+function msgRowAt(convId: string, senderUrl: string, recipientUrls: string, content: string, date: string): string {
+  const c = `"${content.replace(/"/g, '""')}"`;
+  return `${convId},Title,From,${senderUrl},To,${recipientUrls},${date},Subject,${c},INBOX`;
+}
+
+describe("cold-inbound guard", () => {
+  it("does NOT count a reply as 'responded' when the owner never messaged them first", () => {
+    // Owner appears as a recipient in two threads (so owner-detection picks them), messages BEN, and a
+    // stranger (DAN) cold-messages the owner without the owner ever reaching out.
+    const DAN = "https://www.linkedin.com/in/dan-cold";
+    const funnel = parseMessages(
+      msgFile([
+        msgRow("t1", OWNER, BEN, "hi ben"),
+        msgRow("t1", BEN, OWNER, "hi back"),
+        msgRow("t2", DAN, OWNER, "cold recruiter pitch"),
+      ]),
+    );
+    expect(funnel.responded.has(BEN)).toBe(true);   // genuine two-way
+    expect(funnel.responded.has(DAN)).toBe(false);  // cold inbound — not a response to outreach
+    expect(funnel.messaged.has(DAN)).toBe(false);
+  });
+});
+
+describe("same-day owes-a-reply tiebreak", () => {
+  it("uses the clock time, not row order, to decide who messaged last that day", () => {
+    // BEN replies at 14:00 AFTER the owner's 09:00 message, but the reply row is listed FIRST. The t2 row
+    // makes OWNER appear in the most distinct conversations so owner-detection is unambiguous.
+    const funnel = parseMessages(
+      msgFile([
+        msgRowAt("t1", BEN, OWNER, "great, will do", "2026-03-26 14:00:00 UTC"),
+        msgRowAt("t1", OWNER, BEN, "let's meet", "2026-03-26 09:00:00 UTC"),
+        msgRowAt("t2", OWNER, CAS, "hello", "2026-01-01 09:00:00 UTC"),
+      ]),
+    );
+    // The contact messaged last → the owner owes a reply → lastFromOwner is false.
+    expect(funnel.thread.get(BEN)?.lastFromOwner).toBe(false);
+  });
+});
+
+describe("import warnings", () => {
+  it("warns when messages.csv has blank profile URLs (funnel reads empty)", () => {
+    // A messages export stripped of profile URLs can't be keyed to anyone → the whole funnel is empty and
+    // would look like the owner did no outreach. That silent case must be flagged.
+    const res = importLinkedIn(
+      connFile([`Ana,A,${ANA},,Acme,Manager,01 Jan 2024`]),
+      msgFile([msgRow("t1", "", "", "hi there"), msgRow("t1", "", "", "hello back")]),
+    );
+    expect(res.warnings.some((w) => /didn't match/i.test(w))).toBe(true);
+  });
+
+  it("warns when the connections file has no readable rows", () => {
+    const res = importLinkedIn("garbage,header\nwith,no,names", "");
+    expect(res.warnings.some((w) => /couldn't read any connections/i.test(w))).toBe(true);
+  });
+});
+
+describe("non-Latin restricted-profile contact", () => {
+  it("keeps a URL-less connection whose name is entirely non-Latin (synthetic key)", () => {
+    // No URL column value → must fall back to a name-based key. A fully non-Latin name previously slugged to
+    // "" and the contact was dropped.
+    const res = importLinkedIn(connFile(["李,伟,,,腾讯,总监,01 Jan 2024"]), "");
+    expect(res.contacts.length).toBe(1);
+    expect(res.contacts[0].url).toMatch(/^name:/);
+  });
+});
