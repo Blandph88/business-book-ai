@@ -329,14 +329,16 @@ export function pipelineAggregate(d: BookData, t: string): ComputeResult | null 
   const total = open.reduce((s, o) => s + (o.est_value ?? 0), 0);
   const weighted = open.reduce((s, o) => s + oppWeighted(o), 0);
   const avg = total / open.length, avgW = weighted / open.length, n = open.length;
+  const oppW = n === 1 ? "opportunity" : "opportunities"; // never "1 opportunities"
+  const dealW = n === 1 ? "deal" : "deals";
   const wantWeighted = /\bweight/.test(t);
   const wantAvg = /\b(average|avg|mean|median|typical|per (?:deal|opportunity))\b/.test(t);
   if (/\bgap\b|\bdifference\b|\bversus\b|\bvs\b|raw (?:and|vs|versus|to) weighted|weighted (?:and|vs|versus|to) raw/.test(t))
-    return { intro: `Across your ${n} open opportunities: raw total ${money(total)}, probability-weighted ${money(weighted)} — a gap of ${money(total - weighted)}. That gap is value you're counting at full price that isn't probability-adjusted yet.`, columns: [], rows: [] };
-  if (wantAvg && wantWeighted) return { intro: `Your average probability-weighted open deal is ${money(avgW)} — weighted pipeline ${money(weighted)} across ${n} open opportunities.`, columns: [], rows: [] };
-  if (wantAvg) return { intro: `Your average open opportunity is ${money(avg)} (${money(total)} across ${n} open deals). Probability-weighted, the average is ${money(avgW)}.`, columns: [], rows: [] };
-  if (wantWeighted) return { intro: `Your probability-weighted open pipeline is ${money(weighted)} across ${n} open opportunities (raw/unweighted: ${money(total)}).`, columns: [], rows: [] };
-  return { intro: `Your open pipeline totals ${money(total)} across ${n} opportunities (probability-weighted: ${money(weighted)}).`, columns: [], rows: [] };
+    return { intro: `Across your ${n} open ${oppW}: raw total ${money(total)}, probability-weighted ${money(weighted)} — a gap of ${money(total - weighted)}. That gap is value you're counting at full price that isn't probability-adjusted yet.`, columns: [], rows: [] };
+  if (wantAvg && wantWeighted) return { intro: `Your average probability-weighted open deal is ${money(avgW)} — weighted pipeline ${money(weighted)} across ${n} open ${oppW}.`, columns: [], rows: [] };
+  if (wantAvg) return { intro: `Your average open opportunity is ${money(avg)} (${money(total)} across ${n} open ${dealW}). Probability-weighted, the average is ${money(avgW)}.`, columns: [], rows: [] };
+  if (wantWeighted) return { intro: `Your probability-weighted open pipeline is ${money(weighted)} across ${n} open ${oppW} (raw/unweighted: ${money(total)}).`, columns: [], rows: [] };
+  return { intro: `Your open pipeline totals ${money(total)} across ${n} ${oppW} (probability-weighted: ${money(weighted)}).`, columns: [], rows: [] };
 }
 
 // 5b. contractsAggregate — recognised-revenue MATHS over engagements (total / count / average per
@@ -350,10 +352,11 @@ export function contractsAggregate(d: BookData, t: string): ComputeResult {
   const avg = Math.round(total / n);
   const top = sows.slice().sort((a, b) => (b.recognised_to_date ?? 0) - (a.recognised_to_date ?? 0))[0];
   const topWhere = `${top.engagement_name || "an engagement"}${top.organisation ? ` at ${top.organisation}` : ""} (${money(top.recognised_to_date)})`;
+  const engW = n === 1 ? "engagement" : "engagements";
   const wantAvg = /\b(average|avg|mean|per engagement|typical|each)\b/.test(t);
   const intro = wantAvg
-    ? `Across your ${n} engagements you've recognised ${money(total)} in total — an average of ${money(avg)} per engagement. The largest is ${topWhere}.`
-    : `You've recognised ${money(total)} in revenue across ${n} engagements (that's ${money(avg)} each on average). Your largest is ${topWhere}.`;
+    ? `Across your ${n} ${engW} you've recognised ${money(total)} in total — an average of ${money(avg)} per engagement. The largest is ${topWhere}.`
+    : `You've recognised ${money(total)} in revenue across ${n} ${engW} (that's ${money(avg)} each on average). Your largest is ${topWhere}.`;
   return { intro, columns: [], rows: [] };
 }
 
@@ -878,6 +881,11 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // join-condition heuristic ("companies WHERE I HAVE an open deal and 2+ contacts") still gets the exact tool
   // rather than being free-handed by the model (the original multi-constraint-join failure).
   { const min = oppContactsJoin(text.toLowerCase()); if (min) return companiesWithOppAndContacts(d, min); }
+  // "log £40k of revenue" — revenue is recorded in the Revenue tab against an engagement, not something the
+  // copilot books. Decline cleanly (BEFORE the reasoning gate, which would otherwise defer it to the model, and
+  // before the action pre-check, which would open an opportunity card and inflate est_value).
+  if (/\b(log|record|add|book|enter|mark|put in)\b[^?]*\brevenue\b/.test(text.toLowerCase()) && !/\b(what|how much|show|list|total|my|report|breakdown|summar)\b/.test(text.toLowerCase()))
+    return { intro: "Revenue is recorded in the Revenue tab against an engagement, so I don't book it from here — open Revenue to log it. I can help you with contacts, meetings, and opportunities, though.", columns: [], rows: [] };
   // Hand genuine reasoning / multi-part instructions to the model — never short-circuit them to a table.
   if (isReasoningRequest(text)) return null;
   const t = text.toLowerCase();

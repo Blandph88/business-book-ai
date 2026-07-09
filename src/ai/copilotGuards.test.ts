@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { clearlyPersonal, conversationPath } from "./grounding";
-import { runTool, computeExact, resolveContact, contactBrief, computeForQuery, weeklyFocus } from "./compute";
+import { runTool, computeExact, resolveContact, contactBrief, computeForQuery, weeklyFocus, pipelineAggregate } from "./compute";
+import type { Opportunity } from "../storage/opportunities";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
 
@@ -210,6 +211,32 @@ describe("computeForQuery 'what do I know about' grounding (R-D)", () => {
     const r = computeForQuery("what do I know about Meridain Capitl", d, TODAY);
     expect(r).not.toBeNull();
     expect(r!.intro).toMatch(/no .* in your book|book yet/i);
+  });
+});
+
+// ── #20: pipeline aggregate pluralises correctly (never "1 opportunities") ────────────────────────
+describe("pipelineAggregate pluralization (R-J #20)", () => {
+  const oneOpp: Opportunity = { id: "o1", opportunity_name: "Acme", organisation: "Acme", primary_contact: "x", service_line: "Strategy", current_step: "meeting", est_value: 50000, probability: 0.5 };
+  it("says '1 opportunity' when there is exactly one open deal", () => {
+    const r = pipelineAggregate(book({ opps: [oneOpp] }), "total pipeline");
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/1 opportunity\b/);
+    expect(r!.intro).not.toMatch(/1 opportunities/);
+  });
+});
+
+// ── #40: a "log revenue" command declines cleanly (revenue is out of the copilot's scope) ─────────
+describe("computeForQuery revenue-command decline (R-J #40)", () => {
+  const d = book();
+  it("declines to book revenue and points at the Revenue tab", () => {
+    const r = computeForQuery("log £40k of revenue", d, TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/Revenue tab/i);
+  });
+  it("does NOT hijack a revenue read query", () => {
+    // "how much revenue" is a legit read — must not trip the decline.
+    const r = computeForQuery("how much revenue have I recognised", book({ sows: [] }), TODAY);
+    expect(r?.intro ?? "").not.toMatch(/I don't book it from here/i);
   });
 });
 
