@@ -971,19 +971,23 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         await startAction(actIntent.entity, actIntent.op ?? "create", actIntent.target ?? text, text, prior, id, text);
         return;
       }
-      // UNIFIED LLM ROUTER (function-calling pattern, EVERY tier). ONE schema-constrained call decides: run a
-      // deterministic data TOOL (routing + args in a single pass, then we execute + narrate), hold a personal
-      // CHAT (companion), or fall through to the grounded BOOK answer below. This replaces the old brittle
-      // regex-primary + capable-only tool-router. If the model call FAILS (throws / times out / empty / invalid
-      // JSON) we drop to the deterministic regex path (computeForQuery + conversationPath) as the error fallback.
-      // Cap the router so a cold/stalled model can't hang on "Thinking…" — on timeout we treat it as a failed
-      // call and drop to the instant deterministic fallback below (the user still gets a fast, correct answer).
+      // UNIFIED LLM FUNCTION-CALLING ROUTER — PRIMARY on capable tiers (BYOK cloud, local Ollama/LM Studio large
+      // models, on-prem). ONE schema-constrained call maps the message (however oblique) to the single best of
+      // ~21 deterministic TOOLS + args, or a personal CHAT, or open-ended BOOK advice. This is the thing an LLM
+      // is genuinely good at (intent understanding), so we trust it here instead of enumerating phrasings in
+      // regex. WebLLM (a small 3B) can't tool-select reliably — and a 21-tool prompt makes it WORSE — so it
+      // SKIPS the LLM router entirely and rides the deterministic regex path (computeForQuery already ran above;
+      // the regex fallback below finishes the job). Capable models that fluff the call also fall back gracefully.
+      // 22 s cap so a cold/stalled model can't hang on "Thinking…" — on timeout we treat it as a failed call.
       let routed: RouteResult | null = null;
-      let routeTimer: ReturnType<typeof setTimeout> | undefined;
-      const routeTimeout = new Promise<null>((resolve) => { routeTimer = setTimeout(() => resolve(null), 22_000); });
-      try { routed = await Promise.race([aiJson<RouteResult>(routerPrompt(text, history)), routeTimeout]); }
-      catch { routed = null; }
-      finally { if (routeTimer) clearTimeout(routeTimer); }
+      const routerCapable = capabilityLevel(avail.backend, avail.model) !== "small";
+      if (routerCapable) {
+        let routeTimer: ReturnType<typeof setTimeout> | undefined;
+        const routeTimeout = new Promise<null>((resolve) => { routeTimer = setTimeout(() => resolve(null), 22_000); });
+        try { routed = await Promise.race([aiJson<RouteResult>(routerPrompt(text, history)), routeTimeout]); }
+        catch { routed = null; }
+        finally { if (routeTimer) clearTimeout(routeTimer); }
+      }
       if (routed?.route === "help") {
         // Capability/meta question → the canonical capabilities answer (code, not the model), tailored to the
         // domain the question names (and varied across general asks so it doesn't read identically each time).
