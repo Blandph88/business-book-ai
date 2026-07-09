@@ -875,7 +875,7 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
   if (isReasoningRequest(text)) return null;
   // Pipeline aggregate MATHS — average / weighted / total / raw-vs-weighted gap. Computed, never the model.
   {
-    const aggWord = /\b(average|avg|mean|median|typical|weight(?:ed|ing)?|total|sum)\b/.test(t);
+    const aggWord = /\b(average|avg|mean|median|typical\w*|weight(?:ed|ing)?|total|sum)\b/.test(t);
     const valueWord = /\b(value|worth|size|£|\$|pounds?|dollars?|pipeline)\b/.test(t);
     if ((aggWord && valueWord) || /\baverage (?:deal|opportunit|open)\b/.test(t) || /\bgap between\b/.test(t) || (/\bweight/.test(t) && /\b(raw|unweighted|probability|total|pipeline)\b/.test(t))) {
       const agg = pipelineAggregate(d, t);
@@ -885,7 +885,7 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
   // Recognised-revenue maths over engagements (total / count / average per engagement).
   if (
     (/\b(recognis|recogniz|revenue)\w*/.test(t) && (/\b(total|how much|average|avg|mean|per engagement|across|sum|each|altogether|in total)\b/.test(t) || (/\bengagements?\b/.test(t) && !LIST_VERB.test(t.replace(/how much/g, ""))))) ||
-    (/\bengagements?\b/.test(t) && /\b(average|avg|mean|typical|per engagement)\b/.test(t) && !/\b(biggest|largest|highest|top|most valuable|which one|list|show me)\b/.test(t))
+    (/\bengagements?\b/.test(t) && /\b(average|avg|mean|typical\w*|per engagement)\b/.test(t) && !/\b(biggest|largest|highest|top|most valuable|which one|list|show me)\b/.test(t))
   ) return contractsAggregate(d, t);
   // ANTI-JOIN: open opportunities with NO meeting logged.
   if (/\b(deals?|opportunit)/.test(t) && /\b(no|without|zero|haven'?t (?:had|logged)|not had)\b[^?]*\bmeeting/.test(t)) return openOppsWithoutMeeting(d);
@@ -939,6 +939,17 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
     return openOppsWithoutMeeting(d);
   if (/\b(?:am i |who am i )?ghosting\b|\bwho am i (?:ignoring|not (?:getting|responding))\b|\bleft (?:on read|hanging)\b|\bwho'?s waiting on me\b|\bhaven'?t (?:got|gotten) back to\b/.test(t))
     return owedReplies(d, today);
+  if (/\b(?:fattest|biggest|chunkiest|largest|single biggest|most valuable|highest[- ]?value|top) engagement\b/.test(t))
+    return contractsAggregate(d, t, "largest");
+  if (/\bpipeline\b[^?]*\b(?:in |as )?(?:one|a single|1) (?:number|figure)\b|\b(?:one|a single) (?:number|figure)\b[^?]*\bpipeline\b|\bbottom line\b[^?]*\bpipeline\b/.test(t))
+    return pipelineAggregate(d, t, "total");
+  if (/\bcold\b[^?]*\b(?:at|in|inside|within|sitting (?:in|at))\b[^?]*\b(?:compan|account|org|firm|client)\w*/.test(t) && /\b(?:already |also )?(?:work|working|have|engaged?|deal|opportunit|live work|business)\w*/.test(t))
+    return coldAtActiveAccounts(d, today);
+  if (/\bwho (?:likes|rates|values) me (?:the )?(?:most|best|highest)\b|\bwho'?s (?:the )?(?:keenest|most (?:keen|engaged|responsive))\b|\bwho (?:is|are) (?:the )?(?:keenest|warmest)(?: (?:contact|lead|person))?\b/.test(t))
+    return rankContacts(d, "warmth", today);
+  // "what's my history / relationship with <person>" → that person's brief (disambiguates if the name is
+  // shared) — never the companion (which fabricated a friendship). Scoped to person-ish refs, not accounts.
+  { const hm = t.match(/\b(?:my |our )?(?:history|relationship|dealings|track record|rapport|connection) with\s+(.+?)(?:\?|$)/); if (hm) { const nm = hm[1].trim().replace(/[?.,!]+$/, ""); if (nm && !/^(?:them|him|her|it|that|this|us|the)\b/.test(nm) && !/\b(account|deal|company|firm|engagement|sector|industry)\b/.test(nm)) return contactBrief(d, nm, today); } }
 
   // ── Meetings ──────────────────────────────────────────────────────────────────────────────────
   // by date window / upcoming / "today"/"tomorrow"
@@ -957,7 +968,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // the JPMorgan account") is an ACCOUNT question, not the general agenda — summarise that account. Runs BEFORE
   // the unscoped vague-open below, which would otherwise swallow the company scope and return the weekly agenda.
   {
-    const scoped = t.match(/\b(?:lay of the land|state of play|rundown|run-down|the (?:picture|situation|lowdown|score|deal)|where (?:do |are )?(?:things|we|i)|how (?:are|do) things|snapshot|the overview|status|standing)\b[^?]*\b(?:at|with|for|on|around|re)\s+(.+?)(?:\?|$)/);
+    const scoped = t.match(/\b(?:lay of the land|state of play|rundown|run-down|the (?:picture|situation|lowdown|score|deal)|where (?:do |are )?(?:things|we|i)|how (?:are|do) things|snapshot|the overview|status|standing)\b[^?]*?\b(?:at|with|for|on|around|re)\s+(.+?)(?:\?|$|\s+(?:before|after|when|so |to (?:call|reach|prep|discuss|catch|see)|ahead of|prior to|next week|first|then|and then|because))/);
     if (scoped) {
       const co = extractCompany(`at ${scoped[1].trim()}`, d);
       // Only accept a CONFIDENT match — the resolved company must share a distinctive (≥4-char) token with what
@@ -998,7 +1009,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // pipeline-value phrase) — so "biggest by value" (a ranking) and "average sales-cycle LENGTH" (not a value
   // metric — the tools can't compute it, so it must reach the model) are BOTH excluded.
   {
-    const aggWord = /\b(average|avg|mean|median|typical|weight(?:ed|ing)?|total|sum)\b/.test(t);
+    const aggWord = /\b(average|avg|mean|median|typical\w*|weight(?:ed|ing)?|total|sum)\b/.test(t);
     const valueWord = /\b(value|worth|size|£|\$|pounds?|dollars?|pipeline)\b/.test(t);
     if (
       (aggWord && valueWord) ||
@@ -1056,7 +1067,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
     (/\b(recognis|recogniz|revenue)\w*/.test(t) && (/\b(total|how much|average|avg|mean|per engagement|across|sum|each|altogether|in total)\b/.test(t) || (/\bengagements?\b/.test(t) && !LIST_VERB.test(t.replace(/how much/g, ""))))) ||
     // …and the follow-up "so what's the average per engagement?" (no "revenue" word) — an average over
     // engagements is the aggregate, NOT the engagements list. Excludes ranking/list phrasings.
-    (/\bengagements?\b/.test(t) && /\b(average|avg|mean|typical|per engagement)\b/.test(t) && !/\b(biggest|largest|highest|top|most valuable|which one|list|show me)\b/.test(t))
+    (/\bengagements?\b/.test(t) && /\b(average|avg|mean|typical\w*|per engagement)\b/.test(t) && !/\b(biggest|largest|highest|top|most valuable|which one|list|show me)\b/.test(t))
   ) return contractsAggregate(d, t);
   // Engagements RANKED by value (deterministic — never let the model pick the max).
   if (/\b(highest|biggest|largest|top|most valuable|by value|worth most)\b[^?]*\b(engagement|contract|sow)/.test(t) || /\b(engagement|contract|sow)s?\b[^?]*\b(highest|biggest|largest|most valuable|by value|worth most)\b/.test(t)) return findContracts(d, { byValue: true });
