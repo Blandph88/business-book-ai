@@ -280,7 +280,21 @@ export default function App() {
             </button>
             <label className="app-currency" title="Display currency">
               <span>Currency</span>
-              <select value={CURRENCY_CODE} onChange={(e) => setCurrency(e.target.value)}>
+              <select
+                value={CURRENCY_CODE}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (next === CURRENCY_CODE) return;
+                  // Currency here is a DISPLAY label only — we never convert amounts (no FX data, and the
+                  // book was entered in one currency). Warn once there's data so nobody thinks 500,000 GBP
+                  // silently became 500,000 USD of value. Confirm-to-proceed, not a hard lock.
+                  if (hasData && !window.confirm(
+                    `Switching to ${next} only relabels the currency symbol — it does NOT convert your figures. ` +
+                    `An amount of 500,000 stays 500,000, just shown as ${next}. Continue?`,
+                  )) return;
+                  setCurrency(next);
+                }}
+              >
                 {CURRENCY_OPTIONS.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
