@@ -179,17 +179,24 @@ function contactsNav(filter: ContactFilter): { tab: TabId; intent: TabIntent } {
 export function findMeetings(d: BookData, today: string, t: string): ComputeResult {
   const { days, label } = windowDays(t);
   const cutoff = addDays(today, -days);
-  const upcoming = /\bupcoming|scheduled|coming up|next\b/.test(t);
+  const upcoming = /\bupcoming|scheduled|coming up|next\b|on the horizon|in my (?:diary|calendar)\b/.test(t);
+  // Did the user STATE a window? windowDays defaults to 14 silently, so we can't infer it from `days`. When a
+  // window IS stated ("next couple of weeks"), bound the FUTURE horizon by it — the past side already did this,
+  // but the upcoming side used to return EVERYTHING ahead (two months of meetings for a "next fortnight" ask).
+  const statedWindow = /\b\d+\s*(?:days?|weeks?|months?)\b|\btwo weeks\b|\bfortnight\b|\bcouple of weeks\b|\bfew weeks\b|\bthis (?:week|month)\b|\bnext (?:week|month|few|couple)\b|\bmonth\b|\bquarter\b|\bweek\b/.test(t);
+  const futureCap = addDays(today, days);
   const rows = d.meetingRows
-    .filter((m) => upcoming ? (m.meeting_stage === "Scheduled" && (m.date_scheduled || "") >= today) : (m.meeting_stage === "Held" && m.date_held && m.date_held >= cutoff && m.date_held <= today))
+    .filter((m) => upcoming
+      ? (m.meeting_stage === "Scheduled" && (m.date_scheduled || "") >= today && (!statedWindow || (m.date_scheduled || "") <= futureCap))
+      : (m.meeting_stage === "Held" && m.date_held && m.date_held >= cutoff && m.date_held <= today))
     .sort((a, b) => upcoming ? (a.date_scheduled || "").localeCompare(b.date_scheduled || "") : (b.date_held || "").localeCompare(a.date_held || ""));
   if (!rows.length) {
-    if (upcoming) return { intro: "You've got no upcoming meetings scheduled.", columns: [], rows: [] };
+    if (upcoming) return { intro: statedWindow ? `You've got no meetings scheduled in the next ${label}.` : "You've got no upcoming meetings scheduled.", columns: [], rows: [] };
     const last = d.meetingRows.filter((m) => m.meeting_stage === "Held" && m.date_held).sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""))[0];
     return { intro: `You've got no meetings held in the last ${label}.${last ? ` Your most recent was on ${last.date_held} with ${last.contactInfo.name}.` : ""}`, columns: [], rows: [] };
   }
   return {
-    intro: upcoming ? `Your upcoming meetings (${rows.length}):` : `Meetings you held in the last ${label} (${rows.length}):`,
+    intro: upcoming ? `Your upcoming meetings${statedWindow ? ` in the next ${label}` : ""} (${rows.length}):` : `Meetings you held in the last ${label} (${rows.length}):`,
     columns: ["Date", "Contact", "Company", upcoming ? "Stage" : "Sentiment"],
     rows: rows.map((m) => ({ cells: [(upcoming ? m.date_scheduled : m.date_held) || "—", m.contactInfo.name, m.contactInfo.organisation || "—", upcoming ? m.meeting_stage : (m.sentiment || "—")], record: { tab: "meetings", id: m.id } })),
   };
@@ -1173,6 +1180,7 @@ export function runTool(call: ToolCall, d: BookData, today: string): ComputeResu
     case "oppsWithoutMeeting": return openOppsWithoutMeeting(d);
     case "meetingsWithoutOpp": return meetingsWithoutOpp(d);
     case "accountsWithOppAndContacts": return companiesWithOppAndContacts(d, num(a.minContacts) ?? 2);
+    case "coldAtActiveAccounts": return coldAtActiveAccounts(d, today);
     case "contactsMetAtLeast": return contactsMetAtLeast(d, num(a.times) ?? 2);
     case "personalSnapshot": return personalSnapshot(d, today);
     case "weeklyFocus": return weeklyFocus(d, today);
@@ -1228,6 +1236,35 @@ export function joinGroundingText(question: string, d: BookData, today: string):
   }
   if (!rows.length) return "";
   return `\n\nComputed join — your COLD contacts at companies where you ALSO have live work. These are warm-account/cold-person openings: use the existing engagement as the natural reason to reconnect.\n${rows.join("\n")}`;
+}
+
+// Cross-join as a first-class TOOL (table): cold contacts sitting inside companies where you ALSO have an
+// active engagement or open opportunity. "Cold contacts at companies I'm already working with." Shares the
+// exact work/isCold logic with joinGroundingText so the narrated and tabular views can't diverge.
+export function coldAtActiveAccounts(d: BookData, today: string): ComputeResult {
+  const norm = (s?: string) => (s || "").trim().toLowerCase();
+  const work = new Map<string, string>();
+  const note = (org: string | undefined, desc: string) => { const k = norm(org); if (k && !work.has(k)) work.set(k, desc); };
+  for (const s of d.sows) if ((s.status || "").toLowerCase() === "active") note(s.organisation, "Active engagement");
+  for (const o of d.opps) if (oppStatus(o) === "Open") note(o.organisation, "Open opportunity");
+  if (!work.size) return { intro: "You've no active engagements or open opportunities right now, so there are no live accounts to cross-reference.", columns: [], rows: [] };
+  const lm = lastMeetingMap(d);
+  const upcoming = upcomingMeetingSet(d, today);
+  const isCold = (c: Contact) => {
+    const stalledEarly = (c.responded || c.two_way) && !c.met && !c.agreed_to_meet;
+    const last = lm.get(c.url);
+    return stalledEarly || (c.met && !!last && daysBetween(last.date, today) > 45 && !upcoming.has(c.url));
+  };
+  const hits = d.contacts.filter((c) => work.get(norm(c.organisation)) && isCold(c));
+  if (!hits.length) return { intro: "No cold contacts sitting inside your active accounts — the people at companies you're working with are all warm or already progressing.", columns: [], rows: [] };
+  const shown = hits.slice(0, 30);
+  const res: ComputeResult = {
+    intro: `Cold contacts inside companies where you ALSO have live work — warm-account, cold-person openings (${hits.length}):`,
+    columns: ["Contact", "Role", "Company", "Live work"],
+    rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", work.get(norm(c.organisation)) || "—"], record: { tab: "contacts", id: c.url } })),
+  };
+  if (hits.length > shown.length) res.more = { count: hits.length, tab: "contacts", intent: {} };
+  return res;
 }
 
 // Backend-aware CONFIDENTIALITY answer. A consultant's first question before trusting the tool with real
