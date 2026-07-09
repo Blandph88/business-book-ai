@@ -27,6 +27,34 @@ function stripPreamble(text: string): string {
 
 type RawConn = { first: string; last: string; company: string; title: string; url: string };
 
+// ── Import hygiene ──────────────────────────────────────────────────────────────────────
+// Real LinkedIn exports carry decoration people add to their names — an emoji ("☁️Jon White"), pronouns
+// ("(he/him)"), and a string of post-nominal credentials ("Faisal Albaroudi, MBA, CIA, ICCGO", "Saad
+// Alhummaidani ,RMFS"). Left in, they pollute name display, contact matching, and the copilot's chips. We
+// strip the decoration but KEEP accents / non-Latin scripts (a José or 王 is a real name, not noise).
+const EMOJI_RE = /[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}️‍]/gu;
+export function cleanName(raw: string): string {
+  return (raw || "")
+    .replace(EMOJI_RE, "")
+    .replace(/\([^)]*\b(?:he|him|she|her|they|them)\b[^)]*\)/gi, "") // pronoun parenthetical
+    .split(/[,|]/)[0] // drop trailing ", MBA, CIA, ICCGO" credentials or "| headline"
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+// The company field is frequently NOT a company — it's a job-search status or a placeholder. Grouping every
+// "Open to work" / "Self-employed"-style value into one giant fake account skews the sector breakdown and
+// surfaces junk "companies" in the copilot. Blank the clear non-companies; keep genuine firm names (incl.
+// small/unknown ones) untouched. "Self-employed"/"Freelance" ARE kept — they're a real working status.
+const JUNK_COMPANY = /^(?:-+|—+|\.+|,+|n\/?a|none|null|#?\s*open\s*to\s*work|open\s+for\s+work|seeking\b.*|looking\s+for\s+(?:work|opportunit\w*|(?:a\s+)?\w+\s+role).*|actively\s+(?:seeking|looking).*|between\s+roles?|currently\s+.*|commencing\s+.*|starting\s+.*\bin\b.*|available\s+for\s+.*)$/i;
+export function cleanCompany(raw: string): string {
+  const s = (raw || "").replace(EMOJI_RE, "").replace(/\s{2,}/g, " ").trim();
+  if (!s || JUNK_COMPANY.test(s)) return "";
+  // A whole self-description sentence pasted into the company field ("…helping brands grow at scale") isn't a
+  // company — drop obviously-headline values (long AND containing a linking preposition).
+  if (s.length > 60 && /\s(?:at|for|with|to|helping|passionate)\s/i.test(s)) return "";
+  return s;
+}
+
 export function parseConnections(text: string, warn?: (msg: string) => void): RawConn[] {
   const parsed = Papa.parse<Record<string, string>>(stripPreamble(text), {
     header: true,
@@ -37,16 +65,17 @@ export function parseConnections(text: string, warn?: (msg: string) => void): Ra
   if (warn && parsed.errors.length) warn(`${parsed.errors.length} row(s) in Connections.csv couldn't be read and were skipped — if a lot are missing, re-download the export from LinkedIn.`);
   const out: RawConn[] = [];
   for (const row of parsed.data) {
-    const first = (row["First Name"] ?? "").trim();
-    const last = (row["Last Name"] ?? "").trim();
+    const first = cleanName(row["First Name"] ?? "");
+    const last = cleanName(row["Last Name"] ?? "");
     // Keep connections whose profile URL LinkedIn omitted (restricted profiles): key them by a stable
     // name-based synthetic id (so a re-import collapses them onto the same record) instead of dropping them.
+    // Key on the CLEANED name so decoration variants of the same person don't split into two records.
     const url = (row["URL"] ?? row["Url"] ?? "").trim() || syntheticContactKey(first, last);
     if (!url) continue; // no URL AND no name → nothing to key on
     out.push({
       first,
       last,
-      company: (row["Company"] ?? "").trim(),
+      company: cleanCompany(row["Company"] ?? ""),
       title: (row["Position"] ?? "").trim(),
       url,
     });
