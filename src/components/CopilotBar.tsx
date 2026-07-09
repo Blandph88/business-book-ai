@@ -1028,9 +1028,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // The full DATA grounding: book context + the records the message NAMES (apostrophe-robust) + any
       // sector/function subset it asks for + a resolved "warmest lead". Shared with the eval harness so we
       // tune the real thing. (Memory + uploaded doc are app-state, layered on below.)
-      // Recent context (last 2 turns) so entity resolution carries the person named earlier in the thread —
-      // a follow-up like "make it more formal" must still know who "her"/"him" is.
-      const convo = history.slice(-2).map((h) => h.text).join("\n");
+      // Recent context so entity resolution carries the person/company named earlier in the thread — a
+      // follow-up like "make it more formal" or "and her?" must still know who "her"/"him" is. Widened to the
+      // last 8 turns to match the answer prompt's own history window (was 2, which silently dropped a subject
+      // named 5 turns back). assembleGrounding/mergeGroups prioritises current-message hits, so a stale earlier
+      // entity can't crowd out a fresh one.
+      const convo = history.slice(-8).map((h) => h.text).join("\n");
       let grounding = assembleGrounding(text, data, budget, today, convo);
       // Ambient memory: durable facts distilled from past chats, surfaced when relevant so the assistant
       // "remembers" across conversations (use only if it fits — don't force it in).
@@ -1143,6 +1146,18 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     if (needsContact) {
       const matches = matchContacts(target, contacts);
       if (matches.length === 1) subjectUrl = matches[0].url;
+      // PRONOUN-led follow-up ("add a meeting with HIM tomorrow", "turn IT into an opportunity", "move HIS
+      // meeting") — the current message names no one, so resolve the subject from the most recent prior turn
+      // that unambiguously did. The READ path already carries pronouns via grounding; the action path must too,
+      // or it opens a blank card / writes an orphaned unnamed record. Stop at the first prior turn that names
+      // exactly one contact; a turn naming several is ambiguous, so we don't guess.
+      if (!subjectUrl && /\b(him|her|hers|his|them|their|they|he|she|it|that|this|those|these)\b/i.test(target)) {
+        for (const t of [...prior].reverse().slice(0, 8)) {
+          if (t.role !== "you") continue;
+          const m = matchContacts(t.text, contacts);
+          if (m.length >= 1) { if (m.length === 1) subjectUrl = m[0].url; break; }
+        }
+      }
     }
     // For an UPDATE to an opportunity, resolve WHICH existing deal it is ("the JPMorgan deal") so the form
     // pre-fills with its real values and confirming edits it in place. Auto-target ONLY on a single match —
@@ -1177,7 +1192,19 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     try { values = await spec.extract(ctx); } catch { /* card opens with blanks */ }
     const fields = typeof spec.fields === "function" ? spec.fields(op) : spec.fields;
     const card: ActionCardData = { kind, op, title: spec.title(ctx), fields, values, needsContact, subjectUrl, targetId, status: "draft" };
-    const lead = op === "create" ? `Here's a draft ${spec.label.toLowerCase()} from what you said — check it${needsContact && !subjectUrl ? ", pick the contact" : ""} and confirm to save.` : `Here's the change — review and confirm to update.`;
+    let lead = op === "create" ? `Here's a draft ${spec.label.toLowerCase()} from what you said — check it${needsContact && !subjectUrl ? ", pick the contact" : ""} and confirm to save.` : `Here's the change — review and confirm to update.`;
+    // A meeting UPDATE defaults to the contact's MOST RECENT meeting; when they have several, name WHICH one
+    // in the lead (date + who) so the user can't silently confirm an edit to the wrong call — they can say the
+    // date if they meant a different one. (R7b: never silently pick among several and pass it off as correct.)
+    if (op === "update" && kind === "meeting" && targetId) {
+      const m = meetingRows.find((x) => x.id === targetId);
+      const same = m ? meetingRows.filter((x) => x.contact_url === m.contact_url).length : 0;
+      if (m && same > 1) {
+        const c = contacts.find((x) => x.url === m.contact_url);
+        const when = m.date_held || m.date_scheduled || "—";
+        lead = `Editing your ${when} meeting with ${c ? `${c.first} ${c.last}`.trim() : "them"} — your most recent of ${same}. If you meant a different one, tell me the date. Review and confirm.`;
+      }
+    }
     setActionBusy(false);
     // The draft (lead + interactive card) is deliberately NOT persisted — an unconfirmed card can't be
     // restored, so persisting the "confirm to save" lead alone would dangle. The user's message is already

@@ -560,17 +560,33 @@ export function funnelBreakdown(d: BookData, dim: "sector_group" | "function" | 
 }
 
 // 9 + 11. resolveContact + contactBrief — one person's full picture.
+// Fold diacritics + case so "José Fernández" resolves to a stored "Jose Fernandez" (consultants type both,
+// and whether the model echoes or strips the accent otherwise decides the match — a cross-tier coin-flip).
+export const foldAccents = (s: string): string => String(s ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
 export function resolveContact(d: BookData, ref: string, today: string): Contact | null {
-  const r = String(ref ?? "").trim().toLowerCase(); // defensive: a non-string ref (bad tool arg) must not throw
+  const r = foldAccents(String(ref ?? "").trim()); // defensive: a non-string ref (bad tool arg) must not throw
   if (!r) return null;
   const lm = lastMeetingMap(d);
   if (/\b(warmest|hottest|most engaged)\b/.test(r)) return d.contacts.map((c) => ({ c, s: warmth(c, lm, today) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s)[0]?.c ?? null;
-  const exact = d.contacts.find((c) => fullName(c).toLowerCase() === r);
+  const exact = d.contacts.find((c) => foldAccents(fullName(c)) === r);
   if (exact) return exact;
-  const partial = d.contacts.filter((c) => fullName(c).toLowerCase().includes(r) || r.includes(fullName(c).toLowerCase()));
+  const partial = d.contacts.filter((c) => foldAccents(fullName(c)).includes(r) || r.includes(foldAccents(fullName(c))));
   return partial.length === 1 ? partial[0] : (partial.sort((a, b) => warmth(b, lm, today) - warmth(a, lm, today))[0] ?? null);
 }
 export function contactBrief(d: BookData, ref: string, today: string): ComputeResult {
+  // Bare SHARED first name → DISAMBIGUATE rather than silently briefing the warmest match. Picking one
+  // unverified builds every later turn (a drafted email!) on the wrong person — confidentiality-grade. Only
+  // fires for a single-token name that isn't already a full name in the book, and only when ≥2 people share it.
+  const bare = foldAccents(String(ref ?? "").trim());
+  if (bare && !/\s/.test(bare) && !d.contacts.some((c) => foldAccents(fullName(c)) === bare)) {
+    const sameFirst = d.contacts.filter((c) => foldAccents(c.first) === bare);
+    if (sameFirst.length > 1) return {
+      intro: `You know ${sameFirst.length} people called ${sameFirst[0].first} — which one did you mean?`,
+      columns: ["Name", "Role", "Company"],
+      rows: sameFirst.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—"], record: { tab: "contacts", id: c.url } })),
+    };
+  }
   const c = resolveContact(d, ref, today);
   if (!c) return { intro: `Hmm, I've had a good rummage and there's no "${ref}" in your book yet — want me to add them, or did you maybe mean someone else?`, columns: [], rows: [] };
   const meetings = d.meetingRows.filter((m) => m.contact_url === c.url && m.meeting_stage === "Held").sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
@@ -669,7 +685,7 @@ export function accountSummary(d: BookData, company: string): ComputeResult {
 const COMPANY_AT = /\b(?:everyone|anyone|every one|people|contacts?|connections?|folks|who(?:m)?\s+do i know|who do i have)\b[^?]*?\b(?:at|from|in|with)\s+([A-Za-z0-9][A-Za-z0-9 .&'-]{0,38}?)(?:[?,.:;—–-]|$|\s+(?:about|who|that|which|and|but|so|to|for|regarding|in order|give|show|list|tell)\b)/i;
 // Words that follow "…in/at ___" but are NOT a company ("how many contacts do I have in total").
 const AT_NOISE = /^(?:total|general|particular|the book|my book|my network|mind|fact|now|today|short|full|detail|question|play)$/i;
-const ABOUT = /\b(?:brief me on|tell me about|who is|what do you know about|summarise|summarize|profile of|details on)\s+([A-Za-z0-9 .&'-]+?)(?:\?|$)/i;
+const ABOUT = /\b(?:brief me on|tell me about|who is|what do you know about|summarise|summarize|profile of|details on)\s+([\p{L}\p{M}0-9 .&'-]+?)(?:\?|$)/iu;
 
 // Verbs that signal "give me a list / a count" — kept broad on purpose. This is the LOW-CAPABILITY path
 // (Nano skips the LLM tool-router), so the more phrasings we catch deterministically, the fewer questions

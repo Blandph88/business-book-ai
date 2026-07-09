@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { clearlyPersonal, conversationPath } from "./grounding";
-import { runTool, computeExact } from "./compute";
+import { runTool, computeExact, resolveContact, contactBrief } from "./compute";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
 
@@ -132,5 +132,31 @@ describe("computeExact rail (R1/R2)", () => {
   });
   it("does NOT hijack a genuine reasoning request", () => {
     expect(computeExact("analyse the average deal and tell me what to focus on", d, TODAY)).toBeNull();
+  });
+});
+
+// ── R10: accent/diacritic fold in contact resolution ─────────────────────────────────────────────
+describe("resolveContact accent fold (R10)", () => {
+  const d = book({ contacts: [contact({ first: "Jose", last: "Fernandez", organisation: "Iberia Capital" })] });
+  it("matches an accented query to an unaccented stored name (and vice-versa)", () => {
+    expect(resolveContact(d, "José Fernández", TODAY)?.last).toBe("Fernandez");
+    expect(resolveContact(d, "jose fernandez", TODAY)?.last).toBe("Fernandez");
+  });
+});
+
+// ── R7(a): bare shared first name → disambiguate, never silently pick the warmest ────────────────
+describe("contactBrief bare-name disambiguation (R7a)", () => {
+  const d = book({ contacts: [
+    contact({ first: "Jose", last: "Fernandez", organisation: "Iberia Capital" }),
+    contact({ first: "Jose", last: "Marquez", organisation: "Banco Sur", url: "https://www.linkedin.com/in/jose-m" }),
+  ] });
+  it("asks which one when two contacts share a first name", () => {
+    const r = contactBrief(d, "Jose", TODAY);
+    expect(r.rows.length).toBe(2);
+    expect(r.intro).toMatch(/which one/i);
+  });
+  it("briefs directly when given the full name", () => {
+    const r = contactBrief(d, "Jose Marquez", TODAY);
+    expect(r.intro).toContain("Jose Marquez");
   });
 });
