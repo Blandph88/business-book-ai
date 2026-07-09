@@ -323,7 +323,11 @@ export function pipelineStats(d: BookData): ComputeResult {
 // 7b. pipelineAggregate — averages / weighted / totals / the raw-vs-weighted gap, COMPUTED (never the model:
 // a 70B lost the whole dataset here and answered from "the single opportunity in your book"). All figures are
 // derived from the same open-opportunity set as pipelineStats, so the numbers can't drift between answers.
-export function pipelineAggregate(d: BookData, t: string): ComputeResult | null {
+export type PipelineMetric = "total" | "weighted" | "average" | "gap";
+// The `metric` param (tool path) is authoritative; when absent (regex path) it's parsed from the text. Oblique
+// phrasings map here: "banking / at the odds / realistically" → weighted, "typically / per deal" → average,
+// "wishful thinking / raw vs weighted" → gap, else total.
+export function pipelineAggregate(d: BookData, t: string, metric?: PipelineMetric): ComputeResult | null {
   const open = d.opps.filter((o) => oppStatus(o) === "Open");
   if (!open.length) return { intro: "You've no open opportunities to total up right now.", columns: [], rows: [] };
   const total = open.reduce((s, o) => s + (o.est_value ?? 0), 0);
@@ -331,20 +335,30 @@ export function pipelineAggregate(d: BookData, t: string): ComputeResult | null 
   const avg = total / open.length, avgW = weighted / open.length, n = open.length;
   const oppW = n === 1 ? "opportunity" : "opportunities"; // never "1 opportunities"
   const dealW = n === 1 ? "deal" : "deals";
-  const wantWeighted = /\bweight/.test(t);
-  const wantAvg = /\b(average|avg|mean|median|typical|per (?:deal|opportunity))\b/.test(t);
-  if (/\bgap\b|\bdifference\b|\bversus\b|\bvs\b|raw (?:and|vs|versus|to) weighted|weighted (?:and|vs|versus|to) raw/.test(t))
+  const m: PipelineMetric = metric ?? (
+    /\bgap\b|\bdifference\b|\bversus\b|\bvs\b|raw (?:and|vs|versus|to) weighted|weighted (?:and|vs|versus|to) raw/.test(t) ? "gap"
+    : /\b(average|avg|mean|median|typical\w*|per (?:deal|opportunity)|each|apiece)\b/.test(t) ? "average"
+    : /\bweight|\bat the odds\b|\brealistic\w*|\brisk[- ]?adjusted\b|\bexpected value\b|\blikely to (?:close|land)\b|\bactually banking\b/.test(t) ? "weighted"
+    : "total"
+  );
+  if (m === "gap")
     return { intro: `Across your ${n} open ${oppW}: raw total ${money(total)}, probability-weighted ${money(weighted)} — a gap of ${money(total - weighted)}. That gap is value you're counting at full price that isn't probability-adjusted yet.`, columns: [], rows: [] };
-  if (wantAvg && wantWeighted) return { intro: `Your average probability-weighted open deal is ${money(avgW)} — weighted pipeline ${money(weighted)} across ${n} open ${oppW}.`, columns: [], rows: [] };
-  if (wantAvg) return { intro: `Your average open opportunity is ${money(avg)} (${money(total)} across ${n} open ${dealW}). Probability-weighted, the average is ${money(avgW)}.`, columns: [], rows: [] };
-  if (wantWeighted) return { intro: `Your probability-weighted open pipeline is ${money(weighted)} across ${n} open ${oppW} (raw/unweighted: ${money(total)}).`, columns: [], rows: [] };
+  if (m === "average")
+    return /\bweight/.test(t)
+      ? { intro: `Your average probability-weighted open deal is ${money(avgW)} — weighted pipeline ${money(weighted)} across ${n} open ${oppW}.`, columns: [], rows: [] }
+      : { intro: `Your average open opportunity is ${money(avg)} (${money(total)} across ${n} open ${dealW}). Probability-weighted, the average is ${money(avgW)}.`, columns: [], rows: [] };
+  if (m === "weighted")
+    return { intro: `Your probability-weighted open pipeline is ${money(weighted)} across ${n} open ${oppW} (raw/unweighted: ${money(total)}).`, columns: [], rows: [] };
   return { intro: `Your open pipeline totals ${money(total)} across ${n} ${oppW} (probability-weighted: ${money(weighted)}).`, columns: [], rows: [] };
 }
 
 // 5b. contractsAggregate — recognised-revenue MATHS over engagements (total / count / average per
 // engagement / the largest). Computed, never the model: a 70B answered "$323k" for a max that wasn't in
 // the data, and the keyword layer used to just re-list all 30 engagements when asked for the average.
-export function contractsAggregate(d: BookData, t: string): ComputeResult {
+export type RevenueMetric = "total" | "average" | "largest";
+// `metric` (tool path) is authoritative; else parsed from text. "made money / earned / brought in" → total,
+// "per engagement / typically" → average, "fattest / biggest engagement" → the single largest (focused).
+export function contractsAggregate(d: BookData, t: string, metric?: RevenueMetric): ComputeResult {
   const sows = d.sows;
   if (!sows.length) return { intro: "You've no engagements logged yet, so there's no recognised revenue to total up.", columns: [], rows: [] };
   const total = sows.reduce((s, x) => s + (x.recognised_to_date ?? 0), 0);
@@ -353,8 +367,14 @@ export function contractsAggregate(d: BookData, t: string): ComputeResult {
   const top = sows.slice().sort((a, b) => (b.recognised_to_date ?? 0) - (a.recognised_to_date ?? 0))[0];
   const topWhere = `${top.engagement_name || "an engagement"}${top.organisation ? ` at ${top.organisation}` : ""} (${money(top.recognised_to_date)})`;
   const engW = n === 1 ? "engagement" : "engagements";
-  const wantAvg = /\b(average|avg|mean|per engagement|typical|each)\b/.test(t);
-  const intro = wantAvg
+  const m: RevenueMetric = metric ?? (
+    /\b(largest|biggest|fattest|chunkiest|highest[- ]?value|most valuable|top|single biggest)\b/.test(t) ? "largest"
+    : /\b(average|avg|mean|per engagement|typical\w*|each|apiece)\b/.test(t) ? "average"
+    : "total"
+  );
+  if (m === "largest")
+    return { intro: `Your fattest engagement is ${topWhere} — the largest of ${n} ${engW} totalling ${money(total)} recognised.`, columns: [], rows: [] };
+  const intro = m === "average"
     ? `Across your ${n} ${engW} you've recognised ${money(total)} in total — an average of ${money(avg)} per engagement. The largest is ${topWhere}.`
     : `You've recognised ${money(total)} in revenue across ${n} ${engW} (that's ${money(avg)} each on average). Your largest is ${topWhere}.`;
   return { intro, columns: [], rows: [] };
@@ -1119,6 +1139,10 @@ export function runTool(call: ToolCall, d: BookData, today: string): ComputeResu
   const contractStatus = (v: unknown): string | undefined => { const s = str(v)?.toLowerCase(); return s ? CONTRACT_STATUS[s] : undefined; };
   switch (call.tool) {
     case "findContacts": {
+      // A sector/function scope ("who do I know in energy", "finance leaders") lists that group ranked by
+      // seniority — sector/function synonyms map here so the tool owns the mapping (LLM or regex router).
+      const sec = matchSector(str(a.sector) || ""); if (sec) return sectorContacts(d, "sector_group", sec);
+      const fn = matchFunction(str(a.function) || ""); if (fn) return sectorContacts(d, "function", fn);
       const co = filterCompany(a.company); if (co === UNKNOWN) return null;
       const stage = stageArg(a.stage);
       // A stage was ASKED for but isn't a real funnel stage ("uncontacted", "hot", "closed"): don't silently
@@ -1127,12 +1151,30 @@ export function runTool(call: ToolCall, d: BookData, today: string): ComputeResu
       if (str(a.stage) && !stage && !co && !a.decisionRole) return null;
       return findContacts(d, { company: co, stage, decisionRole: !!a.decisionRole });
     }
-    case "findMeetings": return findMeetings(d, today, str(a.range) || str(a.window) || "last two weeks");
-    case "findOpportunities": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findOpportunities(d, { status: ["Open", "Won", "Lost"].includes(String(a.status)) ? (a.status as OppFilter["status"]) : "Open", company: co, minValue: num(a.minValue) }); }
-    case "findContracts": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findContracts(d, { status: contractStatus(a.status), company: co }); }
+    case "findMeetings": {
+      const dir = str(a.direction);
+      const win = num(a.windowDays) ?? num(a.window_days);
+      const range = dir === "upcoming" ? `upcoming${win ? ` ${win} days` : ""}`
+        : dir === "past" ? (win ? `last ${win} days` : "last two weeks")
+        : (str(a.range) || str(a.window) || "last two weeks");
+      return findMeetings(d, today, range);
+    }
+    case "findOpportunities": {
+      const sec = matchSector(str(a.sector) || ""); if (sec) return opportunitiesBySector(d, sec);
+      const co = filterCompany(a.company); if (co === UNKNOWN) return null;
+      return findOpportunities(d, { status: ["Open", "Won", "Lost"].includes(String(a.status)) ? (a.status as OppFilter["status"]) : "Open", company: co, minValue: num(a.minValue) });
+    }
+    case "findContracts": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findContracts(d, { status: contractStatus(a.status), company: co, byValue: !!a.byValue }); }
     case "rankContacts": return rankContacts(d, oneOf(a.by, ["warmth", "cold"] as const, "warmth"), today);
     case "rankOpportunities": return rankOpportunities(d, oneOf(a.by, ["value", "probability", "risk"] as const, "value"));
     case "pipelineStats": return pipelineStats(d);
+    case "pipelineAggregate": return pipelineAggregate(d, "", oneOf(a.metric, ["total", "weighted", "average", "gap"] as const, "total"));
+    case "revenueAggregate": return contractsAggregate(d, "", oneOf(a.metric, ["total", "average", "largest"] as const, "total"));
+    case "oppsWithoutMeeting": return openOppsWithoutMeeting(d);
+    case "meetingsWithoutOpp": return meetingsWithoutOpp(d);
+    case "accountsWithOppAndContacts": return companiesWithOppAndContacts(d, num(a.minContacts) ?? 2);
+    case "contactsMetAtLeast": return contactsMetAtLeast(d, num(a.times) ?? 2);
+    case "personalSnapshot": return personalSnapshot(d, today);
     case "weeklyFocus": return weeklyFocus(d, today);
     case "owedReplies": return owedReplies(d, today);
     case "latentOpportunities": return latentOpportunities(d);
