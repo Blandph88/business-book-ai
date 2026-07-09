@@ -32,7 +32,7 @@ import { SPECS, matchContacts, matchOpportunity } from "../ai/actions/actionSpec
 import { readDoc, type LoadedDoc } from "../ai/docs";
 import { ActionCard, type ActionCardData } from "./ActionCard";
 import { Markdown } from "./Markdown";
-import { listChats, getChat, saveChat, deleteChat, newChatId, titleFromTurns, type SavedChat } from "../storage/chats";
+import { listChats, getChat, saveChat, deleteChat, newChatId, titleFromTurns, type SavedChat, type StoredTurn } from "../storage/chats";
 import { relevantNotes, addNotes, listNotes, deleteNote, clearNotes, type Note } from "../storage/memory";
 import { markBusy, markDone, isBusy, subscribeInflight } from "../ai/inflight";
 import type { Navigate, TabId, TabIntent } from "./TabNav";
@@ -338,13 +338,18 @@ function chipNamesInAnswer(chips: Chip[], answer: string, d: BookData): Chip[] {
 // Convert the live UI turns into the persisted transcript. Interactive action cards can't be persisted,
 // so a SAVED action becomes its summary line (and we drop the now-meaningless "Here's a draft… confirm to
 // save" lead that immediately preceded it). Unsaved drafts are simply omitted — they aren't real history.
-function serializeForPersist(turns: UITurn[]): ChatTurn[] {
-  const out: ChatTurn[] = [];
+function serializeForPersist(turns: UITurn[]): StoredTurn[] {
+  const out: StoredTurn[] = [];
   for (const t of turns) {
     if (t.role === "action") {
       if (t.action?.status === "saved" && t.action.savedSummary) {
+        // A SAVED card collapses to its summary line — its undo is a live function we can't restore.
         if (out.length && out[out.length - 1].role === "ai") out.pop();
         out.push({ role: "ai", text: t.action.savedSummary });
+      } else if (t.action && t.action.status === "draft") {
+        // Persist the DRAFT (unconfirmed) card so it survives leaving + returning to the thread (#28).
+        // ActionCardData is fully serializable; the render loop rebuilds an interactive card by index.
+        out.push({ role: "action", text: "", action: t.action });
       }
       continue;
     }
@@ -684,10 +689,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       </div>
     ) : null;
 
-  function persistTo(id: string, turns: ChatTurn[]) {
+  function persistTo(id: string, turns: (ChatTurn | StoredTurn)[]) {
     if (!turns.length) return;
     const existing = getChat(id);
-    saveChat({ id, title: titleFromTurns(turns), createdAt: existing?.createdAt ?? Date.now(), updatedAt: Date.now(), turns: turns.map((t) => ({ role: t.role, text: t.text, ...(t.chips && t.chips.length ? { chips: t.chips } : {}) })) });
+    saveChat({ id, title: titleFromTurns(turns), createdAt: existing?.createdAt ?? Date.now(), updatedAt: Date.now(), turns: turns.map((t) => ({ role: t.role, text: t.text, ...(t.chips && t.chips.length ? { chips: t.chips } : {}), ...("action" in t && t.action ? { action: t.action } : {}) })) });
     setSaved(listChats());
     onChatsChanged?.();
   }
@@ -1239,10 +1244,14 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       }
     }
     setActionBusy(false);
-    // The draft (lead + interactive card) is deliberately NOT persisted — an unconfirmed card can't be
-    // restored, so persisting the "confirm to save" lead alone would dangle. The user's message is already
-    // saved (from ask); confirm/cancel below persist the resolved outcome.
-    if (chatIdRef.current === id) setChat([...prior, { role: "you", text: display }, { role: "ai", text: lead }, { role: "action", text: "", action: card }]);
+    // Persist the DRAFT (lead + interactive card) so it survives the user leaving the thread and coming back
+    // (#28) — the card is fully serializable and the render loop rebuilds it interactively by index. Confirm /
+    // cancel below re-persist the resolved outcome (a saved card collapses to its summary line).
+    if (chatIdRef.current === id) {
+      const draftTurns: UITurn[] = [...prior, { role: "you", text: display }, { role: "ai", text: lead }, { role: "action", text: "", action: card }];
+      setChat(draftTurns);
+      persistTo(id, serializeForPersist(draftTurns));
+    }
   }
 
   function confirmAction(idx: number, values: Record<string, string>, subjectUrl?: string) {

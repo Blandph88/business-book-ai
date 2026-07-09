@@ -2,15 +2,26 @@
 // later from the Chats list and keep talking. Stored locally (the book's own data never leaves), like
 // every other store here. One key holds the list; each chat is a title + its turns.
 
-import type { ChatTurn } from "../ai/prompts";
+import type { ActionCardData } from "../components/ActionCard";
 import { persistLocal, scopedKey } from "./persist";
+
+// The persisted turn shape. A superset of the model-facing ChatTurn: it also carries an unconfirmed DRAFT
+// action card (`action`) so a propose→confirm card survives the user leaving and returning to the thread
+// (the card is fully serializable — no functions). Saved/undone cards collapse to a plain text line before
+// persisting (their undo can't be restored), so only a live DRAFT is stored as an action turn.
+export type StoredTurn = {
+  role: "you" | "ai" | "action";
+  text: string;
+  chips?: { label: string; prompt: string }[];
+  action?: ActionCardData;
+};
 
 export type SavedChat = {
   id: string;
   title: string; // derived from the first question — what the list shows
   createdAt: number;
   updatedAt: number;
-  turns: ChatTurn[];
+  turns: StoredTurn[];
 };
 
 // Scoped + disk-mirrored like the record stores — so chats are durable (survive a cleared browser /
