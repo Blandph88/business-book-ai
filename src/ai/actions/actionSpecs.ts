@@ -64,6 +64,20 @@ function addDays(iso: string, n: number): string {
   d.setDate(d.getDate() + n);
   return d.toISOString().slice(0, 10);
 }
+const MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+// Deterministic "in/by/next <month>" → the 1st of that month's NEXT future occurrence. The model's
+// days-until arithmetic drifted ("reconnect in March" landed in October), so when the user names a month
+// explicitly we compute the date in code (purely from the `today` string) and trust it over the model.
+export function namedMonthDate(today: string, text: string): string {
+  const m = text.toLowerCase().match(/\b(?:in|by|next|around|early|mid|late|come|during)\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/);
+  if (!m) return "";
+  const abbr = m[1].slice(0, 3);
+  const target = MONTH_NAMES.findIndex((n) => n.startsWith(abbr));
+  if (target < 0) return "";
+  const [y, mo] = today.split("-").map(Number); // "YYYY-MM-DD"
+  const year = target < mo - 1 ? y + 1 : y; // a month earlier than now → next year (e.g. March seen in July)
+  return `${year}-${String(target + 1).padStart(2, "0")}-01`;
+}
 // Pick the enum option whose value appears in the text (case-insensitive).
 function matchEnum<T extends readonly string[]>(text: string, options: T): T[number] | "" {
   const t = text.toLowerCase();
@@ -259,6 +273,10 @@ const meetingSpec: EntitySpec = {
         if (ex.followup_days > 0) v.followup_date = addDays(ctx.today, ex.followup_days);
       }
     } catch { /* leave blanks for the user to fill in the card */ }
+    // An explicitly NAMED follow-up month ("reconnect in March") is computed deterministically and overrides
+    // the model's followup_days arithmetic, which drifted to the wrong month.
+    const namedMonth = namedMonthDate(ctx.today, ctx.text);
+    if (namedMonth) v.followup_date = namedMonth;
     return v;
   },
   write: (values, ctx) => {

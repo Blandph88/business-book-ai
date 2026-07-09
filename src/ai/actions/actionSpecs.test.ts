@@ -6,7 +6,7 @@ vi.hoisted(() => {
   (window as unknown as { __FREEHOLD_DEMO__?: boolean }).__FREEHOLD_DEMO__ = true;
 });
 
-import { SPECS, parseMoney, matchOpportunity } from "./actionSpecs";
+import { SPECS, parseMoney, matchOpportunity, namedMonthDate } from "./actionSpecs";
 import type { Opportunity } from "../../storage/opportunities";
 import type { ActionCtx } from "./actionSpecs";
 
@@ -64,5 +64,18 @@ describe("meeting write — unresolved update never creates a duplicate", () => 
   it("throws UNRESOLVED_UPDATE instead of logging a second meeting when op=update has no targetId", () => {
     expect(() => SPECS.meeting.write({ meeting_stage: "Held" }, baseCtx({ op: "update", subjectUrl: "https://linkedin.com/in/x" })))
       .toThrow("UNRESOLVED_UPDATE");
+  });
+});
+
+// ── #34: named-month follow-up parsing (deterministic, overrides the model's day arithmetic) ──────
+describe("namedMonthDate (R-I #34)", () => {
+  it("resolves 'in March' from a July date to NEXT year's March, 1st", () => {
+    expect(namedMonthDate("2026-07-09", "reconnect with them in March")).toBe("2027-03-01");
+  });
+  it("resolves a later-this-year month to this year", () => {
+    expect(namedMonthDate("2026-07-09", "follow up in November")).toBe("2026-11-01");
+  });
+  it("returns '' when no month is named", () => {
+    expect(namedMonthDate("2026-07-09", "reconnect soon")).toBe("");
   });
 });

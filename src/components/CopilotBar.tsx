@@ -951,6 +951,15 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const prevUserText = [...prior].reverse().find((tn) => tn.role === "you")?.text;
       const pre = computeForQuery(text, data, today, prevUserText);
       if (pre) { renderCompute(pre); return; }
+      // DETERMINISTIC ACTION PRE-CHECK: an EXPLICIT record command ("add a contact", "log a meeting with Tom",
+      // "create an opportunity") opens the propose→confirm card in code — the chatty LLM router was sending a
+      // bare "add a contact" to companion ("give me their details…") instead of the empty form. Scoped to the
+      // dictionary phrasings (not the softer "met/coffee" signal) so reflective turns still reach the model.
+      const actIntent = routeIntent(text, { hasDoc: false });
+      if (isActionIntent(actIntent) && actIntent.entity && actIntent.source === "dictionary") {
+        await startAction(actIntent.entity, actIntent.op ?? "create", actIntent.target ?? text, text, prior, id, text);
+        return;
+      }
       // UNIFIED LLM ROUTER (function-calling pattern, EVERY tier). ONE schema-constrained call decides: run a
       // deterministic data TOOL (routing + args in a single pass, then we execute + narrate), hold a personal
       // CHAT (companion), or fall through to the grounded BOOK answer below. This replaces the old brittle
@@ -1152,7 +1161,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     const needsContact = spec.needsContact && !(kind === "contact" && op === "create");
     let subjectUrl: string | undefined;
     if (needsContact) {
-      const matches = matchContacts(target, contacts);
+      // Resolve against the name the user explicitly attached ("...meeting WITH Tom: we discussed…") before
+      // the whole noisy message, so notes words ("cost", "pressures") don't distort the contact match and a
+      // single named person resolves cleanly. Fall back to the full text when there's no "with/for <name>".
+      const withName = target.match(/\b(?:with|for|to|re|about)\s+([A-Za-z][A-Za-z'’.-]+(?:\s+[A-Za-z][A-Za-z'’.-]+){0,2})/)?.[1];
+      let matches = withName ? matchContacts(withName, contacts) : [];
+      if (matches.length !== 1) matches = matchContacts(target, contacts);
       if (matches.length === 1) subjectUrl = matches[0].url;
       // PRONOUN-led follow-up ("add a meeting with HIM tomorrow", "turn IT into an opportunity", "move HIS
       // meeting") — the current message names no one, so resolve the subject from the most recent prior turn
