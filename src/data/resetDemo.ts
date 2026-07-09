@@ -16,7 +16,7 @@ import { getAppMode } from "../lib/appMode";
 
 // Bump this whenever the generated demo dataset changes (after `npm run gen-demo`), to force every
 // demo browser onto the new data with no stale leftovers.
-export const DEMO_DATA_VERSION = "2026-06-25";
+export const DEMO_DATA_VERSION = "2026-07-09";
 
 const STAMP_KEY = "bob.demoDataVersion";
 
@@ -26,8 +26,8 @@ const DEMO_KEYS = [
   "bob.opportunities.v2",
   "bob.revenue.v1",
   "bob.contactOwnerEdits.v1",
-  "bob.seedApplied.v5",
-  "bob.extrasSeedApplied.v4",
+  "bob.seedApplied.v7", // MUST match importMinutes APPLIED_KEY, else a wipe clears the store but not the
+  "bob.extrasSeedApplied.v4", // guard → no re-seed → empty. Keep both in lock-step on any bump.
 ];
 
 // Run BEFORE the seed bootstraps. No-op unless demo mode and the stamp is stale.
