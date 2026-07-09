@@ -394,6 +394,33 @@ export function openOppsWithoutMeeting(d: BookData): ComputeResult {
   return res;
 }
 
+// 6d-ii. meetingsWithoutOpp — the REVERSE anti-join: contacts you've HELD a meeting with but logged NO
+// opportunity for (by contact or org). "Which meetings haven't turned into a deal yet" — the follow-up gap
+// the pipeline forgets. Deduped to the latest held meeting per contact. Mirrors openOppsWithoutMeeting.
+export function meetingsWithoutOpp(d: BookData): ComputeResult {
+  const held = d.meetingRows.filter((m) => m.meeting_stage === "Held" && m.date_held);
+  if (!held.length) return { intro: "You've no held meetings logged yet.", columns: [], rows: [] };
+  const hasOpp = (m: (typeof held)[number]) =>
+    d.opps.some((o) => (m.contact_url && o.contact_url === m.contact_url) || (!!m.contactInfo.organisation && orgMatches(o.organisation, m.contactInfo.organisation)));
+  const byContact = new Map<string, (typeof held)[number]>();
+  for (const m of held) {
+    if (hasOpp(m)) continue;
+    const key = m.contact_url || m.contactInfo.name;
+    const cur = byContact.get(key);
+    if (!cur || (m.date_held || "") > (cur.date_held || "")) byContact.set(key, m);
+  }
+  const naked = [...byContact.values()].sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
+  if (!naked.length) return { intro: "Every contact you've met has an opportunity logged against them — nothing's slipping through.", columns: [], rows: [] };
+  const shown = naked.slice(0, 30);
+  const res: ComputeResult = {
+    intro: `Contacts you've met but logged NO opportunity for yet — worth deciding if there's a deal there (${naked.length}):`,
+    columns: ["Last met", "Contact", "Company", "Sentiment"],
+    rows: shown.map((m) => ({ cells: [m.date_held || "—", m.contactInfo.name, m.contactInfo.organisation || "—", m.sentiment || "—"], record: { tab: "meetings", id: m.id } })),
+  };
+  if (naked.length > shown.length) res.more = { count: naked.length, tab: "meetings", intent: {} };
+  return res;
+}
+
 // 6e. companiesWithOppAndContacts — JOIN+count: organisations where you have BOTH an open opportunity AND
 // ≥ min contacts. A genuine intersection (the model muddled it free-hand; the keyword layer couldn't
 // express it and mis-extracted "…at least two contacts" as a company). These are your expansion footholds.
@@ -755,6 +782,51 @@ export function isReasoningRequest(text: string): boolean {
   return false;
 }
 
+// The NARROW deterministic rail run BEFORE the LLM router on EVERY tier. ONLY the must-be-COMPUTED queries
+// where a wrong number / missed relation is unforgivable AND the phrasing is high-precision: aggregate maths,
+// recognised-revenue totals, and the relational anti-joins/joins. These are exactly the tools the LLM router's
+// catalog can't reach — so without this rail a capable model routes them to a coarse LIST tool and then
+// FABRICATES an "average" from a truncated table (the cross-tier inversion). Everything else — rankings,
+// stats, breakdowns, simple lists — is LEFT to the LLM router, which owns those tools; this returns null for
+// anything it doesn't own, so routing continues normally. Mirrors the same-named blocks in computeForQuery
+// (which stays the full error-fallback); keep the two in sync.
+export function computeExact(text: string, d: BookData, today: string): ComputeResult | null {
+  void today;
+  const t = text.toLowerCase();
+  // JOIN+count runs BEFORE the reasoning gate (a join phrasing trips isReasoningRequest but must still compute).
+  { const min = oppContactsJoin(t); if (min) return companiesWithOppAndContacts(d, min); }
+  // Genuine reasoning / multi-part instructions belong to the model — never short-circuit them to a table.
+  if (isReasoningRequest(text)) return null;
+  // Pipeline aggregate MATHS — average / weighted / total / raw-vs-weighted gap. Computed, never the model.
+  {
+    const aggWord = /\b(average|avg|mean|median|typical|weight(?:ed|ing)?|total|sum)\b/.test(t);
+    const valueWord = /\b(value|worth|size|£|\$|pounds?|dollars?)\b/.test(t);
+    if ((aggWord && valueWord) || /\baverage (?:deal|opportunit|open)\b/.test(t) || /\bgap between\b/.test(t) || (/\bweight/.test(t) && /\b(raw|unweighted|probability|total|pipeline)\b/.test(t))) {
+      const agg = pipelineAggregate(d, t);
+      if (agg) return agg;
+    }
+  }
+  // Recognised-revenue maths over engagements (total / count / average per engagement).
+  if (
+    (/\b(recognis|recogniz|revenue)\w*/.test(t) && (/\b(total|how much|average|avg|mean|per engagement|across|sum|each|altogether|in total)\b/.test(t) || (/\bengagements?\b/.test(t) && !LIST_VERB.test(t.replace(/how much/g, ""))))) ||
+    (/\bengagements?\b/.test(t) && /\b(average|avg|mean|typical|per engagement)\b/.test(t) && !/\b(biggest|largest|highest|top|most valuable|which one|list|show me)\b/.test(t))
+  ) return contractsAggregate(d, t);
+  // ANTI-JOIN: open opportunities with NO meeting logged.
+  if (/\b(deals?|opportunit)/.test(t) && /\b(no|without|zero|haven'?t (?:had|logged)|not had)\b[^?]*\bmeeting/.test(t)) return openOppsWithoutMeeting(d);
+  // Reverse ANTI-JOIN: meetings/met-contacts with NO opportunity logged (requires the opp/deal word, so
+  // "contacts I haven't met" — which has no deal word — falls through to the normal not-met filter).
+  if ((/\bmeetings?\b/.test(t) || /\b(?:people|contacts?|who)\b[^?]*\bmet\b/.test(t)) && /\b(no|without|zero|haven'?t|hasn'?t|don'?t|doesn'?t|didn'?t|not|never)\b[^?]*\b(opportunit|deals?|pipeline)/.test(t)) return meetingsWithoutOpp(d);
+  // Open opps by SECTOR.
+  if (/\b(deals?|opportunit|pipeline)/.test(t)) {
+    const inm = t.match(/\b(?:in|within)\s+([a-z& ]+?)(?:\?|$|\s+(?:sector|space|industry|right now))/);
+    const sec = inm ? matchSector(inm[1].trim()) : null;
+    if (sec) return opportunitiesBySector(d, sec);
+  }
+  // Count-THRESHOLD on meetings ("met more than once / three or more times").
+  { const min = meetThreshold(t); if (min && min >= 2) return contactsMetAtLeast(d, min); }
+  return null;
+}
+
 export function computeForQuery(text: string, d: BookData, today: string, prevText?: string): ComputeResult | null {
   // Deterministically-computable relational JOINs run BEFORE the reasoning-gate, so a phrasing that trips the
   // join-condition heuristic ("companies WHERE I HAVE an open deal and 2+ contacts") still gets the exact tool
@@ -950,11 +1022,20 @@ export function runTool(call: ToolCall, d: BookData, today: string): ComputeResu
   // deterministic ABOUT-path guard so the LLM tool-route can't bypass it.
   const PRONOUN = /^(?:me|myself|i|her|him|them|it|that|this|they|he|she|us|those|these)\b/i;
   const named = (v: unknown): string | undefined => { const s = str(v); return s && !PRONOUN.test(s) ? s : undefined; };
+  // A model-supplied company that ISN'T in the book (a mishearing / typo / hallucination) must NOT be run as a
+  // filter — findContacts({company:"Meridian Consulting"}) returns an empty table narrated as an authoritative
+  // "nothing at X". `UNKNOWN` sentinel = a company was supplied but matches nothing → the caller returns null so
+  // answer() falls through to the grounded book path (which carries the near-name for a "did you mean …?").
+  // Mirrors the keyword path's extractCompany guard.
+  const companyInBook = (c: string): boolean =>
+    d.contacts.some((x) => orgMatches(x.organisation, c)) || d.opps.some((o) => orgMatches(o.organisation, c)) || d.sows.some((s) => orgMatches(s.organisation, c));
+  const UNKNOWN = Symbol("unknown-company");
+  const filterCompany = (v: unknown): string | undefined | typeof UNKNOWN => { const s = str(v); return s === undefined ? undefined : companyInBook(s) ? s : UNKNOWN; };
   switch (call.tool) {
-    case "findContacts": return findContacts(d, { company: str(a.company), stage: stageArg(a.stage), decisionRole: !!a.decisionRole });
+    case "findContacts": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findContacts(d, { company: co, stage: stageArg(a.stage), decisionRole: !!a.decisionRole }); }
     case "findMeetings": return findMeetings(d, today, str(a.range) || str(a.window) || "last two weeks");
-    case "findOpportunities": return findOpportunities(d, { status: ["Open", "Won", "Lost"].includes(String(a.status)) ? (a.status as OppFilter["status"]) : "Open", company: str(a.company), minValue: num(a.minValue) });
-    case "findContracts": return findContracts(d, { status: str(a.status), company: str(a.company) });
+    case "findOpportunities": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findOpportunities(d, { status: ["Open", "Won", "Lost"].includes(String(a.status)) ? (a.status as OppFilter["status"]) : "Open", company: co, minValue: num(a.minValue) }); }
+    case "findContracts": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findContracts(d, { status: str(a.status), company: co }); }
     case "rankContacts": return rankContacts(d, oneOf(a.by, ["warmth", "cold"] as const, "warmth"), today);
     case "rankOpportunities": return rankOpportunities(d, oneOf(a.by, ["value", "probability", "risk"] as const, "value"));
     case "pipelineStats": return pipelineStats(d);

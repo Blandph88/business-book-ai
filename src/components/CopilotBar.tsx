@@ -20,13 +20,13 @@ import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searc
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
+import { computeExact, computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
 import { ComputeTable } from "./ComputeTable";
 import { retrievalCharBudget } from "../ai/contextBudget";
-import { routeIntent, isActionIntent, heavyDistress } from "../ai/intents";
+import { routeIntent, isActionIntent, heavyDistress, crisisSignal } from "../ai/intents";
 import { track, lenBucket } from "../lib/analytics";
 import { SPECS, matchContacts, matchOpportunity } from "../ai/actions/actionSpecs";
 import { readDoc, type LoadedDoc } from "../ai/docs";
@@ -908,7 +908,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     if (!docText) {
       const prevUserText0 = [...prior].reverse().find((tn) => tn.role === "you")?.text || "";
       const prevComp0 = !!prevUserText0 && conversationPath(prevUserText0, data) === "companion";
-      if (conversationPath(text, data, prevComp0) === "crisis") {
+      // A farewell / goodbye / final NOTE draft is caught by the crisis floor ONLY when distress co-occurs
+      // (this turn or the one before) — so "write a goodbye note, I can't do this anymore" isn't handled as a
+      // drafting task, while a benign "draft a farewell note for my retiring colleague" (no distress) still
+      // drafts normally. Deliberately narrow, so we don't false-fire the canned crisis response.
+      const farewellDraft = /\b(?:draft|write|compose|help me (?:to )?write|prepare|pen)\b[^.?!]*\b(?:goodbye|good-?bye|farewell|final|last)\s+(?:note|letter|message|email|text|word)s?\b/i.test(text);
+      const distressNear = crisisSignal(text) || heavyDistress(text) || crisisSignal(prevUserText0) || heavyDistress(prevUserText0);
+      if (conversationPath(text, data, prevComp0) === "crisis" || (farewellDraft && distressNear)) {
         persistTo(id, [...history, { role: "you", text }, { role: "ai", text: CRISIS_RESPONSE }]);
         if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: CRISIS_RESPONSE }]);
         setAsking(false); markDone(id);
@@ -921,11 +927,22 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // misroute "I feel worthless, work is grinding me down" into a pipeline/book answer. The LLM router
     // still owns all the normal routing (which tool / action / help / book); this only pre-empts the
     // narrow, safety-relevant personal case. A genuine BD ask carries book intent and is NOT caught here.
-    if (!docText && !isGenerate && clearlyPersonal(text)) {
+    // clearlyPersonal already returns false for any BD/book intent (the BOOK_INTENT guard), so a legit
+    // "draft a follow-up to my warmest lead" is NOT caught here and still routes to the book — but a personal
+    // draft ("draft a message to my wife about the divorce") correctly goes to the companion, even though it's
+    // a generate request. That's why this floor is NOT gated on !isGenerate.
+    if (!docText && clearlyPersonal(text)) {
       await streamCompanion(text, prior, id, history, capabilityLevel(avail.backend, avail.model));
       return;
     }
     if (!docText && !isGenerate) {
+      // NARROW DETERMINISTIC RAIL (every tier, before the LLM router): exact maths / anti-joins / joins are
+      // COMPUTED here — a wrong aggregate number or a missed anti-join is unforgivable, and these tools aren't
+      // in the router's catalog, so without this a capable model routes them to a coarse list and fabricates
+      // an "average" (the cross-tier inversion), while a weak model mis-routes them entirely. Narrow by design
+      // (returns null for everything it doesn't own), so all other routing still flows to the LLM router below.
+      const exact = computeExact(text, data, today);
+      if (exact) { renderCompute(exact); return; }
       // UNIFIED LLM ROUTER (function-calling pattern, EVERY tier). ONE schema-constrained call decides: run a
       // deterministic data TOOL (routing + args in a single pass, then we execute + narrate), hold a personal
       // CHAT (companion), or fall through to the grounded BOOK answer below. This replaces the old brittle

@@ -427,7 +427,12 @@ const opportunitySpec: EntitySpec = {
         : existing.lost ? "Lost"
         : STEP_IDS.indexOf(existing.current_step || "") >= STEP_IDS.indexOf(WON_STEP) ? "Won" : "Open";
     }
-    const money = parseMoney(ctx.text); if (money) v.est_value = String(money);
+    // Don't hijack est_value from a REVENUE figure ("mark it won and log the £120k of revenue") — revenue is
+    // out of scope for the copilot (it's recorded in the Revenue tab), and grabbing it here silently inflates
+    // the opportunity's estimated value and every pipeline total derived from it. When the money sits in a
+    // revenue/recognised/invoiced clause, leave est_value untouched (the form still opens for a manual edit).
+    const money = /\b(revenue|recognis|recogniz|invoiced?|billed?|fees?\b)/i.test(ctx.text) ? 0 : parseMoney(ctx.text);
+    if (money) v.est_value = String(money);
     if (ctx.skipModel) return v; // deterministic-only (on-device): the form opens pre-filled, fast
     try {
       const ex = await aiJson<OppFill>(fillOpportunityPrompt(ctx.text, SERVICE_LINE));

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { clearlyPersonal, conversationPath } from "./grounding";
-import { runTool } from "./compute";
+import { runTool, computeExact } from "./compute";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
 
@@ -105,5 +105,32 @@ describe("runTool arg validation", () => {
     const brief = runTool({ tool: "contactBrief", args: { name: "Christopher Shepherd" } }, d, TODAY);
     expect(brief).not.toBeNull();
     expect(brief?.intro || JSON.stringify(brief)).toContain("Christopher");
+  });
+});
+
+// ── R3: no book-existence check on the LLM-router path → confident false-negative ─────────────────
+describe("runTool unknown-company guard (R3)", () => {
+  const d = book({ contacts: [contact({ first: "Ana", last: "Ng", organisation: "Meridian Advisory" })] });
+  it("returns null for a company NOT in the book (so answer() falls through to the grounded path)", () => {
+    expect(runTool({ tool: "findContracts", args: { company: "Meridian Consulting" } }, d, TODAY)).toBeNull();
+    expect(runTool({ tool: "findContacts", args: { company: "ZzzCorp" } }, d, TODAY)).toBeNull();
+    expect(runTool({ tool: "findOpportunities", args: { company: "Citibank" } }, d, TODAY)).toBeNull();
+  });
+  it("still runs when the company IS in the book, or when none is supplied", () => {
+    expect(runTool({ tool: "findContacts", args: { company: "Meridian Advisory" } }, d, TODAY)).not.toBeNull();
+    expect(runTool({ tool: "findContacts", args: {} }, d, TODAY)).not.toBeNull(); // no company filter = all contacts
+  });
+});
+
+// ── R1/R2: the narrow computeExact rail owns exact maths, leaves rankings/chat to the LLM router ───
+describe("computeExact rail (R1/R2)", () => {
+  const d = book({ contacts: [contact()] });
+  it("does NOT own rankings, stats or chit-chat (those go to the LLM router → null)", () => {
+    expect(computeExact("show me my warmest leads", d, TODAY)).toBeNull();
+    expect(computeExact("how's my pipeline looking", d, TODAY)).toBeNull();
+    expect(computeExact("how are you today?", d, TODAY)).toBeNull();
+  });
+  it("does NOT hijack a genuine reasoning request", () => {
+    expect(computeExact("analyse the average deal and tell me what to focus on", d, TODAY)).toBeNull();
   });
 });
