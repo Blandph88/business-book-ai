@@ -687,7 +687,7 @@ export function accountSummary(d: BookData, company: string): ComputeResult {
 const COMPANY_AT = /\b(?:everyone|anyone|every one|people|contacts?|connections?|folks|who(?:m)?\s+do i know|who do i have)\b[^?]*?\b(?:at|from|in|with)\s+([A-Za-z0-9][A-Za-z0-9 .&'-]{0,38}?)(?:[?,.:;—–-]|$|\s+(?:about|who|that|which|and|but|so|to|for|regarding|in order|give|show|list|tell)\b)/i;
 // Words that follow "…in/at ___" but are NOT a company ("how many contacts do I have in total").
 const AT_NOISE = /^(?:total|general|particular|the book|my book|my network|mind|fact|now|today|short|full|detail|question|play)$/i;
-const ABOUT = /\b(?:brief me on|tell me about|who is|what do you know about|summarise|summarize|profile of|details on)\s+([\p{L}\p{M}0-9 .&'-]+?)(?:\?|$)/iu;
+const ABOUT = /\b(?:brief me on|tell me about|who is|what do (?:you|i) know about|what do i have on|summarise|summarize|profile of|details on)\s+([\p{L}\p{M}0-9 .&'-]+?)(?:\?|$)/iu;
 
 // Verbs that signal "give me a list / a count" — kept broad on purpose. This is the LOW-CAPABILITY path
 // (Nano skips the LLM tool-router), so the more phrasings we catch deterministically, the fewer questions
@@ -1012,6 +1012,15 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
     // If it resolves to a company (has contacts there) and not a person, summarise the account.
     if (d.contacts.some((c) => fullName(c).toLowerCase() === ref.toLowerCase()) || resolveContact(d, ref, today)) return contactBrief(d, ref, today);
     if (d.contacts.some((c) => orgMatches(c.organisation, ref))) return accountSummary(d, ref);
+    // "X and Y" (two entities): the concatenation matches nothing — resolve the FIRST named entity rather than
+    // denying both. Keeps the answer grounded in the book instead of falling through to a world-knowledge recital.
+    if (/\s+(?:and|&)\s+|,/.test(ref)) {
+      const first = ref.split(/\s+(?:and|&)\s+|,\s*/i)[0].trim();
+      if (first && first.toLowerCase() !== ref.toLowerCase()) {
+        if (resolveContact(d, first, today)) return contactBrief(d, first, today);
+        if (d.contacts.some((c) => orgMatches(c.organisation, first))) return accountSummary(d, first);
+      }
+    }
     return contactBrief(d, ref, today);
   }
   // "everyone at X" → contacts at a company. BUT if the scope word is a SECTOR or FUNCTION ("...people I

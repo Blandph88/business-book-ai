@@ -197,3 +197,18 @@ describe("computeForQuery BD routing (R-A)", () => {
     expect(computeForQuery("where do things stand", d, TODAY)).not.toBeNull();
   });
 });
+
+// ── R-D: "what do I know about X" grounds in the book, never a world-knowledge recital ────────────
+describe("computeForQuery 'what do I know about' grounding (R-D)", () => {
+  const d = book({ contacts: [contact({ first: "Ada", last: "Byron", organisation: "Barclays" })] });
+  it("summarises a real account from the book", () => {
+    const r = computeForQuery("what do I know about Barclays", d, TODAY);
+    expect(r).not.toBeNull();
+    expect(JSON.stringify(r)).toMatch(/Barclays/);
+  });
+  it("gives a grounded not-found for a company not in the book (not null → never the model)", () => {
+    const r = computeForQuery("what do I know about Meridain Capitl", d, TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/no .* in your book|book yet/i);
+  });
+});
