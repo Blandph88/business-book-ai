@@ -16,7 +16,7 @@ import { loadAllOpportunities, type Opportunity } from "../storage/opportunities
 import { loadAllSows, type Sow } from "../storage/revenue";
 import { todayISO } from "../data/agenda";
 import { isCommonOrgToken } from "../data/orgTokens";
-import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searchAvailable, searchWeb, searchEntity, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
+import { useAiAvailable, aiAvailability, aiPromptStream, aiJson, searchAvailable, searchWeb, searchEntity, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
@@ -717,25 +717,23 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   }
 
   // Blend WORLD knowledge into a company account answer: after the deterministic table renders, append a
-  // short factual description of what the organisation does. Source priority: a brokered web/ENTITY lookup
-  // (Wikipedia — factual, works on every tier, no local model needed); failing that, on a CAPABLE tier only,
-  // the model's own training knowledge. Best-effort and non-blocking — the table already stands on its own,
-  // and we never fabricate (if neither source yields anything, we simply add nothing).
+  // short factual description of what the organisation does — SOURCED ONLY from a brokered web/ENTITY lookup
+  // (Wikipedia, real current data). We deliberately do NOT fall back to the model's own training memory: that
+  // was capability-gated (a weak model hallucinates company facts), which made the SAME account read
+  // differently by tier, and — worse for a confidential BD tool — blurred "from your book" vs "from the
+  // model's head". Web-lookup only = identical on every tier that has web access, honest, and clearly labelled
+  // as an external lookup. Best-effort and non-blocking; adds nothing when the lookup yields nothing.
   async function enrichCompany(name: string, id: string, display: UITurn[], persisted: ChatTurn[]) {
     try {
-      let blurb = "", title = name;
-      if (await searchAvailable()) {
-        const facts = await searchEntity(name);
-        if (facts.found) { blurb = (facts.extract || facts.description || "").trim(); title = facts.title || name; }
-      }
-      if (!blurb && isCapableBackend((await aiAvailability()).backend)) {
-        const r = await aiPrompt({ prompt: `In ONE or two factual sentences, what is the organisation "${name}" — its industry and what it does? If you don't recognise it, reply exactly "UNKNOWN".`, system: "You give brief, factual company descriptions. Never speculate. If unsure, reply UNKNOWN." });
-        const t = r.trim();
-        if (t && !/^unknown/i.test(t)) blurb = t;
-      }
+      if (!(await searchAvailable())) return;
+      const facts = await searchEntity(name);
+      if (!facts.found) return;
+      let blurb = (facts.extract || facts.description || "").trim();
+      const title = facts.title || name;
       if (!blurb || chatIdRef.current !== id) return;
       if (blurb.length > 480) blurb = blurb.slice(0, 480).replace(/\s+\S*$/, "") + "…";
-      const turnText = `**About ${title}** — ${blurb}`;
+      // Label it as an external lookup so the reader never mistakes it for something from their own book.
+      const turnText = `**About ${title}** (public web lookup — not from your book) — ${blurb}`;
       setChat([...display, { role: "ai", text: turnText }]);
       persistTo(id, [...persisted, { role: "ai", text: turnText }]);
     } catch { /* enrichment is best-effort — the table already rendered */ }

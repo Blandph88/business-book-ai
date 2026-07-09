@@ -272,7 +272,7 @@ export function rankContacts(d: BookData, by: "warmth" | "cold", today: string):
 // 6. rankOpportunities — value | probability | risk(stale early-stage).
 export function rankOpportunities(d: BookData, by: "value" | "probability" | "risk"): ComputeResult {
   const open = d.opps.filter((o) => oppStatus(o) === "Open");
-  if (!open.length) return { intro: "No open opportunities right now.", columns: [], rows: [] };
+  if (!open.length) return { intro: "You've no open opportunities right now. Want to see your won deals, or which contacts you've met but haven't turned into a deal yet?", columns: [], rows: [] };
   let list = open, intro = "", lastCol = "Est. value";
   if (by === "probability") { list = open.slice().sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0)).slice(0, 10); intro = "Your open opportunities most likely to close (highest probability first):"; lastCol = "Probability"; }
   else if (by === "risk") {
@@ -287,7 +287,9 @@ export function rankOpportunities(d: BookData, by: "value" | "probability" | "ri
     intro = "At risk of stalling — big early-stage deals, and any where the contact's gone quiet on you:";
   }
   else { list = open.slice().sort((a, b) => (b.est_value ?? 0) - (a.est_value ?? 0)).slice(0, 10); intro = "Your biggest open opportunities by value:"; }
-  if (!list.length) return { intro: "Nothing matches that right now.", columns: [], rows: [] };
+  // Only reachable for `by:"risk"` (value/probability slice the full open set). An empty risk list is GOOD
+  // news, not a dead end — offer a next look rather than a bare "nothing matches".
+  if (!list.length) return { intro: "Good news — nothing's obviously stalling (no big early-stage deals sitting quiet on you). Want your biggest deals by value, or the ones closest to closing?", columns: [], rows: [] };
   return {
     intro,
     columns: ["Opportunity", "Company", "Stage", lastCol],
@@ -1047,11 +1049,29 @@ export function runTool(call: ToolCall, d: BookData, today: string): ComputeResu
     d.contacts.some((x) => orgMatches(x.organisation, c)) || d.opps.some((o) => orgMatches(o.organisation, c)) || d.sows.some((s) => orgMatches(s.organisation, c));
   const UNKNOWN = Symbol("unknown-company");
   const filterCompany = (v: unknown): string | undefined | typeof UNKNOWN => { const s = str(v); return s === undefined ? undefined : companyInBook(s) ? s : UNKNOWN; };
+  // Map a model-supplied engagement status (and its natural synonyms) to a canonical RevenueStatus. An
+  // UNRECOGNISED word returns undefined (= all engagements) rather than exact-matching nothing and reporting a
+  // confident zero for a quarter that actually has signed work ("executed"/"wrapped" used to zero-match).
+  const CONTRACT_STATUS: Record<string, string> = {
+    active: "Active", live: "Active", ongoing: "Active", current: "Active", signed: "Active", won: "Active", executed: "Active", running: "Active",
+    completed: "Completed", complete: "Completed", done: "Completed", finished: "Completed", delivered: "Completed", wrapped: "Completed",
+    paused: "Paused", "on hold": "Paused", held: "Paused",
+    closed: "Closed", ended: "Closed", terminated: "Closed", cancelled: "Closed", canceled: "Closed",
+  };
+  const contractStatus = (v: unknown): string | undefined => { const s = str(v)?.toLowerCase(); return s ? CONTRACT_STATUS[s] : undefined; };
   switch (call.tool) {
-    case "findContacts": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findContacts(d, { company: co, stage: stageArg(a.stage), decisionRole: !!a.decisionRole }); }
+    case "findContacts": {
+      const co = filterCompany(a.company); if (co === UNKNOWN) return null;
+      const stage = stageArg(a.stage);
+      // A stage was ASKED for but isn't a real funnel stage ("uncontacted", "hot", "closed"): don't silently
+      // drop the filter and dump the WHOLE network as if it were that subset. Fall through unless another
+      // filter still narrows the result. (Absent stage — args:{} — is fine and returns all contacts.)
+      if (str(a.stage) && !stage && !co && !a.decisionRole) return null;
+      return findContacts(d, { company: co, stage, decisionRole: !!a.decisionRole });
+    }
     case "findMeetings": return findMeetings(d, today, str(a.range) || str(a.window) || "last two weeks");
     case "findOpportunities": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findOpportunities(d, { status: ["Open", "Won", "Lost"].includes(String(a.status)) ? (a.status as OppFilter["status"]) : "Open", company: co, minValue: num(a.minValue) }); }
-    case "findContracts": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findContracts(d, { status: str(a.status), company: co }); }
+    case "findContracts": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findContracts(d, { status: contractStatus(a.status), company: co }); }
     case "rankContacts": return rankContacts(d, oneOf(a.by, ["warmth", "cold"] as const, "warmth"), today);
     case "rankOpportunities": return rankOpportunities(d, oneOf(a.by, ["value", "probability", "risk"] as const, "value"));
     case "pipelineStats": return pipelineStats(d);

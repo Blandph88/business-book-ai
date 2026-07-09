@@ -77,20 +77,30 @@ describe("runTool arg validation", () => {
     ],
   });
 
-  it("ignores a hallucinated funnel stage instead of using it as a dynamic key", () => {
-    // A junk/magic stage must not match everything (e.g. via a prototype key) — it's treated as no filter.
-    const bad = runTool({ tool: "findContacts", args: { stage: "__proto__" } }, d, TODAY);
-    const junk = runTool({ tool: "findContacts", args: { stage: "hot" } }, d, TODAY);
-    const none = runTool({ tool: "findContacts", args: {} }, d, TODAY);
-    // Same result as no stage at all — the invalid stage is dropped, not applied.
-    expect(bad?.rows.length).toBe(none?.rows.length);
-    expect(junk?.rows.length).toBe(none?.rows.length);
-    expect(bad?.rows.length).toBe(2);
+  it("does NOT treat a hallucinated funnel stage as 'no filter' (R4) — it falls through instead of dumping all", () => {
+    // A junk/magic stage that isn't a real funnel stage must NOT silently widen to the WHOLE network narrated
+    // as that subset (the old "by design" widening bug). With no other filter it returns null so answer()
+    // falls through to the grounded path. (It also must never be used as a dynamic/prototype key.)
+    expect(runTool({ tool: "findContacts", args: { stage: "__proto__" } }, d, TODAY)).toBeNull();
+    expect(runTool({ tool: "findContacts", args: { stage: "hot" } }, d, TODAY)).toBeNull();
+    // But an invalid stage ALONGSIDE another real filter still runs (the other filter narrows it).
+    expect(runTool({ tool: "findContacts", args: { stage: "hot", decisionRole: true } }, d, TODAY)).not.toBeNull();
+    // And no stage at all is fine — all contacts.
+    expect(runTool({ tool: "findContacts", args: {} }, d, TODAY)?.rows.length).toBe(2);
   });
 
   it("honours a VALID funnel stage", () => {
     const responded = runTool({ tool: "findContacts", args: { stage: "responded" } }, d, TODAY);
     expect(responded?.rows.length).toBe(1); // only Christopher responded
+  });
+
+  it("maps engagement-status SYNONYMS so 'signed'/'executed' don't zero-match (R4)", () => {
+    const withSow = book({ sows: [{ id: "s1", organisation: "Acme", engagement_name: "Audit", status: "Active", recognised_to_date: 5000 } as never] });
+    // "signed"/"executed" are synonyms for Active — must find the active engagement, not a confident zero.
+    expect(runTool({ tool: "findContracts", args: { status: "signed" } }, withSow, TODAY)?.rows.length).toBe(1);
+    expect(runTool({ tool: "findContracts", args: { status: "executed" } }, withSow, TODAY)?.rows.length).toBe(1);
+    // An unrecognised word = all engagements (undefined filter), never a false zero.
+    expect(runTool({ tool: "findContracts", args: { status: "wibble" } }, withSow, TODAY)?.rows.length).toBe(1);
   });
 
   it("does not brief a coincidental substring match for a pronoun name", () => {
