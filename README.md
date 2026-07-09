@@ -8,7 +8,7 @@ contact by **industry, function and seniority**, then gives you the pipeline too
 them: dashboard, metrics, contacts, meetings, opportunities, and revenue/SoW tracking.
 
 Your network lives in a file **you own** — never in a cloud. Distributed via
-[Freehold](https://tryfreehold.com).
+[Freehold](https://freeholdbase.com).
 
 ## How it works
 

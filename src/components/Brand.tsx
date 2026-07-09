@@ -93,7 +93,7 @@ export function FreeholdMark({ size = 14 }: { size?: number }) {
 
 // The Freehold live URL. The badge opens it in a new tab; if the visitor has the Freehold
 // PWA installed and registered as a handler for this URL, the OS opens it in the app instead.
-const FREEHOLD_URL = "https://tryfreehold.com";
+const FREEHOLD_URL = "https://freeholdbase.com";
 
 // Understated "runs on Freehold" badge for the top-right.
 export function FreeholdBadge() {
