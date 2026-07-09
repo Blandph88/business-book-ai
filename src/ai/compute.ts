@@ -1199,10 +1199,32 @@ type Availability = { backend?: string; byok?: boolean; onDevice?: string };
 // The canonical capabilities answer, in CODE (never the model) so it can't drift into a counsellor "what's
 // weighing on you?" register or invent a random contacts table. Rendered when the LLM ROUTER classifies a
 // message as "help" (a capability/meta question). LLM routes; code answers.
-export function capabilitiesResult(): ComputeResult {
+// A capability answer that (a) gives a SHORT, targeted reply when the question names a domain ("what can you
+// do with meetings?"), and (b) varies its opener across general asks so a user probing a few times doesn't get
+// the identical wall of text each time. Deterministic (opener chosen by a stable hash of the question, not
+// RNG) so it stays testable. `text` optional — the eval / no-arg callers still get the full menu.
+export function capabilitiesResult(text?: string): ComputeResult {
+  const q = (text || "").toLowerCase();
+  const AREAS: { key: RegExp; line: string }[] = [
+    { key: /\b(meeting|meetings|call|calls|catch[- ]?up|spoke|speak|diary|calendar|schedule)\b/, line: "your **meetings & diary** — \"meetings last month\", \"who did I speak to\", \"what's in my diary\", \"log a meeting with Tom\"" },
+    { key: /\b(opportunit\w*|deal|deals|pipeline|engagement\w*|revenue)\b/, line: "your **pipeline** — \"my open opportunities\", \"biggest deals by value\", \"which of my deals are at risk\", \"create an opportunity\"" },
+    { key: /\b(contact\w*|network|know|people|lead|leads|relationship\w*)\b/, line: "your **network** — \"who do I know at EY\", \"my warmest leads\", \"who's gone cold\", \"add a contact\"" },
+    { key: /\b(draft|write|compose|email|emails|follow[- ]?up|message|reply)\b/, line: "**drafting** — \"draft a follow-up to my warmest lead\", \"write an intro to Jane Doe\"" },
+    { key: /\b(focus|priorit\w*|this week|plan|chase|next step|to-?do|agenda)\b/, line: "**what to focus on** — \"what should I focus on this week\", \"who should I chase\", \"any opportunities in my messages\"" },
+  ];
+  const hit = AREAS.find((a) => a.key.test(q));
+  if (hit) {
+    return { intro: `Yes — I can help with ${hit.line}.\nThat's one of a few things I do across your contacts, meetings, pipeline and messages (all on your machine). Want me to run one?`, columns: [], rows: [] };
+  }
+  const openers = [
+    "I'm your book-of-business assistant — I work over your own contacts, meetings, opportunities and messages, all on your machine. Here's what I can do:",
+    "Happy to help. I work entirely over your own book — contacts, meetings, pipeline and messages, on your machine. A few of the things I can do:",
+    "Here's how I can help — all grounded in your own book, nothing leaves your machine:",
+  ];
+  const idx = q ? [...q].reduce((s, c) => s + c.charCodeAt(0), 0) % openers.length : 0;
   return {
     intro: [
-      "I'm your book-of-business assistant — I work over your own contacts, meetings, opportunities and messages, all on your machine. I can:",
+      openers[idx],
       "- Find & summarise — \"who do I know at EY\", \"my open opportunities\", \"meetings last month\"",
       "- Rank & prioritise — \"who are my warmest leads\", \"who's gone cold\", \"who do I owe a reply to\"",
       "- Brief you before a call — \"brief me on Jane Doe\", \"what's my footprint at JPMorgan\"",
@@ -1219,7 +1241,7 @@ export function capabilitiesResult(): ComputeResult {
 const CAPABILITY_Q = /\b(what can (?:you|it) (?:do|help)|what (?:do|can) you do|how (?:can|do) you help|what can you help (?:me )?with|what are you (?:able|capable)|what do you do|what('?s| is) your (?:job|purpose|role|function)|work[\s-]?wise)\b/i;
 export function capabilitiesResponse(text: string): ComputeResult | null {
   if (!CAPABILITY_Q.test(text) || text.trim().split(/\s+/).length > 14) return null;
-  return capabilitiesResult();
+  return capabilitiesResult(text);
 }
 
 export function privacyResponse(text: string, avail?: Availability): ComputeResult | null {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { clearlyPersonal, conversationPath } from "./grounding";
-import { runTool, computeExact, resolveContact, contactBrief, computeForQuery, weeklyFocus, pipelineAggregate } from "./compute";
+import { runTool, computeExact, resolveContact, contactBrief, computeForQuery, weeklyFocus, pipelineAggregate, capabilitiesResult } from "./compute";
 import type { Opportunity } from "../storage/opportunities";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
@@ -222,6 +222,23 @@ describe("pipelineAggregate pluralization (R-J #20)", () => {
     expect(r).not.toBeNull();
     expect(r!.intro).toMatch(/1 opportunity\b/);
     expect(r!.intro).not.toMatch(/1 opportunities/);
+  });
+});
+
+// ── #1: capabilities answer tailors to a named domain + varies its general opener ─────────────────
+describe("capabilitiesResult (R-J #1)", () => {
+  it("gives a SHORT, domain-targeted reply when the question names an area", () => {
+    const r = capabilitiesResult("what can you do with my meetings?");
+    expect(r.intro).toMatch(/meetings & diary/i);
+    expect(r.intro).not.toMatch(/Find & summarise/); // not the full menu
+  });
+  it("returns the full menu for a general 'what can you do'", () => {
+    const r = capabilitiesResult("what can you do?");
+    expect(r.intro).toMatch(/Find & summarise/);
+    expect(r.intro).toMatch(/Ask in your own words/);
+  });
+  it("is deterministic (same question → same answer)", () => {
+    expect(capabilitiesResult("what can you do?").intro).toBe(capabilitiesResult("what can you do?").intro);
   });
 });
 

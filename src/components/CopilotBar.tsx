@@ -759,12 +759,17 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   // tool-router/chips: a slow on-device model would block after the instant table, and the table already
   // answers on its own. Best-effort and non-blocking; mirrors enrichCompany's append-after-table pattern.
   async function interpretCompute(question: string, md: string, id: string, display: UITurn[], persisted: ChatTurn[]) {
+    let streamedAny = false;
     try {
       if (!isCapableBackend((await aiAvailability()).backend) || chatIdRef.current !== id) return;
       let acc = "";
       const streamed = await aiPromptStream(interpretResultPrompt(question, md), (full) => {
         if (chatIdRef.current !== id) return;
         acc = full;
+        // Drive the shared `streaming` state (on the first token) so the streamed analysis shows the SAME live
+        // token meter + gets the same "Thought for Xs · ~N tokens" stamp as a companion reply — the token
+        // count now shows consistently on every streamed turn, not just some (#5).
+        if (!streamedAny) { streamedAny = true; setStreaming(true); }
         setGenTokens(approxTokens(full));
         setChat([...display, { role: "ai", text: full }]);
       });
@@ -773,6 +778,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       setChat([...display, { role: "ai", text: finalText }]);
       persistTo(id, [...persisted, { role: "ai", text: finalText }]);
     } catch { /* best-effort — the table already answered on its own */ }
+    finally { if (streamedAny) setStreaming(false); }
   }
 
   // The COMPANION stream: for a personal / general / advice turn the topic-gate routed AWAY from the book.
@@ -979,8 +985,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       catch { routed = null; }
       finally { if (routeTimer) clearTimeout(routeTimer); }
       if (routed?.route === "help") {
-        // Capability/meta question → the canonical capabilities answer (code, not the model).
-        renderCompute(capabilitiesResult());
+        // Capability/meta question → the canonical capabilities answer (code, not the model), tailored to the
+        // domain the question names (and varied across general asks so it doesn't read identically each time).
+        renderCompute(capabilitiesResult(text));
         return;
       } else if (routed?.route === "action" && routed.entity) {
         // The model says the user is recording data → open the propose→confirm card (fields extracted by the
