@@ -922,6 +922,24 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   let at = text.match(COMPANY_AT);
   if (at && AT_NOISE.test(at[1].trim())) at = null;
 
+  // ── Oblique intent → the unlocked analytics tools. The LLM router covers these on capable tiers; routing
+  // them here keeps the WebLLM (regex) tier + the fast-path correct too, and shares the catalog's mappings.
+  if (/\b(?:actually |really )?banking\b|\bat the odds\b|\brealistic\w*|\brisk[- ]?adjusted\b|\bexpected value\b|\bwishful thinking\b/.test(t) && !at)
+    return pipelineAggregate(d, t, /\bgap|wishful|difference/.test(t) ? "gap" : "weighted");
+  if (/\bhave i (?:actually |really )?(?:made|earned|banked)\b|\b(?:actually |really )?(?:made|earned|brought in|taken? in|pulled in|banked)\b[^?]*\b(?:money|revenue|cash|fees?)\b/.test(t))
+    return contractsAggregate(d, t, "total");
+  { const fm = t.match(/\b(?:runs?|run|lead(?:s|ing)?|heads?|in charge of|responsible for|manage[sr]?)\b[^?]*\b(finance|technology|tech|operations|marketing|sales|hr|human resources|legal|risk|data|strategy|engineering)\b/); if (fm && !at) { const f = matchFunction(fm[1]); if (f) return sectorContacts(d, "function", f); } }
+  if (/\b(?:bench|network) (?:is )?(?:deepest|strongest|thickest|widest)\b|\bwhere (?:am i|are we) (?:deepest|strongest)\b|\btoo concentrated\b|\bover[- ]?(?:concentrated|exposed|indexed)\b|\bconcentration risk\b|\bhow (?:diverse|spread out) is my (?:book|network)\b/.test(t))
+    return funnelBreakdown(d, "sector_group");
+  if (/\bboth\b[^?]*\b(?:deal|opportunit\w*)\b[^?]*\b(?:and|&)\b[^?]*\b(?:relationship|contact|people|connection|presence)/.test(t) || /\b(?:accounts?|companies|orgs?)\b[^?]*\b(?:deal|opportunit\w*)\b[^?]*\b(?:and|with)\b[^?]*\b(?:contact|relationship|people|presence)/.test(t))
+    return companiesWithOppAndContacts(d);
+  if (/\bmeetings?\b[^?]*\b(?:went nowhere|never (?:turned into|became|led to|amounted)|didn'?t (?:turn into|lead to|go anywhere)|no (?:deal|opportunit)|without (?:a |an )?(?:deal|opportunit))/.test(t))
+    return meetingsWithoutOpp(d);
+  if (/\b(?:chasing|pursuing|working|running after) (?:a |an )?(?:deal|opportunit)\w*\b[^?]*\b(?:no|without|haven'?t|not|never)\b[^?]*\b(?:met|meeting|sat down|face)/.test(t) || /\b(?:deal|opportunit)\w*\b[^?]*\b(?:with )?no meeting/.test(t))
+    return openOppsWithoutMeeting(d);
+  if (/\b(?:am i |who am i )?ghosting\b|\bwho am i (?:ignoring|not (?:getting|responding))\b|\bleft (?:on read|hanging)\b|\bwho'?s waiting on me\b|\bhaven'?t (?:got|gotten) back to\b/.test(t))
+    return owedReplies(d, today);
+
   // ── Meetings ──────────────────────────────────────────────────────────────────────────────────
   // by date window / upcoming / "today"/"tomorrow"
   if (/\bmeetings?\b/.test(t) && /\b(last|past|recent(?:ly)?|this|upcoming|scheduled|coming up|next|today|tomorrow|week|month|quarter|fortnight|\d+\s*(?:day|week))\b/.test(t)) return findMeetings(d, today, t);
@@ -935,6 +953,20 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   if (/what should i (?:focus on|do|prioriti[sz]e|work on|tackle)|what'?s? (?:my )?(?:focus|priorit|agenda|to-?dos?|action items?)|where should i focus|what'?s? (?:on )?my plate|what needs (?:my )?attention|plan my (?:day|week)|focus (?:for )?(?:this|the) (?:week|day)|what(?:'?s| is) (?:due|on) (?:this|next) (?:week|few days)|what'?s? next this week|what'?s? (?:overdue|slipped|slipping|fallen through|been neglected)|what have i (?:let slip|missed|dropped|neglected)|anything overdue|what'?s? (?:gone )?overdue/.test(t)) return weeklyFocus(d, today);
   // "who's my next/top priority" (NOT scoped to a company — "highest priority at EY" is a filter) → the agenda.
   if ((/\b(?:next|top|highest|main|biggest) priorit/.test(t) || /who should i (?:prioriti[sz]e|focus on|chase|call|tackle)\b/.test(t)) && !/\bat\s+[a-z]/i.test(t)) return weeklyFocus(d, today);
+  // A vague opener SCOPED to a company ("lay of the land at HSBC", "where do things stand with EY", "rundown on
+  // the JPMorgan account") is an ACCOUNT question, not the general agenda — summarise that account. Runs BEFORE
+  // the unscoped vague-open below, which would otherwise swallow the company scope and return the weekly agenda.
+  {
+    const scoped = t.match(/\b(?:lay of the land|state of play|rundown|run-down|the (?:picture|situation|lowdown|score|deal)|where (?:do |are )?(?:things|we|i)|how (?:are|do) things|snapshot|the overview|status|standing)\b[^?]*\b(?:at|with|for|on|around|re)\s+(.+?)(?:\?|$)/);
+    if (scoped) {
+      const co = extractCompany(`at ${scoped[1].trim()}`, d);
+      // Only accept a CONFIDENT match — the resolved company must share a distinctive (≥4-char) token with what
+      // the user typed, so a 2-char name ("EY") that fuzzy-matches an unrelated org (…Stanl-EY) doesn't hijack
+      // it. Short/ambiguous names fall through to the LLM router (which resolves them properly) or the fallback.
+      const scopeToks = (scoped[1].toLowerCase().match(/[a-z]{4,}/g) || []);
+      if (co && scopeToks.some((tk) => co.toLowerCase().includes(tk))) return accountSummary(d, co);
+    }
+  }
   // A VAGUE business-open ("let's talk business", "catch me up", "where do things stand", "give me a rundown")
   // has no specific ask — so LEAD with the deterministic agenda instead of free-forming a question back at them
   // ("what's on your mind?"). Makes the copilot open like a partner who knows the book, on every tier.
