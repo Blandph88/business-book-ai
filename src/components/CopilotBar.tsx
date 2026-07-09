@@ -905,10 +905,14 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       if (chatIdRef.current === id) setChat(display);
       setAsking(false);
       markDone(id);
-      // AFTER the instant table: add a follow-on read. A company account gets the factual "what they do"
-      // blurb (brokered Wikipedia/entity lookup); any other analytical result gets the compute→interpret
-      // read (what stands out + a next move). Mutually exclusive so the two never race on setChat.
-      if (computed.enrich?.kind === "company") void enrichCompany(computed.enrich.name, id, display, persisted);
+      // AFTER the instant table: add a follow-on read. The factual "About <company>" web blurb is appended ONLY
+      // when the user is actually asking about the COMPANY (what does X do / tell me about X) — NOT for a
+      // footprint/depth question ("how deep am I at X", "lay of the land"), where a Wikipedia paragraph is
+      // irrelevant padding. Otherwise any analytical result gets the compute→interpret read (what stands out +
+      // a next move). Mutually exclusive so the two never race on setChat.
+      const wantsCompanyFacts = /\b(what (?:does|do)\b[^?]*\bdo\b|tell me about|background on|profile of|overview of|describe|what kind of (?:company|business|firm|outfit))\b/i.test(text)
+        && !/\b(how deep|lay of the land|footprint|presence|coverage|penetration|what do i (?:know|have)|my (?:relationship|history|contacts?|footprint|presence))\b/i.test(text);
+      if (computed.enrich?.kind === "company" && wantsCompanyFacts) void enrichCompany(computed.enrich.name, id, display, persisted);
       else if (shouldInterpretResult(text, computed)) void interpretCompute(text, md, id, display, persisted);
     };
     // Confidentiality question → answer accurately from the LIVE backend (never the model, which over-promises

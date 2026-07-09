@@ -373,8 +373,12 @@ export function interpretResultPrompt(question: string, resultText: string, cont
       "to the question: a bare count needs a sentence, a ranking or an \"am I doing enough\" needs a real read. " +
       "The table may be TRUNCATED (only the top rows shown) — never generalise a pattern to ALL rows from the few " +
       "you can see (don't say \"they all have 8 contacts\" from two visible rows); speak to the named rows or the " +
-      "count, not an assumed uniformity. Plain and warm — no headings, no preamble, no bullet-point recap of the " +
-      "table, no emoji.",
+      "count, not an assumed uniformity. CRITICAL — describe ONLY what THIS table establishes. Do NOT assert that " +
+      "something is ABSENT, that \"none\" of them qualify, that they're \"all\" at accounts you serve, or that any " +
+      "filter/relationship holds, unless the table itself shows it — you do not have the rest of their book in " +
+      "front of you, so an unstated claim about what ISN'T here is a fabrication. If the table is a plain list, " +
+      "don't invent a cross-cutting conclusion it doesn't support. Plain and warm — no headings, no preamble, no " +
+      "bullet-point recap of the table, no emoji.",
     prompt: `Their question: ${question}\n\nThe computed result (ground truth, already shown to them):\n${resultText}${context ? `\n\nRelevant book context:\n${context}` : ""}\n\nGive your interpretation now — insight and a next move, not a recap.`,
   };
 }

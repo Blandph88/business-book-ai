@@ -1,5 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { clearlyPersonal, conversationPath } from "./grounding";
+// ── Phase 3: "history/relationship with <name>" is a BOOK lookup, never the companion (kills the fabricated
+// friendship the model invented for "what's my history with Omar"). Genuine personal turns still companion.
+describe("person-lookup routes to book, not companion (Phase 3)", () => {
+  const d = { contacts: [], meetingRows: [], opps: [], sows: [] } as unknown as BookData;
+  it("routes history/relationship/brief phrasings to book", () => {
+    for (const q of ["what's my history with Omar", "my relationship with Karen", "brief me on my strongest contact", "how do I know Priya"]) {
+      expect(clearlyPersonal(q)).toBe(false);
+      expect(conversationPath(q, d)).toBe("book");
+    }
+  });
+  it("still sends genuine personal turns to companion", () => {
+    expect(conversationPath("I'm feeling burnt out today", d)).toBe("companion");
+    expect(conversationPath("should I take the Saudi job", d)).toBe("companion");
+  });
+});
 import { runTool, computeExact, resolveContact, contactBrief, computeForQuery, weeklyFocus, pipelineAggregate, capabilitiesResult } from "./compute";
 import type { Opportunity } from "../storage/opportunities";
 import type { BookData } from "./bookContext";
