@@ -260,11 +260,29 @@ export function companionPrompt(question: string, history: ChatTurn[], level: Ca
   return { system, prompt: `${convo}\n\nThem: ${question}` };
 }
 
-export function askBookPrompt(question: string, context: string, history: ChatTurn[] = [], webContext = "", compact = false): PromptArgs {
-  const convo = history.length
-    // Bound the history (like companionPrompt) so a long chat over a large book can't overflow the model
-    // context and push out the retrieved records / instructions — worse on the small on-device tier.
-    ? `\n\nConversation so far:\n${history.slice(-8).map((t) => `${t.role === "you" ? "User" : "You"}: ${t.text}`).join("\n")}`
+// Pick the most recent turns whose flattened length fits `charBudget`, newest-first, always keeping at least
+// the latest turn. This REPLACES the old fixed last-8-turn clip: on a big-window model it keeps far more of a
+// long chat; on a small one it keeps only what fits — so switching models degrades gracefully instead of
+// either forgetting (big) or overflowing (small).
+function budgetedHistory(history: ChatTurn[], charBudget: number): ChatTurn[] {
+  if (charBudget <= 0 || !history.length) return [];
+  const picked: ChatTurn[] = [];
+  let used = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const line = `${history[i].role === "you" ? "User" : "You"}: ${history[i].text}`;
+    used += line.length + 1;
+    if (used > charBudget && picked.length) break; // always include at least the most recent turn
+    picked.unshift(history[i]);
+  }
+  return picked;
+}
+
+export function askBookPrompt(question: string, context: string, history: ChatTurn[] = [], webContext = "", compact = false, historyCharBudget?: number): PromptArgs {
+  // When a char budget is supplied (from contextBudget), fit the transcript to the active model's window;
+  // otherwise fall back to the original fixed window so other callers are unaffected.
+  const turns = historyCharBudget != null ? budgetedHistory(history, historyCharBudget) : history.slice(-8);
+  const convo = turns.length
+    ? `\n\nConversation so far:\n${turns.map((t) => `${t.role === "you" ? "User" : "You"}: ${t.text}`).join("\n")}`
     : "";
   const web = webContext
     ? `\n\nWeb results I looked up for this (use only for EXTERNAL facts — news, public company info — and mention them naturally):\n${webContext}`

@@ -25,7 +25,7 @@ import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type 
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
 import { ComputeTable } from "./ComputeTable";
-import { retrievalCharBudget } from "../ai/contextBudget";
+import { contextBudget } from "../ai/contextBudget";
 import { routeIntent, isActionIntent, heavyDistress, crisisSignal } from "../ai/intents";
 import { track, lenBucket } from "../lib/analytics";
 import { SPECS, matchContacts, matchOpportunity } from "../ai/actions/actionSpecs";
@@ -828,7 +828,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       distilledRef.current.set(id, real.length);
       const transcript = real.map((t) => `${t.role === "you" ? "User" : "Assistant"}: ${t.text}`).join("\n").slice(0, 4000);
       const facts = await aiJson<string[]>(distilMemoryPrompt(transcript));
-      if (Array.isArray(facts)) addNotes(facts.filter((f) => typeof f === "string"), "chat");
+      // Tag the notes with the model/tier that wrote them, so a later capable pass can re-verify anything a
+      // weaker model distilled (and, under dynamic routing, so a cheap model can't silently poison memory).
+      if (Array.isArray(facts)) addNotes(facts.filter((f) => typeof f === "string"), "chat", { model: av.model, tier: capabilityLevel(av.backend, av.model) });
     } catch { /* best-effort memory — never block the UI */ }
   }
 
@@ -1077,7 +1079,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       } catch { /* best-effort */ }
     }
     try {
-      const budget = await retrievalCharBudget();
+      const budget = await contextBudget();
       // The full DATA grounding: book context + the records the message NAMES (apostrophe-robust) + any
       // sector/function subset it asks for + a resolved "warmest lead". Shared with the eval harness so we
       // tune the real thing. (Memory + uploaded doc are app-state, layered on below.)
@@ -1087,12 +1089,23 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // named 5 turns back). assembleGrounding/mergeGroups prioritises current-message hits, so a stale earlier
       // entity can't crowd out a fresh one.
       const convo = history.slice(-8).map((h) => h.text).join("\n");
-      let grounding = assembleGrounding(text, data, budget, today, convo);
+      let grounding = assembleGrounding(text, data, budget.grounding, today, convo);
       // Ambient memory: durable facts distilled from past chats, surfaced when relevant so the assistant
-      // "remembers" across conversations (use only if it fits — don't force it in).
+      // "remembers" across conversations. Fit them to the memory allocation (most-relevant/newest first) so on
+      // a small model they can't crowd out the records — instead of a fixed note count regardless of window.
       const memNotes = relevantNotes(text, 8);
-      if (memNotes.length) grounding += `\n\nMemory from past chats (use only if relevant):\n${memNotes.map((n) => `- ${n.text}`).join("\n")}`;
-      if (docText) grounding += `\n\nAttached document the user uploaded (answer from this for the document; cite it):\n${docText.slice(0, Math.max(2000, budget))}`;
+      if (memNotes.length) {
+        const lines: string[] = [];
+        let usedMem = 0;
+        for (const n of memNotes) {
+          const line = `- ${n.text}`;
+          if (usedMem + line.length > budget.memory && lines.length) break;
+          lines.push(line);
+          usedMem += line.length + 1;
+        }
+        grounding += `\n\nMemory from past chats (use only if relevant):\n${lines.join("\n")}`;
+      }
+      if (docText) grounding += `\n\nAttached document the user uploaded (answer from this for the document; cite it):\n${docText.slice(0, Math.max(2000, budget.grounding))}`;
       // Small models (Nano + WebLLM-3B) get the SLIMMED persona — they follow a short, punchy instruction
       // set far more faithfully (and warmly) than the long one. CAPABLE backends (BYOK cloud OR a local
       // Ollama running a real model) get the full nuanced persona. Gate on capability, not the tier.
@@ -1106,7 +1119,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const relatedOrUndef = related.length ? related : undefined;
       let firstTok = true;
       let bailed = false;
-      const streamP = aiPromptStream(askBookPrompt(text, grounding, history, webContext, compact), (full) => {
+      const streamP = aiPromptStream(askBookPrompt(text, grounding, history, webContext, compact, budget.history), (full) => {
         if (bailed || chatIdRef.current !== id) return;
         if (firstTok) { firstTok = false; setAsking(false); setStreaming(true); }
         setGenTokens(approxTokens(full));

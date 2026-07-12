@@ -4,7 +4,11 @@
 // disk-mirrored (owner_data.json), so it's durable and travels with the book — not fragile localStorage.
 import { persistLocal, scopedKey } from "./persist";
 
-export type Note = { id: string; text: string; createdAt: number; source?: string };
+// `model`/`tier` record WHICH model distilled a note (provenance). This lets a later, more capable pass
+// re-verify facts a weaker model wrote — and, once model routing is dynamic, stops a cheap model's guess
+// becoming indistinguishable canonical memory that a stronger model then inherits. Optional/back-compat:
+// notes written before provenance existed simply lack these fields.
+export type Note = { id: string; text: string; createdAt: number; source?: string; model?: string; tier?: string };
 
 const KEY = scopedKey("bob.memory.v1");
 const MAX_NOTES = 200; // keep the most recent; memory is curated, not a transcript dump
@@ -28,8 +32,9 @@ function writeAll(notes: Note[]): void {
   try { persistLocal(KEY, JSON.stringify(notes.slice(0, MAX_NOTES))); } catch { /* best-effort */ }
 }
 
-// Add distilled facts, skipping near-duplicates of what we already remember. Returns the notes actually added.
-export function addNotes(texts: string[], source = "chat"): Note[] {
+// Add distilled facts, skipping near-duplicates of what we already remember. `meta` records the model/tier
+// that produced them (provenance). Returns the notes actually added.
+export function addNotes(texts: string[], source = "chat", meta?: { model?: string; tier?: string }): Note[] {
   const existing = listNotes();
   const seen = new Set(existing.map((n) => norm(n.text)));
   const added: Note[] = [];
@@ -39,7 +44,7 @@ export function addNotes(texts: string[], source = "chat"): Note[] {
     const key = norm(text);
     if (!text || key.length < 4 || seen.has(key)) continue;
     seen.add(key);
-    added.push({ id: noteId(), text, createdAt: t++, source });
+    added.push({ id: noteId(), text, createdAt: t++, source, model: meta?.model, tier: meta?.tier });
   }
   if (added.length) writeAll([...added, ...existing]);
   return added;
