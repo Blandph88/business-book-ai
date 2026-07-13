@@ -19,7 +19,8 @@ import Papa from "papaparse";
 
 import { computeForQuery, computeText, shouldInterpretResult, privacyResponse } from "../../src/ai/compute.ts";
 import { assembleGrounding, conversationPath } from "../../src/ai/grounding.ts";
-import { askBookPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE } from "../../src/ai/prompts.ts";
+import { askBookPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, suggestionsPrompt } from "../../src/ai/prompts.ts";
+import { cleanChips, validateChips } from "../../src/ai/chips.ts";
 import { routeIntent, heavyDistress } from "../../src/ai/intents.ts";
 import { CONVERSATIONS } from "./conversations.mts";
 import { THREADS } from "./threads.mts";
@@ -136,6 +137,7 @@ async function callModel(system: string, prompt: string): Promise<string> {
 const isGenerate = (t: string) => /^\s*(draft|write|compose|prepare|prep|send|email|message|reply|respond)\b/i.test(t);
 const lines: string[] = [];
 let hijacks = 0, deterministic = 0, modelTurns = 0, actionTurns = 0, turns = 0;
+let chipTurns = 0, chipDrops = 0, chipEmpty = 0; // chip pass: turns graded, chips dropped as off-book, answers left with no valid chip
 
 note(`\nEval harness · ${today} · model=${AI_KEY ? AI_MODEL : "(routing-only, no key)"} · ${contacts.length} contacts, ${sows.length} engagements\n`);
 lines.push(`# Copilot eval — ${today}`, `model: ${AI_KEY ? AI_MODEL : "(routing-only)"} · ${contacts.length} contacts · ${opps.length} opps · ${sows.length} engagements`, "");
@@ -206,6 +208,28 @@ for (const convo of SET.slice(0, LIMIT)) {
         path = "model (free-form)";
         history.push({ role: "you", text }, { role: "ai", text: response });
         if (AI_KEY) await new Promise((r) => setTimeout(r, THROTTLE_MS)); // throttle to stay under rate limits
+        // CHIP PASS: generate the "what next?" chips exactly as the app does (the separate suggestions
+        // round-trip), then run the REAL cleaning + validation so hallucinated / echoing / off-book chips
+        // surface HERE instead of in a demo. Appended to the turn's report block; tallied in the summary.
+        if (AI_KEY) {
+          const sp = suggestionsPrompt(text, response, grounding);
+          const rawChipText = await callModel(sp.system || "", sp.prompt);
+          await sleep(THROTTLE_MS);
+          let parsed: unknown = [];
+          try { const m = rawChipText.match(/\[[\s\S]*\]/); parsed = m ? JSON.parse(m[0]) : JSON.parse(rawChipText); } catch { parsed = []; }
+          const cleaned = cleanChips(parsed, text);
+          const valid = validateChips(cleaned, response, data);
+          const dropped = cleaned.filter((c) => !valid.includes(c));
+          chipTurns++;
+          chipDrops += dropped.length;
+          if (!valid.length) chipEmpty++;
+          const chipLines = [
+            `\n**CHIPS:** ${valid.length}/${cleaned.length} kept` + (dropped.length ? ` · ${dropped.length} DROPPED (off-book/hallucinated)` : "") + (cleaned.length && !valid.length ? " · ⚠️ NONE SURVIVED" : "") + (!cleaned.length ? " · (model produced none)" : ""),
+            ...valid.map((c) => `  ✓ ${c.label}  →  "${c.prompt}"`),
+            ...dropped.map((c) => `  ✗ ${c.label}  →  "${c.prompt}"`),
+          ];
+          response += "\n" + chipLines.join("\n");
+        }
       }
     }
     lines.push(`\n**USER:** ${text}`, `**PATH:** ${path}`, `**RESPONSE:**\n\n${response}\n`);
@@ -213,7 +237,7 @@ for (const convo of SET.slice(0, LIMIT)) {
   }
 }
 
-lines.push(`\n---\n## Summary\n- turns: ${turns}\n- deterministic: ${deterministic} (hijack suspects: ${hijacks})\n- actions: ${actionTurns}\n- model turns: ${modelTurns}`);
+lines.push(`\n---\n## Summary\n- turns: ${turns}\n- deterministic: ${deterministic} (hijack suspects: ${hijacks})\n- actions: ${actionTurns}\n- model turns: ${modelTurns}\n- chip pass: ${chipTurns} graded · ${chipDrops} chips dropped (off-book/hallucinated) · ${chipEmpty} answers left with no valid chip`);
 mkdirSync(join(ROOT, "eval-output"), { recursive: true });
 // Write a per-set file so runs of different sets don't clobber each other (report-critical.md,
 // report-core.md, …), plus report.md as a "latest run" copy for anything that reads the fixed name.
@@ -221,4 +245,4 @@ const SET_NAME = EVAL_SET || "all";
 const report = lines.join("\n");
 writeFileSync(join(ROOT, `eval-output/report-${SET_NAME}.md`), report);
 writeFileSync(join(ROOT, "eval-output/report.md"), report);
-console.log(`\n${hijacks} hijack suspect(s) of ${deterministic} deterministic turns · ${modelTurns} model turns · report → eval-output/report-${SET_NAME}.md (+ report.md)\n`);
+console.log(`\n${hijacks} hijack suspect(s) of ${deterministic} deterministic turns · ${modelTurns} model turns · chips: ${chipDrops} dropped / ${chipEmpty} empty of ${chipTurns} graded · report → eval-output/report-${SET_NAME}.md (+ report.md)\n`);
