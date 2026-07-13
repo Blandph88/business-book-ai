@@ -25,7 +25,7 @@ import { personalRegister, crisisSignal } from "./intents";
 // "go all in") is a personal conversation even when it names a company in their book — the decision is about
 // THEIR life, not a book record. Distinct from a book-advisory question ("should I chase the Merck deal"),
 // which is about a record and stays on the grounded path. Keeps a career deliberation in the companion.
-const LIFE_DECISION = /\b(turn(?:ing)? (?:it |them |the (?:job|offer|role) )?down|walk(?:ing)? away from|go(?:ing)? all[- ]in|give (?:it |everything |this )?up|quit(?:ting)?|hand in my notice|should i (?:take|accept|leave|quit|stay|resign|move to|relocate|go for|say yes to)|thinking (?:of|about) (?:leaving|quitting|moving|resigning|jacking)|torn between|i'?ve decided|made up my mind|big (?:life |career )?decision|life decision|career (?:decision|move|change|crossroads)|whether to (?:take|accept|leave|quit|stay|go))\b/i;
+const LIFE_DECISION = /\b(turn(?:ing)? (?:it |them |the (?:job|offer|role) )?down|walk(?:ing)? away from|go(?:ing)? all[- ]in|give (?:it |everything |this )?up|quit(?:ting)?|hand in my notice|should i (?:take|accept|leave|quit|stay|resign|move to|relocate|go for|say yes to)|thinking (?:of|about) (?:leaving|quitting|moving|resigning|jacking)|torn between|i'?ve decided(?:\s+to)?\s+(?:quit|leave|resign|take|accept|move|relocate|go for|stay|not to|against|hand in)|made up my mind|big (?:life |career )?decision|life decision|career (?:decision|move|change|crossroads)|whether to (?:take|accept|leave|quit|stay|go))\b/i;
 
 // A bare greeting / pleasantry (the WHOLE message is one) → small talk, never a book search. Without this,
 // "Hello" falls through to searchBook and matches any company containing "hello" (Hello Charlie, HelloReport
@@ -41,11 +41,32 @@ const SMALL_TALK = /^\s*(hi+|hey+|hello+|hiya|yo|howdy|sup|greetings|(good\s+)?(
 // career decisions are caught by LIFE_DECISION above and stay personal; pure emotion has no BD nouns.)
 const BOOK_INTENT = /\b(clients?|customers?|leads?|prospects?|opportunit\w*|pipelines?|book of business|my (book|network|contacts?|deals?|leads?|clients?|prospects?|pipeline|meetings?))\b|\bwho are my\b|\banaly[sz]e (?:my |the )?(?:book|network|pipeline|contacts?|clients?)\b|\breach(?:ing)? out\b|\b(?:who|anyone|anybody|someone)\s+(?:i\s+(?:should|could|can|need to|ought to|might)|to)\b|\bwho (?:else )?(?:do|should|can|could) i (?:know|contact|target|approach|reach|prioriti[sz]e)\b|\b(?:talk|do|get to|back to|crack on(?: with)?|focus on|down to) (?:some )?(?:business|work|shop)\b|\btalk shop\b|\blet'?s (?:work|get (?:to |cracking|down to )?work|talk (?:business|shop)|do (?:some )?work|get (?:down to|cracking|started))\b|\b(?:my |our )?(?:history|relationship|dealings|track record|rapport|connection) with\b|\bhow (?:do|did|well do) i know\b|\b(?:brief|prime|fill me in|catch me up|prep) (?:me )?(?:on|for|about)\b|\b(?:strongest|warmest|closest|best|top|key) (?:contact|lead|relationship|client|connection)\b/i;
 
+// Oblique / idiomatic BD phrasings the narrow BOOK_INTENT missed — the personal floor was swallowing real
+// pipeline questions ("where am I leaking deals?", "what's ready to close?", "who have I not contacted?",
+// "what's stuck at proposal?", "any big fish I'm ignoring?"). Every branch is BD-ANCHORED (a sales-world
+// noun/verb/idiom), so a genuinely personal/emotional message ("I'm stuck", "I've gone quiet lately") still
+// falls through to the companion path. Checked ALONGSIDE BOOK_INTENT in both gates below.
+const BD_EXTRA = new RegExp([
+  "\\b(deals?|accounts?|engagements?|proposals?|contracts?|contracted|funnel|quota|sectors?)\\b",
+  "\\bwin[- ]?rate\\b",
+  "\\b(?:ready|about|going)\\s+to\\s+close\\b",
+  "\\bclos(?:e|ing)\\s+(?:the\\s+|a\\s+|my\\s+|this\\s+)?deals?\\b",
+  "\\bclose\\s+rate\\b",
+  "\\b(?:stuck|stalled)\\s+(?:at|in the)\\b",
+  "\\b(?:gone|going|went)\\s+(?:cold|quiet|dark)\\b",
+  "\\bbig fish\\b",
+  "\\ball talk\\b",
+  "\\bleak\\w*\\s+(?:deals?|revenue|pipeline)\\b",
+  "\\bwho\\s+(?:have|has|did|do|should|can|could|else)?\\s*i?\\s*(?:not\\s+)?(?:contacted?|met|meet|spoke(?:n)?|speak|called?|reach(?:ed)?|nudged?|chas(?:e|ed)|followed?\\s*up|prioriti[sz]ed?|targeted?|approach(?:ed)?)\\b",
+  "\\bwho\\s+(?:to|should i|do i|can i|could i)\\s+(?:call|chase|nudge|prioriti[sz]e|target|approach|reach|contact|follow up)\\b",
+  "\\bmy\\s+(?:priorit\\w+|quota|targets?|numbers?)\\b",
+].join("|"), "i");
+
 export function conversationPath(text: string, d: BookData, prevCompanion = false): "crisis" | "companion" | "book" {
   if (crisisSignal(text)) return "crisis";
   if (SMALL_TALK.test(text)) return "companion";
   if (LIFE_DECISION.test(text)) return "companion"; // a life/career decision stays personal even if it names a company
-  if (BOOK_INTENT.test(text)) return "book"; // BD/book asks GROUND on data — beats personal register + stickiness
+  if (BOOK_INTENT.test(text) || BD_EXTRA.test(text)) return "book"; // BD/book asks GROUND on data — beats personal register + stickiness
   if (personalRegister(text)) return "companion";
   // An EXPLICIT book request ("brief me on X", "my pipeline", "the Merck deal", "status of…") always pulls
   // to the grounded path — even mid-conversation.
@@ -70,7 +91,7 @@ export function conversationPath(text: string, d: BookData, prevCompanion = fals
 // clearly personal message is caught BEFORE the LLM router, so a tiny on-device model can't misroute
 // "work is grinding me down" into a pipeline/book answer. (crisis is handled separately by the caller.)
 export function clearlyPersonal(text: string): boolean {
-  if (BOOK_INTENT.test(text)) return false;
+  if (BOOK_INTENT.test(text) || BD_EXTRA.test(text)) return false;
   return SMALL_TALK.test(text) || LIFE_DECISION.test(text) || personalRegister(text);
 }
 

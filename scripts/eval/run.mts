@@ -28,13 +28,14 @@ import { CRITICAL_THREADS } from "./critical-threads.mts";
 import { CAPABILITY_THREADS } from "./capability-threads.mts";
 import { POLISH_THREADS } from "./polish-threads.mts";
 import { COMPANION_THREADS } from "./companion-threads.mts";
+import { FIFTY_THREADS } from "./fifty-threads.mts";
 // EVAL_SET picks the battery: "core" = the wide one/two-turn coverage set; "threads" = the long multi-turn
 // conversation set (context back-reference + challenge); "memory" = the memory/source-of-truth + model-weakness
 // set (seeds past-chat MEMORY); "critical" = the critical-failure-mode set (numbers/negation/PII/refusal/
 // drafting/adversarial); "capability" = the in-depth suite for the compute→interpret combo + relational/
 // aggregate tools + guardrails + confidentiality + grounding; "all" (default) = core + threads back to back.
 const EVAL_SET = process.env.EVAL_SET;
-const SET = EVAL_SET === "core" ? CONVERSATIONS : EVAL_SET === "threads" ? THREADS : EVAL_SET === "memory" ? MEMORY_THREADS : EVAL_SET === "critical" ? CRITICAL_THREADS : EVAL_SET === "capability" ? CAPABILITY_THREADS : EVAL_SET === "polish" ? POLISH_THREADS : EVAL_SET === "companion" ? COMPANION_THREADS : [...CONVERSATIONS, ...THREADS];
+const SET = EVAL_SET === "core" ? CONVERSATIONS : EVAL_SET === "threads" ? THREADS : EVAL_SET === "memory" ? MEMORY_THREADS : EVAL_SET === "critical" ? CRITICAL_THREADS : EVAL_SET === "capability" ? CAPABILITY_THREADS : EVAL_SET === "polish" ? POLISH_THREADS : EVAL_SET === "companion" ? COMPANION_THREADS : EVAL_SET === "fifty" ? FIFTY_THREADS : [...CONVERSATIONS, ...THREADS];
 // On the memory set, inject the seeded past-chat facts as the app's "Memory from past chats" block, so we can
 // test whether the model pulls each fact from the RIGHT source (memory vs book vs live context) and never
 // confuses or fabricates them. Wording mirrors CopilotBar exactly.
