@@ -20,7 +20,7 @@ import Papa from "papaparse";
 import { computeForQuery, computeText, shouldInterpretResult, privacyResponse } from "../../src/ai/compute.ts";
 import { assembleGrounding, conversationPath } from "../../src/ai/grounding.ts";
 import { askBookPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, suggestionsPrompt } from "../../src/ai/prompts.ts";
-import { cleanChips, validateChips } from "../../src/ai/chips.ts";
+import { cleanChips, validateChips, chipsFromAnswer } from "../../src/ai/chips.ts";
 import { routeIntent, heavyDistress } from "../../src/ai/intents.ts";
 import { CONVERSATIONS } from "./conversations.mts";
 import { THREADS } from "./threads.mts";
@@ -137,7 +137,8 @@ async function callModel(system: string, prompt: string): Promise<string> {
 const isGenerate = (t: string) => /^\s*(draft|write|compose|prepare|prep|send|email|message|reply|respond)\b/i.test(t);
 const lines: string[] = [];
 let hijacks = 0, deterministic = 0, modelTurns = 0, actionTurns = 0, turns = 0;
-let chipTurns = 0, chipDrops = 0, chipEmpty = 0; // chip pass: turns graded, chips dropped as off-book, answers left with no valid chip
+let chipTurns = 0, chipDrops = 0, chipEmpty = 0; // MODEL chips (free-form book answers): graded, dropped off-book, left empty
+let tableChipTurns = 0, tableChipEmpty = 0; // DETERMINISTIC chips (compute/table turns): built, and empty (aggregate table w/ no named people)
 
 note(`\nEval harness · ${today} · model=${AI_KEY ? AI_MODEL : "(routing-only, no key)"} · ${contacts.length} contacts, ${sows.length} engagements\n`);
 lines.push(`# Copilot eval — ${today}`, `model: ${AI_KEY ? AI_MODEL : "(routing-only)"} · ${contacts.length} contacts · ${opps.length} opps · ${sows.length} engagements`, "");
@@ -180,6 +181,14 @@ for (const convo of SET.slice(0, LIMIT)) {
         await sleep(THROTTLE_MS);
       }
       history.push({ role: "you", text }, { role: "ai", text: aiText });
+      // CHIP PASS (compute/table turns): the app builds DETERMINISTIC chips from the TABLE (chipsFromAnswer,
+      // CopilotBar:906) — not a model round-trip — so grade those. No credits needed; runs in routing-only too.
+      // An aggregate table (a count/rate with no named people) yielding 0 chips is EXPECTED, not an error.
+      const tableChips = chipsFromAnswer(tableText, data);
+      tableChipTurns++;
+      if (!tableChips.length) tableChipEmpty++;
+      response += `\n\n**CHIPS (deterministic, from table):** ${tableChips.length}`
+        + (tableChips.length ? "\n" + tableChips.map((c) => `  • ${c.label}  →  "${c.prompt}"`).join("\n") : " · (aggregate table — no named people)");
     } else {
       modelTurns++;
       // TOPIC-GATE: a turn that isn't a book tool → crisis (deterministic safety floor), a personal/general
@@ -237,7 +246,7 @@ for (const convo of SET.slice(0, LIMIT)) {
   }
 }
 
-lines.push(`\n---\n## Summary\n- turns: ${turns}\n- deterministic: ${deterministic} (hijack suspects: ${hijacks})\n- actions: ${actionTurns}\n- model turns: ${modelTurns}\n- chip pass: ${chipTurns} graded · ${chipDrops} chips dropped (off-book/hallucinated) · ${chipEmpty} answers left with no valid chip`);
+lines.push(`\n---\n## Summary\n- turns: ${turns}\n- deterministic: ${deterministic} (hijack suspects: ${hijacks})\n- actions: ${actionTurns}\n- model turns: ${modelTurns}\n- model chips (book answers): ${chipTurns} graded · ${chipDrops} dropped (off-book/hallucinated) · ${chipEmpty} left with no valid chip\n- deterministic chips (table turns): ${tableChipTurns} graded · ${tableChipEmpty} empty (aggregate tables, expected)`);
 mkdirSync(join(ROOT, "eval-output"), { recursive: true });
 // Write a per-set file so runs of different sets don't clobber each other (report-critical.md,
 // report-core.md, …), plus report.md as a "latest run" copy for anything that reads the fixed name.
@@ -245,4 +254,4 @@ const SET_NAME = EVAL_SET || "all";
 const report = lines.join("\n");
 writeFileSync(join(ROOT, `eval-output/report-${SET_NAME}.md`), report);
 writeFileSync(join(ROOT, "eval-output/report.md"), report);
-console.log(`\n${hijacks} hijack suspect(s) of ${deterministic} deterministic turns · ${modelTurns} model turns · chips: ${chipDrops} dropped / ${chipEmpty} empty of ${chipTurns} graded · report → eval-output/report-${SET_NAME}.md (+ report.md)\n`);
+console.log(`\n${hijacks} hijack suspect(s) of ${deterministic} deterministic turns · ${modelTurns} model turns · model-chips: ${chipDrops} dropped/${chipEmpty} empty of ${chipTurns} · table-chips: ${tableChipEmpty} empty of ${tableChipTurns} · report → eval-output/report-${SET_NAME}.md (+ report.md)\n`);
