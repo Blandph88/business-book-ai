@@ -406,21 +406,30 @@ export function interpretResultPrompt(question: string, resultText: string, cont
 // the user's own first-person voice — a complete instruction they could tap to send verbatim. The model
 // returns a JSON array; the caller falls back to deterministic templates if parsing fails.
 export function suggestionsPrompt(question: string, reply: string, context: string): PromptArgs {
+  // NOTE: the grounding `context` is deliberately NOT fed to the model. Giving it the full slice of book
+  // records was the #1 source of bad chips — it suggested people/companies from the records that WEREN'T in
+  // the answer (then dropped by validation, leaving answers chip-poor). Chips are grounded on the ANSWER alone.
+  void context;
   return {
     system:
-      "You propose the 2–3 next things a busy consultant is most likely to want to do right after reading " +
-      "an answer from their book-of-business assistant. Output ONLY a JSON array: " +
-      '[{"label":"short button caption","prompt":"the full instruction sent when tapped"}]. ' +
-      "Rules: (1) Each MUST follow from THE ANSWER and name a real person, company or deal that ACTUALLY " +
-      "APPEARS in it (e.g. \"Draft a follow-up to Ingrid Miller\", \"Log an opportunity from the Richard " +
-      "Murphy meeting\"). NEVER invent a name or use one that isn't in the answer/records below. (2) When the " +
-      "answer lists several people, VARY the engagement across DIFFERENT names — e.g. follow up with one, log " +
-      "an opportunity for another, get a briefing on a third — don't repeat the same action. (3) Write each in " +
-      "the USER's first-person voice as a complete instruction — a verb (\"Draft…\", \"Log…\", \"Show…\", " +
-      "\"Brief me on…\") so it reads as a real next move, not a fragment. (4) NEVER repeat or rephrase the " +
-      "question they just asked. (5) Keep each label ≤ 6 words, no trailing ellipsis, no quotes inside. " +
+      "You propose the next things a busy consultant is most likely to want to do right after reading an " +
+      "answer from their book-of-business assistant. Output ONLY a JSON array: " +
+      '[{"label":"short button caption","prompt":"the full instruction sent when tapped"}].\n' +
+      "HARD RULES:\n" +
+      "1. Base every suggestion STRICTLY on the answer text. Only name a person, company or deal that appears " +
+      "IN THE ANSWER, spelled exactly as written there. NEVER pull a name from anywhere else, and never invent one.\n" +
+      "2. If the answer names NO specific person or company (e.g. it's a count, a rate, a funnel breakdown), " +
+      "suggest GENERIC drill-ins with NO names — \"Show me the ones at proposal stage\", \"Break that down by sector\".\n" +
+      "3. Prefer FEWER solid suggestions over padding: if only one person clearly features, return just ONE chip " +
+      "about them. Return 1–3 — one grounded chip beats three that reach for names barely in the answer.\n" +
+      "4. When the answer lists several people, vary the action across DIFFERENT named people (follow up one, log " +
+      "an opportunity for another, brief on a third) — don't repeat the same action.\n" +
+      "5. Write each prompt in the USER's first-person voice as a complete, tappable instruction starting with a " +
+      "verb (\"Draft…\", \"Log…\", \"Brief me on…\", \"Show…\").\n" +
+      "6. label ≤ 5 words, no trailing ellipsis, no quotes. prompt = ONE clear sentence, not a paragraph.\n" +
+      "7. NEVER repeat or rephrase the question they just asked.\n" +
       "Return nothing but the JSON array.",
-    prompt: `Their question: ${question}\n\nThe answer they got:\n${reply}\n${context ? `\nRecords involved:\n${context}\n` : ""}\nReturn the JSON array of 2–3 next steps now.`,
+    prompt: `Their question: ${question}\n\nThe answer they got (base chips ONLY on names that appear in here):\n${reply}\n\nReturn the JSON array now.`,
   };
 }
 
