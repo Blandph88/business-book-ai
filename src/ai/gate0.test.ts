@@ -155,17 +155,17 @@ describe("Gate-0 #10/#13: constraint surrender on undated tools", () => {
   it("pipeline 'last 3 months' carries the surrender note", () => {
     const r = computeForQuery("What's in my pipeline from the last 3 months?", D, TODAY);
     expect(r).not.toBeNull();
-    expect(r!.intro).toMatch(/can't filter .* by date yet/i);
+    expect(r!.intro).toMatch(/can't date .* precisely|first recorded activity|No pipeline activity/i);
   });
   it("'opportunities created this month' carries the surrender note", () => {
     const r = computeForQuery("Show me opportunities created this month.", D, TODAY);
     expect(r).not.toBeNull();
-    expect(r!.intro).toMatch(/can't filter/i);
+    expect(r!.intro).toMatch(/can't date|first recorded activity|No opportunities with activity/i);
   });
   it("an undated pipeline ask has NO surrender noise", () => {
     const r = computeForQuery("How's my pipeline looking?", D, TODAY);
     expect(r).not.toBeNull();
-    expect(r!.intro).not.toMatch(/can't filter/i);
+    expect(r!.intro).not.toMatch(/can't date|isn't applied/i);
   });
 });
 

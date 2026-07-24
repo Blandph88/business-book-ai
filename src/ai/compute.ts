@@ -838,13 +838,52 @@ function parseMinValue(t: string): number | undefined {
   if (!mv) return undefined;
   return Number(mv[1].replace(/,/g, "")) * (mv[2]?.toLowerCase() === "m" ? 1_000_000 : mv[2]?.toLowerCase() === "k" ? 1000 : 1);
 }
-// CONSTRAINT SURRENDER: these tools can't filter by date (opportunities carry no created-date field), so a
-// temporal qualifier on them must be EXPLICITLY surrendered in the answer — never silently dropped with the
-// all-time result presented as if it answered the windowed ask (Gate-0 #10/#13 — the master invariant).
+// Opportunities carry no created_at — but a date is DERIVABLE: the earliest recorded step date, else the
+// source meeting's date. Lets "pipeline from the last 3 months" actually filter (Phil's ask, 2026-07-24).
+export function oppDate(o: Opportunity, d: BookData): string {
+  const steps = Object.values(o.step_dates || {}).filter(Boolean).sort();
+  if (steps[0]) return steps[0] as string;
+  const src = (o as { source_meeting_id?: string }).source_meeting_id;
+  if (src) { const m = d.meetingRows.find((r) => r.id === src); if (m) return m.date_held || m.date_scheduled || m.date_agreed || ""; }
+  if (o.contact_url) {
+    const ms = d.meetingRows.filter((r) => r.contact_url === o.contact_url && (r.date_held || r.date_scheduled)).sort((a, b) => (a.date_held || a.date_scheduled || "").localeCompare(b.date_held || b.date_scheduled || ""));
+    if (ms[0]) return ms[0].date_held || ms[0].date_scheduled || "";
+  }
+  return "";
+}
+// CONSTRAINT PRESERVATION on temporal asks: FILTER when a date is derivable; SURRENDER honestly for the
+// records that carry no date at all — never silently drop the window (Gate-0 #10/#13 master invariant).
 const TEMPORAL_Q = /\b(?:this|last|past|recent)\s+(?:week|month|quarter|year)\b|\bthis (?:week|month|quarter|year)\b|\blast \d+\s*(?:day|week|month)|\bytd\b|\byear to date\b|\brecently\b|\bcreated (?:this|last|in|recently)\b|\bfrom the last\b|\bnew (?:this|last)\b/;
 function withDateSurrender(res: ComputeResult, t: string, what: string): ComputeResult {
   if (!TEMPORAL_Q.test(t)) return res;
-  return { ...res, intro: `${res.intro}\n(Note: showing all-time — I can't filter ${what} by date yet, so the time window in your question isn't applied.)` };
+  return { ...res, intro: `${res.intro}\n(Note: showing all-time — I can't date ${what} precisely here, so the time window in your question isn't applied.)` };
+}
+// Windowed opportunities: filter by derived date when a usable window is stated; surrender when not datable.
+export function findOpportunitiesDated(d: BookData, today: string, t: string, filt: OppFilter): ComputeResult {
+  if (!TEMPORAL_Q.test(t)) return findOpportunities(d, filt);
+  const w = windowDays(t);
+  if (w.days !== null && !w.defaulted && d.opps.some((o) => oppDate(o, d))) {
+    const cutoff = addDays(today, -w.days);
+    const sub: BookData = { ...d, opps: d.opps.filter((o) => { const dt = oppDate(o, d); return dt && dt >= cutoff && dt <= today; }) };
+    const res = findOpportunities(sub, filt);
+    return sub.opps.length
+      ? { ...res, intro: `${res.intro}\n(Dated by each opportunity's first recorded activity — last ${w.label}.)` }
+      : { intro: `No opportunities with activity starting in the last ${w.label}. Ask without a window for the all-time list.`, columns: [], rows: [] };
+  }
+  return withDateSurrender(findOpportunities(d, filt), t, "opportunities");
+}
+// Windowed pipeline stats: filter opps to those whose FIRST recorded activity falls inside the window.
+// Falls back to the honest surrender when nothing in the book is datable.
+export function pipelineStatsWindowed(d: BookData, today: string, t: string): ComputeResult {
+  const { days, label, defaulted } = windowDays(t);
+  if (days === null || defaulted) return withDateSurrender(pipelineStats(d), t, "the pipeline");
+  const cutoff = addDays(today, -days);
+  const datable = d.opps.filter((o) => oppDate(o, d));
+  if (!datable.length) return withDateSurrender(pipelineStats(d), t, "the pipeline");
+  const sub: BookData = { ...d, opps: datable.filter((o) => { const dt = oppDate(o, d); return dt >= cutoff && dt <= today; }) };
+  if (!sub.opps.length) return { intro: `No pipeline activity started in the last ${label} — your ${d.opps.filter((o) => oppStatus(o) === "Open").length} open opportunities all date from earlier. Ask without a window for the full picture.`, columns: [], rows: [] };
+  const base = pipelineStats(sub);
+  return { ...base, intro: `Your pipeline from the last ${label} (opportunities whose first recorded activity falls in the window — ${sub.opps.length} of ${d.opps.length} total):` };
 }
 
 // Extract a company filter from "…at/with/for/from X" — but ONLY keep it when X is actually an org in the
@@ -1266,7 +1305,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   }
 
   // ── Pipeline stats / breakdowns ─────────────────────────────────────────────────────────────────
-  if (/\bmy pipeline\b|\bhow'?s? (?:the )?pipeline\b|\bpipeline (?:looking|summary|health|overview|status|snapshot)\b|\bwin rate\b|\bhow am i doing\b|\bsales summary\b|\bwhat'?s in my pipeline\b/.test(t)) return withDateSurrender(pipelineStats(d), t, "the pipeline");
+  if (/\bmy pipeline\b|\bhow'?s? (?:the )?pipeline\b|\bpipeline (?:looking|summary|health|overview|status|snapshot)\b|\bwin rate\b|\bhow am i doing\b|\bsales summary\b|\bwhat'?s in my pipeline\b/.test(t)) return TEMPORAL_Q.test(t) ? pipelineStatsWindowed(d, today, t) : pipelineStats(d);
   // Pipeline MATHS — average / weighted / total / the raw-vs-weighted gap. Computed, never the model (which
   // fabricated a single-deal total here). Needs an aggregate word AND a VALUE word (or an explicit
   // pipeline-value phrase) — so "biggest by value" (a ranking) and "average sales-cycle LENGTH" (not a value
@@ -1318,7 +1357,8 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   }
   // ── Opportunities / deals ───────────────────────────────────────────────────────────────────────
   if (/\bopportunit|\bdeals?\b/.test(t) && (LIST_VERB.test(t) || /\b(open|won|lost|any|all|my)\b/.test(t))) {
-    return withDateSurrender(findOpportunities(d, { status: /\bwon\b/.test(t) ? "Won" : /\blost\b/.test(t) ? "Lost" : "Open", minValue: parseMinValue(t), company: extractCompany(t, d) }), t, "opportunities");
+    const filt: OppFilter = { status: (/\bwon\b/.test(t) ? "Won" : /\blost\b/.test(t) ? "Lost" : "Open") as OppFilter["status"], minValue: parseMinValue(t), company: extractCompany(t, d) };
+    return findOpportunitiesDated(d, today, t, filt);
   }
   // ── Contracts / signed work ─────────────────────────────────────────────────────────────────────
   // Recognised-revenue MATHS over engagements (total / count / average per engagement). Computed, never the
@@ -1419,7 +1459,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
 // Run a tool call (from the LLM tool-router or, later, native function-calling) against the data. Defensive
 // about arg shapes — the model's JSON is lenient. Returns null for an unknown tool → caller falls back.
 export type ToolCall = { tool: string; args?: Record<string, unknown> };
-export function runTool(call: ToolCall, d: BookData, today: string): ComputeResult | null {
+export function runTool(call: ToolCall, d: BookData, today: string, sourceText = ""): ComputeResult | null {
   const a = call.args || {};
   const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
   const num = (v: unknown): number | undefined => { const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/[^\d.]/g, "")) : NaN; return Number.isFinite(n) && n > 0 ? n : undefined; };
@@ -1479,12 +1519,12 @@ export function runTool(call: ToolCall, d: BookData, today: string): ComputeResu
     case "findOpportunities": {
       const sec = matchSector(str(a.sector) || ""); if (sec) return opportunitiesBySector(d, sec);
       const co = filterCompany(a.company); if (co === UNKNOWN) return null;
-      return findOpportunities(d, { status: ["Open", "Won", "Lost"].includes(String(a.status)) ? (a.status as OppFilter["status"]) : "Open", company: co, minValue: num(a.minValue) });
+      return findOpportunitiesDated(d, today, sourceText.toLowerCase(), { status: ["Open", "Won", "Lost"].includes(String(a.status)) ? (a.status as OppFilter["status"]) : "Open", company: co, minValue: num(a.minValue) });
     }
-    case "findContracts": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return findContracts(d, { status: contractStatus(a.status), company: co, byValue: !!a.byValue }); }
+    case "findContracts": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return withDateSurrender(findContracts(d, { status: contractStatus(a.status), company: co, byValue: !!a.byValue }), sourceText.toLowerCase(), "engagements"); }
     case "rankContacts": return rankContacts(d, oneOf(a.by, ["warmth", "cold"] as const, "warmth"), today);
     case "rankOpportunities": return rankOpportunities(d, oneOf(a.by, ["value", "probability", "risk"] as const, "value"));
-    case "pipelineStats": return pipelineStats(d);
+    case "pipelineStats": return TEMPORAL_Q.test(sourceText.toLowerCase()) ? pipelineStatsWindowed(d, today, sourceText.toLowerCase()) : pipelineStats(d);
     case "pipelineAggregate": return pipelineAggregate(d, "", oneOf(a.metric, ["total", "weighted", "average", "gap"] as const, "total"));
     case "revenueAggregate": return contractsAggregate(d, "", oneOf(a.metric, ["total", "average", "largest"] as const, "total"));
     case "oppsWithoutMeeting": return openOppsWithoutMeeting(d, today);

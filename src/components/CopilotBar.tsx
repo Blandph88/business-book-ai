@@ -1124,7 +1124,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         await startAction(routed.entity, routed.op ?? "create", text, text, prior, id, text);
         return;
       } else if (routed?.route === "tool" && routed.tool) {
-        const result = runTool({ tool: routed.tool, args: routed.args }, data, today);
+        const result = runTool({ tool: routed.tool, args: routed.args }, data, today, text);
         // Empty tool result → don't dead-end; fall through to the grounded book answer below.
         if (result && (result.rows.length || result.intro)) { renderCompute(result); return; }
       } else if (routed?.route === "chat") {
