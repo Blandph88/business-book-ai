@@ -141,6 +141,16 @@ const CHATTY_STOP = new Set([
   // like "In Kind Direct" / "Together — loans" / "Ready Event & Creative" from casual phrasing. Stop them.
   "kind","together","ready","creative","event","events","self","employed","open","role","crack","cracks","start","started","begin",
 ]);
+// Ordinary English words that are also (part of) real company names — a SINGLE such token must never
+// conjure the company ("1 RELATED opportunity" → "Related Companies"; "ENTERPRISE" → "Enterprise Products
+// Partners"). Multi-token matches still work, so genuinely naming these firms still resolves them.
+const GENERIC_ORG_WORDS = new Set([
+  "related", "enterprise", "enterprises", "products", "general", "national", "standard", "united", "international",
+  "global", "first", "capital", "direct", "digital", "future", "state", "security", "trust", "private",
+  "confidential", "government", "exchange", "associates", "strategy", "solutions", "advisory", "consulting",
+  "technology", "resources", "systems", "communications", "media", "energy", "health", "financial", "partners",
+  "holdings", "industries", "services", "department", "civil", "service",
+]);
 function entityHits(text: string, d: BookData): RelatedHit[] {
   const msg = new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !CHATTY_STOP.has(w)));
   if (!msg.size) return [];
@@ -172,7 +182,7 @@ function entityHits(text: string, d: BookData): RelatedHit[] {
     // Require a DISTINCTIVE match, so one ordinary word can't conjure a company that merely contains it:
     // either 2+ of the org's tokens are named, OR a single STRONG token (len>=5 and not a conversational
     // word) is. ("kind"→"In Kind Direct", "josé"→"…José Cela", "KIND" alone are all rejected by this.)
-    const strong = (w: string) => w.length >= 5 && !CHATTY_STOP.has(w);
+    const strong = (w: string) => w.length >= 5 && !CHATTY_STOP.has(w) && !GENERIC_ORG_WORDS.has(w);
     if (present.length >= 2 || (present.length === 1 && strong(present[0]))) orgHits.push({ org, count });
   }
   orgHits.sort((a, b) => b.count - a.count);
@@ -266,6 +276,58 @@ async function generateChips(question: string, reply: string, grounding: string)
   } catch {
     return [];
   }
+}
+
+// ── CHIP REDESIGN (decided during Gate-0): 2 GENERAL suggested questions + 1 answer-specific chip ──
+// The generals teach what the copilot can do (discoverability — the answer to "users can't predict what
+// to ask"), drawn ONLY from the verified pass-list (a chip is a promise — nothing enters this pool until
+// it passes the regression gate), context-ADJACENT to the answer's domain, and rotating across turns.
+const GENERAL_CHIP_POOL: Record<string, Chip[]> = {
+  pipeline: [
+    { label: "Deals with no next meeting booked", prompt: "Which open opportunities have no next meeting booked?" },
+    { label: "What's my average deal size?", prompt: "What's the average value of my open opportunities?" },
+    { label: "Which deals are at risk?", prompt: "Which of my deals are at risk of stalling?" },
+    { label: "How's my pipeline looking?", prompt: "How's my pipeline looking?" },
+  ],
+  contacts: [
+    { label: "Who are my warmest leads?", prompt: "Who are my warmest leads?" },
+    { label: "Who's gone cold?", prompt: "Who's gone cold that I should re-engage?" },
+    { label: "Who do I owe a reply to?", prompt: "Who do I owe a reply to?" },
+    { label: "Who haven't I met yet?", prompt: "Which of my contacts have I never met?" },
+  ],
+  meetings: [
+    { label: "What's coming up in my diary?", prompt: "What meetings do I have coming up?" },
+    { label: "Meetings from the last two weeks", prompt: "Show meetings from the last two weeks" },
+    { label: "Meetings that went nowhere", prompt: "Which meetings never turned into an opportunity?" },
+  ],
+  revenue: [
+    { label: "Total recognised revenue", prompt: "What's my total recognised revenue?" },
+    { label: "My biggest engagement", prompt: "What's my biggest engagement by value?" },
+  ],
+  agenda: [
+    { label: "What should I focus on this week?", prompt: "What should I focus on this week?" },
+    { label: "Opportunities in my messages", prompt: "Any opportunities spotted in my messages?" },
+    { label: "What do you know about me?", prompt: "What do you know about me?" },
+  ],
+};
+let chipRotation = 0; // module counter — rotates the general pair so repeated use keeps revealing capability
+function chipDomain(contextText: string): keyof typeof GENERAL_CHIP_POOL {
+  const t = contextText.toLowerCase();
+  if (/opportunit|deal|pipeline/.test(t)) return "pipeline";
+  if (/meeting|diary|calendar/.test(t)) return "meetings";
+  if (/engagement|revenue|recognis/.test(t)) return "revenue";
+  if (/contact|lead|warm|cold|network|people|repl/.test(t)) return "contacts";
+  return "agenda";
+}
+function buildChipSet(specific: Chip[], contextText: string, question: string): Chip[] {
+  const pool = GENERAL_CHIP_POOL[chipDomain(contextText)].filter((c) => !echoesQuestion(c.prompt, question));
+  const generals: Chip[] = [];
+  for (let i = 0; i < pool.length && generals.length < 2; i++) {
+    const c = pool[(chipRotation + i) % pool.length];
+    if (!specific.some((sp) => sp.prompt.toLowerCase() === c.prompt.toLowerCase()) && !generals.includes(c)) generals.push(c);
+  }
+  chipRotation++;
+  return [...specific.slice(0, 1), ...generals].slice(0, 3);
 }
 
 // Deterministic chips built from the people/companies the ANSWER actually names (via entityHits on the
@@ -933,7 +995,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const md = computeText(computed);
       // Only derive chips when there are REAL records — a "can't find / nothing matches" reply has no
       // entities worth anchoring to, and deriving them produces non-sequiturs (a stray "Smith" → "DS Smith").
-      const chips = computed.rows.length ? chipsFromAnswer(md, data) : [];
+      const chips = computed.rows.length ? buildChipSet(chipsFromAnswer(md, data), md, text) : [];
       const base: UITurn[] = [...prior, { role: "you", text }];
       const tableTurn: UITurn = { role: "ai", text: md, compute: computed, chips: chips.length ? chips : undefined };
       const persisted: ChatTurn[] = [...history, { role: "you", text }];
@@ -1179,7 +1241,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // Chips come ONLY from who the answer actually names (accurate on every tier). If the answer named
       // nobody recognisable (e.g. a purely analytical reply), show no chips here rather than inventing a
       // random book contact/company — the model-generated, answer-validated chips below may still add some.
-      const answerChips = chipsFromAnswer(aiText, data);
+      const answerChips = buildChipSet(chipsFromAnswer(aiText, data), aiText, text);
       const baseOrUndef = answerChips.length ? answerChips : undefined;
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText, chips: baseOrUndef }]);
       // Finalise the rendered turn (with chips + related) now the stream is complete.
@@ -1189,7 +1251,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // On the cloud tier only: upgrade to chips generated FROM the answer (more varied phrasing), validated
       // so they can't name anyone outside the answer/book. On-device tiers keep the deterministic chips above.
       if (canGenChips) {
-        const generated = chipNamesInAnswer(await generateChips(text, aiText.slice(0, 1600), grounding.slice(0, 2400)), aiText, data);
+        const generated = buildChipSet(chipNamesInAnswer(await generateChips(text, aiText.slice(0, 1600), grounding.slice(0, 2400)), aiText, data), aiText, text);
         if (generated.length && chatIdRef.current === id) {
           setChat([...prior, { role: "you", text }, { role: "ai", text: aiText, related: relatedOrUndef, chips: generated }]);
           persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText, chips: generated }]);
