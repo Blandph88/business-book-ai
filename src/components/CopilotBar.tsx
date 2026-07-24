@@ -62,7 +62,7 @@ type RelatedHit =
 // A chat turn as shown in the UI — a persisted you/ai message (with optional related links), or a
 // transient "action" turn carrying a propose→confirm card (not persisted).
 type Chip = { label: string; prompt: string };
-type UITurn = { role: "you" | "ai" | "action"; text: string; related?: RelatedHit[]; action?: ActionCardData; undo?: () => void; chips?: Chip[]; compute?: ComputeResult; genMs?: number; genTok?: number; receipt?: boolean };
+type UITurn = { role: "you" | "ai" | "action"; text: string; related?: RelatedHit[]; action?: ActionCardData; undo?: () => void; chips?: Chip[]; compute?: ComputeResult; genMs?: number; genTok?: number; receipt?: boolean; narrPending?: boolean };
 
 // Rough token estimate for the live/after "N tokens" readout (we don't get exact counts mid-stream).
 const approxTokens = (s: string) => Math.max(1, Math.round((s || "").length / 4));
@@ -539,7 +539,7 @@ function ThinkingIndicator({ label, startMs, staged }: { label?: string; startMs
   const secs = startMs ? Math.max(0, Math.floor((Date.now() - startMs) / 1000)) : 0;
   // STAGED mode (composed compute answers — Gate-0 delivery decision): the wait communicates competence by
   // narrating the real pipeline — the numbers landed instantly, the commentary is being written.
-  const stagedWord = secs < 2 ? "Reading your book" : secs < 4 ? "Computing" : secs >= 30 ? "Still writing" : "Writing";
+  const stagedWord = secs >= 30 ? "Still writing" : "Writing";
   // A fixed label (model download / "Working…") shows verbatim; otherwise rotate a quirky verb every ~3s,
   // and settle into "Almost there…" on long waits so it never feels stuck.
   const word = label ?? `${staged ? stagedWord : secs >= 22 ? "Almost there" : THINK_VERBS[Math.floor(tick / 7) % THINK_VERBS.length]}…`;
@@ -1028,11 +1028,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // a broken model). Turns with no narration render immediately as before.
       persistTo(id, [...persisted, tablePersist]);
       if (willInterpret) {
-        // NOT markDone yet — the chat stays busy until the COMPOSED answer lands. Marking done here
-        // let the inflight listener pull the persisted table into view mid-composition, so the
-        // narration then landed ON TOP and shoved the table down (the exact reflow the composed
-        // delivery exists to prevent). interpretCompute marks done in its finally.
-        if (chatIdRef.current === id) setChat(base); // question + staged spinner; the composed answer lands once
+        // Deliver the TABLE immediately (it IS the answer) with a reserved narration panel ABOVE it —
+        // a shimmering placeholder that the narration fills IN PLACE when it lands, so the table never
+        // moves (retest #10 feedback: 65s staring at a spinner when the numbers were ready). The chat
+        // stays busy (no markDone) until the narration lands so the inflight listener can't replace
+        // this view (the placeholder isn't persisted) — the submit finally owns markDone.
+        if (chatIdRef.current === id) setChat([...base, { role: "ai", text: "", narrPending: true }, tableTurn]);
         setStagedThinking(true);
         await interpretCompute(text, md, id, base, tableTurn, persisted, tablePersist, "above").finally(() => setStagedThinking(false));
       } else {
@@ -1720,7 +1721,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                   </div>
                 ) : (
                   <div key={i} className={"copilot-turn copilot-turn--" + t.role}>
-                    <div className="copilot-turn-text">{t.role === "ai" ? (t.receipt ? (<div className="actc actc--saved"><span className="actc-tick">✓</span><span className="actc-savedtext">{t.text}</span></div>) : t.compute ? <ComputeTable data={t.compute} onNavigate={onNavigate} onClose={onClose} /> : <Markdown text={t.text} />) : t.text}</div>
+                    <div className="copilot-turn-text">{t.role === "ai" ? (t.narrPending ? (<div className="copilot-narr-skel" aria-label="Writing commentary…"><span className="copilot-narr-skel-bar" /><span className="copilot-narr-skel-bar" /><span className="copilot-narr-skel-bar copilot-narr-skel-bar--short" /></div>) : t.receipt ? (<div className="actc actc--saved"><span className="actc-tick">✓</span><span className="actc-savedtext">{t.text}</span></div>) : t.compute ? <ComputeTable data={t.compute} onNavigate={onNavigate} onClose={onClose} /> : <Markdown text={t.text} />) : t.text}</div>
                     {t.role === "ai" && renderRelated(t.related)}
                     {t.role === "ai" && t.chips && t.chips.length > 0 && (
                       <div className="copilot-chips">
