@@ -28,7 +28,7 @@ import { ComputeTable } from "./ComputeTable";
 import { contextBudget } from "../ai/contextBudget";
 import { routeIntent, isActionIntent, heavyDistress, crisisSignal } from "../ai/intents";
 import { track, lenBucket } from "../lib/analytics";
-import { SPECS, matchContacts, matchOpportunity } from "../ai/actions/actionSpecs";
+import { SPECS, matchContacts, matchOpportunity, extractSubjectSpan } from "../ai/actions/actionSpecs";
 import { readDoc, type LoadedDoc } from "../ai/docs";
 import { ActionCard, type ActionCardData } from "./ActionCard";
 import { Markdown } from "./Markdown";
@@ -562,6 +562,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const [doc, setDoc] = useState<LoadedDoc | null>(null); // an attached document, fed into the next message
   const [docNote, setDocNote] = useState("");
   const chatIdRef = useRef<string | null>(null);
+  // The opportunity touched most recently in THIS session — the referent for "update that/it" (Gate-0 #35).
+  const lastOppIdRef = useRef<string | null>(null);
   const latestChatRef = useRef<UITurn[]>([]); // newest chat turns, for distilling memory on leave/unmount
   const distilledRef = useRef<Map<string, number>>(new Map()); // chatId → turns already distilled (skip redundant)
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -1184,7 +1186,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   function buildUpdateClarification(kind: "opportunity" | "meeting", target: string, subjectUrl: string | undefined, oppCandidates: Opportunity[]): UITurn {
     const CAP = 6;
     if (kind === "opportunity") {
-      const pool = oppCandidates.length ? oppCandidates : opps.filter((o) => !o.lost);
+      // Newest-first (the state array is insertion-ordered with fresh saves appended) so a just-created
+      // deal is ALWAYS offered — the old head-slice dropped it past position 6 (Gate-0 #35/#36).
+      const pool = oppCandidates.length ? oppCandidates : [...opps].reverse().filter((o) => !o.lost);
       const chips: Chip[] = pool.slice(0, CAP).map((o) => {
         const name = o.opportunity_name || o.organisation || "opportunity";
         return { label: name, prompt: `Update the "${name}" opportunity` };
@@ -1211,28 +1215,35 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   }
 
   async function startAction(kind: "contact" | "meeting" | "opportunity" | "contract", op: "create" | "update", target: string, display: string, prior: UITurn[], id: string, extractText: string) {
+    setAsking(false); // the card takes over from the thinking spinner — this flag used to leak true forever (Gate-0 #29 spinner)
     setActionBusy(true);
     const spec = SPECS[kind];
     // CREATE-a-contact makes a NEW person, so there's no existing contact to resolve/pick.
     const needsContact = spec.needsContact && !(kind === "contact" && op === "create");
+    // SUBJECT RESOLUTION — for EVERY action kind (Gate-0 #29/#34/#40: opportunities/contracts used to skip
+    // this entirely because needsContact=false, which is exactly why "for them"/"for Daniel" left blank or
+    // contaminated fields; a resolved subject now feeds the extract's contact + employer defaults).
+    // Order: (1) the DETERMINISTIC command-clause span ("…note TO Karen OConnor: body" → "Karen OConnor" —
+    // the note body never reaches the name matcher, killing the Grace Walker class of wrong-person match);
+    // (2) the legacy with-name regex + full-target fallback, only for needsContact kinds; (3) pronoun carry
+    // from the most recent prior turn naming exactly one contact — for ALL kinds now.
     let subjectUrl: string | undefined;
-    if (needsContact) {
-      // Resolve against the name the user explicitly attached ("...meeting WITH Tom: we discussed…") before
-      // the whole noisy message, so notes words ("cost", "pressures") don't distort the contact match and a
-      // single named person resolves cleanly. Fall back to the full text when there's no "with/for <name>".
-      const withName = target.match(/\b(?:with|for|to|re|about)\s+([A-Za-z][A-Za-z'’.-]+(?:\s+[A-Za-z][A-Za-z'’.-]+){0,2})/)?.[1];
-      let matches = withName ? matchContacts(withName, contacts) : [];
-      if (matches.length !== 1) matches = matchContacts(target, contacts);
+    {
+      const span = extractSubjectSpan(target) || (extractText !== target ? extractSubjectSpan(extractText) : "");
+      const pronounOnly = /^(?:them|him|her|they|he|she|it|that|this)$/i.test(span);
+      let matches = span && !pronounOnly ? matchContacts(span, contacts) : [];
+      if (matches.length !== 1 && needsContact) {
+        const withName = target.match(/\b(?:with|for|to|re|about)\s+([A-Za-z][A-Za-z'’.-]+(?:\s+[A-Za-z][A-Za-z'’.-]+){0,2})/)?.[1];
+        if (!matches.length && withName) matches = matchContacts(withName, contacts);
+        if (matches.length !== 1) { const mm = matchContacts(target, contacts); if (mm.length) matches = mm; }
+      }
       if (matches.length === 1) subjectUrl = matches[0].url;
-      // PRONOUN-led follow-up ("add a meeting with HIM tomorrow", "turn IT into an opportunity", "move HIS
-      // meeting") — the current message names no one, so resolve the subject from the most recent prior turn
-      // that unambiguously did. The READ path already carries pronouns via grounding; the action path must too,
-      // or it opens a blank card / writes an orphaned unnamed record. Stop at the first prior turn that names
-      // exactly one contact; a turn naming several is ambiguous, so we don't guess.
-      if (!subjectUrl && /\b(him|her|hers|his|them|their|they|he|she|it|that|this|those|these)\b/i.test(target)) {
+      // PRONOUN-led follow-up ("add a meeting with HIM tomorrow", "create an opportunity for THEM") — the
+      // message names no one, so resolve the subject from the most recent prior turn that unambiguously did.
+      if (!subjectUrl && (pronounOnly || /\b(him|her|hers|his|them|their|they|he|she|it|that|this|those|these)\b/i.test(target))) {
         for (const t of [...prior].reverse().slice(0, 8)) {
           if (t.role !== "you") continue;
-          const m = matchContacts(t.text, contacts);
+          const m = matchContacts(extractSubjectSpan(t.text) || t.text, contacts);
           if (m.length >= 1) { if (m.length === 1) subjectUrl = m[0].url; break; }
         }
       }
@@ -1240,11 +1251,16 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // For an UPDATE to an opportunity, resolve WHICH existing deal it is ("the JPMorgan deal") so the form
     // pre-fills with its real values and confirming edits it in place. Auto-target ONLY on a single match —
     // 0 or several are ambiguous and get clarified below (never silently pick one / create a duplicate).
+    // "That/it" straight after a create/update in THIS session auto-targets the record just touched
+    // (Gate-0 #35/#36: the picker used to omit the just-created deal entirely).
     let targetId: string | undefined;
     let oppCandidates: Opportunity[] = [];
     if (op === "update" && kind === "opportunity") {
       oppCandidates = matchOpportunity(`${target} ${extractText}`, opps);
       if (oppCandidates.length === 1) targetId = oppCandidates[0].id;
+      if (!targetId && !oppCandidates.length && /\b(that|it|this)\b/i.test(target) && lastOppIdRef.current && opps.some((o) => o.id === lastOppIdRef.current)) {
+        targetId = lastOppIdRef.current;
+      }
     }
     // For an UPDATE to a meeting, edit the resolved contact's MOST RECENT meeting in place (no duplicate).
     if (op === "update" && kind === "meeting" && subjectUrl) {
@@ -1312,6 +1328,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     try {
       const ctx = { op: card.op, text: "", subjectUrl, targetId: card.targetId, today, contacts, meetingRows, opps, sows };
       const res = SPECS[card.kind].write(values, ctx);
+      if (card.kind === "opportunity") lastOppIdRef.current = res.id;
       const subject = subjectUrl ? contacts.find((c) => c.url === subjectUrl) : undefined;
       const subjectName = subject ? `${subject.first} ${subject.last}`.trim() : "";
       const follow = actionFollowUp(card.kind, values, subjectName);

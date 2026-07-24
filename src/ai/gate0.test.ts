@@ -11,7 +11,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeForQuery, computeExact, findContacts, openOppsWithoutMeeting, oppsWithRecentMeeting,
-  meetingsCount, contactsCount, oppsCount, exactRecordLookup, compareEntities, destructiveAskResponse,
+  meetingsCount, exactRecordLookup, compareEntities, destructiveAskResponse,
   deicticWithoutEntity, contactBrief, rankOpportunities, capabilitiesResult,
 } from "./compute";
 import type { BookData } from "./bookContext";
@@ -36,7 +36,7 @@ function meeting(over: Partial<MeetingRow> = {}): MeetingRow {
     id: `m-${Math.abs(JSON.stringify(over).split("").reduce((s, c) => s + c.charCodeAt(0), 0))}`,
     contact_url: "https://www.linkedin.com/in/jane",
     meeting_no: 1, meeting_stage: "Held", date_agreed: "2026-05-01", date_held: "2026-06-01",
-    sentiment: "Positive", contactInfo: { name: "Jane Doe", organisation: "Acme" },
+    sentiment: "Positive", contactInfo: { name: "Jane Doe", organisation: "Acme", seniority: "", function: "", sector_group: "", phone: "" },
     ...over,
   } as unknown as MeetingRow;
 }
@@ -62,8 +62,8 @@ const COLD2 = contact({ first: "Thomas", last: "Hunt", organisation: "ExxonMobil
 const D = book({
   contacts: [KAREN, DANIEL, COLD1, COLD2],
   meetingRows: [
-    meeting({ contact_url: KAREN.url, contactInfo: { name: "Karen OConnor", organisation: "ExxonMobil" }, date_held: "2026-06-04", sentiment: "Neutral" }),
-    meeting({ contact_url: DANIEL.url, contactInfo: { name: "Daniel Garcia", organisation: "Confluent" }, date_held: "2026-06-30", sentiment: "Neutral" }),
+    meeting({ contact_url: KAREN.url, contactInfo: { name: "Karen OConnor", organisation: "ExxonMobil", seniority: "", function: "", sector_group: "", phone: "" }, date_held: "2026-06-04", sentiment: "Neutral" }),
+    meeting({ contact_url: DANIEL.url, contactInfo: { name: "Daniel Garcia", organisation: "Confluent", seniority: "", function: "", sector_group: "", phone: "" }, date_held: "2026-06-30", sentiment: "Neutral" }),
   ],
   opps: [
     opp({ organisation: "KPMG", opportunity_name: "KPMG — Strategy engagement", current_step: "proposal_delivery", est_value: 75_000, contact_url: "https://www.linkedin.com/in/tom-kpmg", id: "o-kpmg" }),
@@ -129,7 +129,7 @@ describe("Gate-0 #14: opps-without-meeting semantics", () => {
     expect(r.intro).not.toMatch(/good news/i);
   });
   it("a booked next meeting removes the opp from the list", () => {
-    const withBooked = book({ ...D, meetingRows: [...D.meetingRows, meeting({ contact_url: "https://www.linkedin.com/in/g1", contactInfo: { name: "G One", organisation: "Google" }, meeting_stage: "Scheduled", date_held: undefined, date_scheduled: "2026-08-01" } as Partial<MeetingRow>)] });
+    const withBooked = book({ ...D, meetingRows: [...D.meetingRows, meeting({ contact_url: "https://www.linkedin.com/in/g1", contactInfo: { name: "G One", organisation: "Google", seniority: "", function: "", sector_group: "", phone: "" }, meeting_stage: "Scheduled", date_held: undefined, date_scheduled: "2026-08-01" } as Partial<MeetingRow>)] });
     const r = openOppsWithoutMeeting(withBooked, TODAY);
     expect(r.intro).toMatch(/1 of 2 open/);
   });
@@ -143,7 +143,7 @@ describe("Gate-0 #18: opp AND meeting join", () => {
     expect(r!.intro).toMatch(/none of your 2 open/i);
   });
   it("finds the join when a real overlap exists", () => {
-    const joined = book({ ...D, meetingRows: [...D.meetingRows, meeting({ contact_url: "https://www.linkedin.com/in/g1", contactInfo: { name: "G One", organisation: "Google" }, date_held: "2026-07-10" })] });
+    const joined = book({ ...D, meetingRows: [...D.meetingRows, meeting({ contact_url: "https://www.linkedin.com/in/g1", contactInfo: { name: "G One", organisation: "Google", seniority: "", function: "", sector_group: "", phone: "" }, date_held: "2026-07-10" })] });
     const r = oppsWithRecentMeeting(joined, TODAY, "meeting in the last month");
     expect(r.intro).toMatch(/1 of 2 open/);
     expect(r.rows[0].cells[0]).toMatch(/Operations engagement/);
@@ -272,5 +272,70 @@ describe("Gate-0 #32: rank slices are not counts", () => {
     const many = book({ ...D, opps: Array.from({ length: 14 }, (_, i) => opp({ organisation: `Org${i}`, opportunity_name: `Org${i} — Deal`, est_value: (i + 1) * 10_000, id: `o-${i}`, contact_url: `https://x/${i}` })) });
     const r = rankOpportunities(many, "value");
     expect(r.intro).toMatch(/top 10 of 14/);
+  });
+});
+
+// ── PHASE B: action-extraction hardening ─────────────────────────────────────────────────────────
+import { SPECS, extractSubjectSpan, relativeDate, type ActionCtx } from "./actions/actionSpecs";
+
+const MARY = contact({ first: "Mary", last: "Andersson", organisation: "ExxonMobil", met: true, url: "https://www.linkedin.com/in/mary-a" });
+const TRAP = contact({ first: "Lars", last: "Berg", organisation: "Andersson & Partners", url: "https://www.linkedin.com/in/lars-b" });
+const actionBook = book({ contacts: [MARY, TRAP], opps: [
+  opp({ organisation: "KPMG", opportunity_name: "KPMG — Strategy engagement", current_step: "proposal_delivery", est_value: 75_000, id: "o-kpmg2", contact_url: "https://x/k" }),
+  opp({ organisation: "ExxonMobil", opportunity_name: "Website Rebuild", current_step: "meeting", est_value: 25_000, id: "o-web", contact_url: MARY.url }),
+] });
+const actx = (over: Partial<ActionCtx>): ActionCtx => ({
+  op: "create", text: "", today: TODAY, contacts: actionBook.contacts, meetingRows: actionBook.meetingRows,
+  opps: actionBook.opps, sows: actionBook.sows, skipModel: true, ...over,
+});
+
+describe("Gate-0 #15: relative meeting dates, local-calendar-safe", () => {
+  it("parses yesterday / N days ago / last weekday", () => {
+    expect(relativeDate(TODAY, "log a meeting for yesterday")).toBe("2026-07-22");
+    expect(relativeDate(TODAY, "we met 3 days ago")).toBe("2026-07-20");
+    expect(relativeDate(TODAY, "met them last tuesday")).toBe("2026-07-21"); // 23rd is a Thursday
+    expect(relativeDate(TODAY, "no date words here")).toBe("");
+  });
+  it("meeting extract uses the relative date, not today", async () => {
+    const v = await SPECS.meeting.extract(actx({ subjectUrl: MARY.url, text: "Log a meeting with Mary Andersson for yesterday, we discussed the Q3 renewal." }));
+    expect(v.date_held).toBe("2026-07-22");
+  });
+});
+
+describe("Gate-0 #22: deterministic subject span", () => {
+  it("note bodies never reach the name matcher", () => {
+    expect(extractSubjectSpan("Add a note to Karen OConnor: she's moving to Berlin in September")).toBe("Karen OConnor");
+    expect(extractSubjectSpan("Add a note to Karen OConnor that she is moving to Berlin in September")).toBe("Karen OConnor");
+  });
+  it("schedule words are trimmed off the span", () => {
+    expect(extractSubjectSpan("Log a meeting with Mary Andersson for yesterday, we discussed the Q3 renewal.")).toBe("Mary Andersson");
+  });
+  it("a pronoun span survives for the carry logic", () => {
+    expect(extractSubjectSpan("Create an opportunity for them for £15k")).toBe("them");
+  });
+});
+
+describe("Gate-0 #34/#16-item: org hygiene on opportunity extraction", () => {
+  it("a resolved subject's employer beats a surname-matched firm", async () => {
+    const v = await SPECS.opportunity.extract(actx({ subjectUrl: MARY.url, text: "Create an opportunity: Mary Andersson, website rebuild, £25k." }));
+    expect(v.organisation).toBe("ExxonMobil"); // NOT "Andersson & Partners"
+    expect(v.primary_contact).toBe("Mary Andersson");
+    expect(v.est_value).toBe("25000");
+  });
+  it("a bare first name never becomes the organisation", async () => {
+    const v = await SPECS.opportunity.extract(actx({ text: "Create an opportunity for Daniel for £10k" }));
+    expect(v.organisation || "").not.toBe("Daniel");
+  });
+});
+
+describe("Gate-0 #38: compound won-and-log money never overwrites est_value", () => {
+  it("'mark as won and log £120k' keeps the existing estimate", async () => {
+    const v = await SPECS.opportunity.extract(actx({ op: "update", targetId: "o-kpmg2", text: "Mark the KPMG Strategy engagement as won and log £120k" }));
+    expect(v.est_value).toBe("75000");
+    expect(v.outcome).toBe("Won");
+  });
+  it("an explicit value-framed update still applies ('to £30k')", async () => {
+    const v = await SPECS.opportunity.extract(actx({ op: "update", targetId: "o-web", text: "Update the Website Rebuild opportunity to £30k" }));
+    expect(v.est_value).toBe("30000");
   });
 });

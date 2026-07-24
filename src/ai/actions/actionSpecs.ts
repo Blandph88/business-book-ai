@@ -59,10 +59,31 @@ export type EntitySpec = {
 
 // ── helpers ────────────────────────────────────────────────────────────────────────────────────
 const uuid = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.round(Math.random() * 1e9)}`);
+// UTC-safe date arithmetic (Gate-0 #15 family): the old local-parse → toISOString round-trip shifted a day
+// for any user in a positive-UTC-offset timezone (local midnight serialises to the PREVIOUS day's UTC date).
 function addDays(iso: string, n: number): string {
-  const d = new Date(`${iso}T00:00:00`);
-  d.setDate(d.getDate() + n);
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+// Deterministic RELATIVE meeting date (Gate-0 #15): "yesterday"/"N days ago"/"last Tuesday" were never
+// parsed — date_held was hardcoded to today, so the single most common logging phrase silently mis-dated
+// the record. Computed from the `today` string in the USER'S local calendar (todayISO is local).
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+export function relativeDate(today: string, text: string): string {
+  const t = text.toLowerCase();
+  if (/\bday before yesterday\b/.test(t)) return addDays(today, -2);
+  if (/\byesterday\b/.test(t)) return addDays(today, -1);
+  if (/\btoday\b|\bthis morning\b|\bthis afternoon\b|\bearlier today\b|\bjust now\b/.test(t)) return today;
+  const ago = t.match(/\b(\d+)\s*days?\s+ago\b/); if (ago) return addDays(today, -Number(ago[1]));
+  const wk = t.match(/\blast\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+  if (wk) {
+    const target = WEEKDAYS.indexOf(wk[1]);
+    const todayDow = new Date(`${today}T00:00:00Z`).getUTCDay();
+    let back = todayDow - target; if (back <= 0) back += 7;
+    return addDays(today, -back);
+  }
+  return "";
 }
 const MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 // Deterministic "in/by/next <month>" → the 1st of that month's NEXT future occurrence. The model's
@@ -191,20 +212,50 @@ export function matchOpportunity(query: string, opps: Opportunity[]): Opportunit
 }
 // Pull the ORGANISATION named in a command, for prefill. Prefers a KNOWN org (distinctive ≥4-char token),
 // else captures a proper noun after at/with/for/from ("an opportunity at Microsoft worth £200k" → "Microsoft").
+// PERSON-TOKEN GUARD (Gate-0 #16-item): tokens that belong to a person named in the command must never
+// enter the org matcher — "Mary Andersson" used to prefill the unrelated firm "Andersson & Partners", and
+// "for Daniel" used to become organisation="Daniel". Person names resolve to their EMPLOYER instead.
 function extractOrg(text: string, ctx: ActionCtx): string {
   const t = ` ${text.toLowerCase()} `;
+  // Tokens belonging to any contact name that appears in the text — excluded from org matching.
+  const personToks = new Set<string>();
+  for (const c of ctx.contacts) {
+    const full = `${c.first} ${c.last}`.trim().toLowerCase();
+    if (full.length >= 5 && t.includes(` ${full}`)) for (const w of full.split(/[^a-z0-9]+/)) if (w.length >= 3) personToks.add(w);
+  }
   const known = new Set<string>();
   for (const c of ctx.contacts) if (c.organisation) known.add(c.organisation);
   for (const o of ctx.opps) if (o.organisation) known.add(o.organisation);
   let best = "";
   for (const org of known) {
-    const toks = org.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
+    const toks = org.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !personToks.has(w));
     if (toks.some((w) => t.includes(` ${w} `) || t.includes(` ${w},`) || t.includes(` ${w}.`))) { if (org.length > best.length) best = org; }
   }
   if (best) return best;
   const m = text.match(/\b(?:at|with|for|from)\s+([A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,3})/);
-  if (m) return m[1].replace(/\s+(worth|valued|deal|opportunity|on|about|re)\b.*$/i, "").trim();
+  if (m) {
+    const cand = m[1].replace(/\s+(worth|valued|deal|opportunity|on|about|re)\b.*$/i, "").trim();
+    // A captured "org" that is actually a PERSON is never a company: (a) it matches a contact's full or
+    // first name; (b) it IS the command's subject span ("…for Daniel…" — Daniel is who the deal is FOR,
+    // not the client org, whether or not he's in the book yet).
+    const cl = cand.toLowerCase();
+    const isPerson = ctx.contacts.some((c) => `${c.first} ${c.last}`.trim().toLowerCase() === cl || c.first.toLowerCase() === cl)
+      || extractSubjectSpan(text).toLowerCase() === cl;
+    if (!isPerson) return cand;
+  }
   return "";
+}
+// Deterministic SUBJECT span for "…with/to/for <NAME>" commands (Gate-0 #22): the name lives in the command
+// clause BEFORE any delimiter — the body of a note must never reach the name matcher ("…moving to Berlin"
+// used to capture "Berlin" and score prefix junk). Returns "" when no span parses (caller falls back).
+export function extractSubjectSpan(text: string): string {
+  const head = text.split(/[:;–—]|(?:\s-\s)|,/)[0];
+  const m = head.match(/\b(?:with|to|for|about|on|re)\s+(.+)$/i);
+  if (!m) return "";
+  return m[1]
+    .replace(/\s+(?:that|who|she|he|they|it|about|regarding|re|yesterday|today|tomorrow|last|next|this|worth|for|at|on)\b[\s\S]*$/i, "")
+    .trim()
+    .replace(/[.,!?]+$/, "");
 }
 
 // ── MEETING ──────────────────────────────────────────────────────────────────────────────────
@@ -256,18 +307,18 @@ const meetingSpec: EntitySpec = {
     // Notes default to any REAL content the user typed (the bare "log a meeting with X" command is stripped,
     // not echoed into the field) — they'll usually fill this from notes/a transcript.
     const v: Record<string, string> = { meeting_stage: future ? "Scheduled" : "Held", notes: stripMeetingCommand(ctx.text) };
-    if (!future) v.date_held = ctx.today;
+    if (!future) v.date_held = relativeDate(ctx.today, ctx.text) || ctx.today;
     if (ctx.skipModel) return v; // deterministic-only (on-device, short command) — open the form fast
     try {
       if (ctx.text.length > 600) {
         const ex = await aiJson<TranscriptExtract>(transcriptPrompt(ctx.text));
         v.purpose = ex.purpose || ""; v.notes = ex.summary || stripMeetingCommand(ctx.text); v.sentiment = norm(ex.sentiment, SENTIMENT);
-        v.actions_mine = notACommand(ex.actions_mine); v.actions_theirs = notACommand(ex.actions_theirs);
+        v.actions_mine = groundedIn(notACommand(ex.actions_mine), ctx.text); v.actions_theirs = groundedIn(notACommand(ex.actions_theirs), ctx.text);
         v.followup = ex.followup || ""; v.opportunity_spotted = ex.opportunity_spotted === "Yes" ? "Yes" : "No";
         if (ex.followup_days > 0) v.followup_date = addDays(ctx.today, ex.followup_days);
       } else {
         const ex = await aiJson<MeetingExtract>(summarizeMeetingPrompt(ctx.text));
-        v.actions_mine = notACommand(ex.actions_mine); v.actions_theirs = notACommand(ex.actions_theirs);
+        v.actions_mine = groundedIn(notACommand(ex.actions_mine), ctx.text); v.actions_theirs = groundedIn(notACommand(ex.actions_theirs), ctx.text);
         v.followup = ex.followup || ""; v.sentiment = norm(ex.sentiment, SENTIMENT);
         v.opportunity_spotted = ex.opportunity_spotted === "Yes" ? "Yes" : "No";
         if (ex.followup_days > 0) v.followup_date = addDays(ctx.today, ex.followup_days);
@@ -451,7 +502,14 @@ const opportunitySpec: EntitySpec = {
       if (existing.est_value != null) v.est_value = String(existing.est_value);
       if (existing.description) v.description = existing.description;
     } else {
-      const org = extractOrg(ctx.text, ctx); if (org) v.organisation = org;
+      // A RESOLVED subject contact is the authority (Gate-0 #16/#29): primary contact = them, organisation
+      // DEFAULTS to their employer — never a fuzzy org match against their own surname.
+      const subject = ctx.subjectUrl ? ctx.contacts.find((c) => c.url === ctx.subjectUrl) : undefined;
+      if (subject) {
+        v.primary_contact = `${subject.first} ${subject.last}`.trim();
+        if (subject.organisation) v.organisation = subject.organisation;
+      }
+      if (!v.organisation) { const org = extractOrg(ctx.text, ctx); if (org) v.organisation = org; }
     }
     // Won/Lost intent → set the VISIBLE Outcome (update only) so the user sees + can change it before saving.
     // "won/signed/landed" also jumps the stage to closed-won; "lost/dead/declined" flags the deal lost.
@@ -465,18 +523,23 @@ const opportunitySpec: EntitySpec = {
     }
     // Don't hijack est_value from a REVENUE figure ("mark it won and log the £120k of revenue") — revenue is
     // out of scope for the copilot (it's recorded in the Revenue tab), and grabbing it here silently inflates
-    // the opportunity's estimated value and every pipeline total derived from it. When the money sits in a
-    // revenue/recognised/invoiced clause, leave est_value untouched (the form still opens for a manual edit).
-    const money = /\b(revenue|recognis|recogniz|invoiced?|billed?|fees?\b)/i.test(ctx.text) ? 0 : parseMoney(ctx.text);
-    if (money) v.est_value = String(money);
+    // the opportunity's estimated value and every pipeline total derived from it. Two guards (Gate-0 #38):
+    // (a) any revenue-vocabulary clause suppresses the grab entirely; (b) on an UPDATE, money only touches
+    // est_value when the text EXPLICITLY frames it as the deal's value ("worth/value/to £X") — a compound
+    // "mark it won and log £120k" must never overwrite the existing estimate.
+    const money = /\b(revenue|recognis|recogniz|invoiced?|billed?|fees?)\b/i.test(ctx.text) ? 0 : parseMoney(ctx.text);
+    const valueFramed = /\b(?:worth|valued?|est\.?(?:imate[d]?)?|to)\s*(?:of\s*|at\s*)?[£$€]?\s*\d/i.test(ctx.text);
+    if (money && (!existing || valueFramed)) v.est_value = String(money);
     if (ctx.skipModel) return v; // deterministic-only (on-device): the form opens pre-filled, fast
     try {
       const ex = await aiJson<OppFill>(fillOpportunityPrompt(ctx.text, SERVICE_LINE));
       const name = groundedIn(notACommand(ex.opportunity_name), ctx.text); if (name && !existing) v.opportunity_name = name;
       const org = groundedIn(ex.organisation, ctx.text); if (org && !v.organisation) v.organisation = org;
-      if (ex.primary_contact && !v.primary_contact) v.primary_contact = ex.primary_contact;
+      // GROUNDING extended (Gate-0 audit): a model-invented primary contact or value must never prefill —
+      // the contact must appear in the text, and the number must equal what the text actually says.
+      { const pc = groundedIn(ex.primary_contact, ctx.text); if (pc && !v.primary_contact) v.primary_contact = pc; }
       if (!existing) { const sl = norm(ex.service_line, SERVICE_LINE); if (sl) v.service_line = sl; }
-      if (!v.est_value && ex.est_value) v.est_value = String(ex.est_value);
+      if (!v.est_value && ex.est_value && Number(ex.est_value) === parseMoney(ctx.text)) v.est_value = String(ex.est_value);
       const desc = notACommand(ex.description); if (desc && !v.description) v.description = desc;
     } catch { /* keep the deterministic prefill */ }
     return v;
@@ -514,7 +577,16 @@ const opportunitySpec: EntitySpec = {
         lost,
       };
       saveOpportunity(updated);
-      const tail = lost ? "marked lost" : outcome === "Won" ? "marked won" : `now at ${finalStep.replace(/_/g, " ")}`;
+      // DIFF-BASED summary (Gate-0 #35 toast bug): name what actually CHANGED — the old template narrated
+      // the (unchanged) stage when only the value moved ("now at meeting" after a £25k→£30k edit).
+      const fmtVal = (n?: number) => (n == null ? "—" : n >= 1_000_000 ? `£${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}m` : n >= 1000 ? `£${Math.round(n / 1000)}k` : `£${n}`);
+      const changes: string[] = [];
+      if (lost && !before.lost) changes.push("marked lost");
+      else if (outcome === "Won" && !(STEP_IDS.indexOf(before.current_step || "") >= WON_IDX && !before.lost)) changes.push("marked won");
+      if (before.est_value !== updated.est_value) changes.push(`est. value → ${fmtVal(updated.est_value)}`);
+      if (before.current_step !== finalStep && !changes.some((c) => c.startsWith("marked"))) changes.push(`now at ${finalStep.replace(/_/g, " ")}`);
+      if (before.organisation !== updated.organisation) changes.push(`organisation → ${updated.organisation}`);
+      const tail = changes.length ? changes.join(", ") : "updated";
       return { id: existing.id, summary: `Updated “${updated.opportunity_name}” — ${tail}.`, undo: () => saveOpportunity(before) };
     }
     const id = `opp:${uuid()}`;
