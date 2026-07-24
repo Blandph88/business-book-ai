@@ -362,3 +362,20 @@ describe("Gate-0 #47/#48: tier-aware meta answers", () => {
     expect(r!.intro).toMatch(/hosted demo/i);
   });
 });
+
+// ── PHASE F: router context is O(1) in thread length (the long-thread degradation fix) ───────────
+import { routerPrompt, companionPrompt } from "./prompts";
+
+describe("Gate-0 #17: router prompt bounded regardless of thread length", () => {
+  const hugeTable = Array.from({ length: 40 }, (_, i) => `| Row ${i} | Company ${i} | Stage | £${i}00k |`).join("\n");
+  const longHistory = Array.from({ length: 60 }, (_, i) => ({ role: (i % 2 ? "ai" : "you") as "ai" | "you", text: i % 2 ? `Here are your results:\n${hugeTable}` : `question number ${i} about my pipeline and meetings` }));
+  it("routerPrompt history digest is capped and table-stripped", () => {
+    const p = routerPrompt("which deals are at risk?", longHistory);
+    expect(p.prompt.length).toBeLessThan(1600); // message + bounded digest — not 60 turns of tables
+    expect(p.prompt).not.toMatch(/\| Row 3 \|/); // table rows stripped
+  });
+  it("companionPrompt history is bounded too", () => {
+    const p = companionPrompt("how are you?", longHistory, "small");
+    expect(p.prompt.length).toBeLessThan(4000);
+  });
+});
