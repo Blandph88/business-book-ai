@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeForQuery, computeExact, findContacts, openOppsWithoutMeeting, oppsWithRecentMeeting,
   meetingsCount, exactRecordLookup, compareEntities, destructiveAskResponse,
-  deicticWithoutEntity, contactBrief, rankOpportunities, capabilitiesResult,
+  deicticWithoutEntity, contactBrief, rankOpportunities, capabilitiesResult, stageBreakdown,
 } from "./compute";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
@@ -377,5 +377,39 @@ describe("Gate-0 #17: router prompt bounded regardless of thread length", () => 
   it("companionPrompt history is bounded too", () => {
     const p = companionPrompt("how are you?", longHistory, "small");
     expect(p.prompt.length).toBeLessThan(4000);
+  });
+});
+
+// ── RETEST #2: "by stage" is a real dimension — never silently swapped for sector ────────────────
+describe("Retest #2: breakdown dimensions are applied or surrendered, never swapped", () => {
+  const STAGED = book({ contacts: [
+    contact({ url: "https://l/1", messaged: true, responded: true, two_way: true, met: true }),
+    contact({ url: "https://l/2", messaged: true, responded: true, two_way: true }),
+    contact({ url: "https://l/3", messaged: true, responded: true }),
+    contact({ url: "https://l/4", messaged: true }),
+    contact({ url: "https://l/5" }),
+  ] });
+  it("headcount by stage → the funnel-stage table (not sector)", () => {
+    const r = computeForQuery("Give me a headcount of my contacts by stage.", STAGED, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/funnel stage/i);
+    expect(r!.rows.map((x) => x.cells[0])).toEqual(["Met", "Two-way conversation", "Responded", "Messaged", "Not yet messaged"]);
+    expect(r!.rows.map((x) => x.cells[1])).toEqual(["1", "1", "1", "1", "1"]);
+  });
+  it("stageBreakdown classifies by FURTHEST stage (mutually exclusive)", () => {
+    const r = stageBreakdown(STAGED);
+    const total = r.rows.reduce((s, x) => s + Number(x.cells[1]), 0);
+    expect(total).toBe(5); // every contact in exactly one bucket
+  });
+  it("network by industry still → sector breakdown", () => {
+    const r = computeForQuery("Show my network broken down by industry.", STAGED, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/by sector/i);
+  });
+  it("unknown dimension → honest surrender listing what IS supported", () => {
+    const r = computeForQuery("Give me my contacts broken down by shoe size.", STAGED, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/sector, function, seniority, or funnel stage/i);
+    expect(r!.rows.length).toBe(0);
   });
 });

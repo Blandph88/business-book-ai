@@ -843,6 +843,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // on stall/error the table delivers alone with an honest note (and a partial narration ≥120 chars is
     // salvaged rather than binned).
     let acc = "";
+    let lastProgress = Date.now(); // stall detection: reset on every token — silence, not duration, is the failure signal
     const NOTE = "_Couldn't add commentary this time — the model stalled. The numbers above are complete._";
     const deliverFallback = () => {
       if (chatIdRef.current !== id) return;
@@ -857,15 +858,26 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     };
     try {
       if (chatIdRef.current !== id) return;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const bound = new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error("interpret-timeout")), 60_000); });
+      // STALL bound, not a total-time bound (Gate-0 retest feedback): a long narration that is
+      // actively streaming is healthy and may brew as long as it likes — but 25s with NO new token
+      // means the model is wedged, and the table should deliver rather than wait. First token gets a
+      // longer grace (60s) because local backends can be slow to start (cold prompt-processing).
+      let timer: ReturnType<typeof setInterval> | undefined;
+      const bound = new Promise<never>((_, rej) => {
+        const started = Date.now();
+        timer = setInterval(() => {
+          const silence = Date.now() - lastProgress;
+          const grace = acc ? 25_000 : 60_000; // pre-first-token vs mid-stream stall
+          if (silence > grace) rej(new Error(`interpret-stall (${acc ? "mid-stream" : "no first token"}, ${Math.round((Date.now() - started) / 1000)}s in)`));
+        }, 1_000);
+      });
       let streamed = "";
       try {
         streamed = await Promise.race([
-          aiPromptStream(interpretResultPrompt(question, md), (full) => { acc = full; }),
+          aiPromptStream(interpretResultPrompt(question, md), (full) => { acc = full; lastProgress = Date.now(); }),
           bound,
         ]);
-      } finally { if (timer) clearTimeout(timer); }
+      } finally { if (timer) clearInterval(timer); }
       const finalText = (streamed || acc).trim();
       if (chatIdRef.current !== id) return;
       if (!finalText) { setChat([...base, tableTurn]); persistTo(id, [...persisted, tablePersist]); return; }
@@ -873,7 +885,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const narr: ChatTurn = { role: "ai", text: finalText };
       persistTo(id, position === "above" ? [...persisted, narr, tablePersist] : [...persisted, tablePersist, narr]);
     } catch { deliverFallback(); }
-    finally { setAsking(false); setStreaming(false); }
+    finally { setAsking(false); setStreaming(false); markDone(id); }
   }
 
   // The COMPANION stream: for a personal / general / advice turn the topic-gate routed AWAY from the book.
@@ -1015,12 +1027,16 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // a narration timeout/failure still delivers the table with a quiet note (the numbers never wait on
       // a broken model). Turns with no narration render immediately as before.
       persistTo(id, [...persisted, tablePersist]);
-      markDone(id);
       if (willInterpret) {
+        // NOT markDone yet — the chat stays busy until the COMPOSED answer lands. Marking done here
+        // let the inflight listener pull the persisted table into view mid-composition, so the
+        // narration then landed ON TOP and shoved the table down (the exact reflow the composed
+        // delivery exists to prevent). interpretCompute marks done in its finally.
         if (chatIdRef.current === id) setChat(base); // question + staged spinner; the composed answer lands once
         setStagedThinking(true);
         void interpretCompute(text, md, id, base, tableTurn, persisted, tablePersist, "above").finally(() => setStagedThinking(false));
       } else {
+        markDone(id);
         if (chatIdRef.current === id) setChat([...base, tableTurn]);
         setAsking(false);
         if (willEnrich) void enrichCompany(computed.enrich!.name, id, [...base, tableTurn], [...persisted, tablePersist]);

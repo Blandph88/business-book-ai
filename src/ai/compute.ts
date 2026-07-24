@@ -686,6 +686,23 @@ export function funnelBreakdown(d: BookData, dim: "sector_group" | "function" | 
   };
 }
 
+// 8c. stageBreakdown — the network by FUNNEL STAGE (furthest stage reached, mutually exclusive).
+// Exists so "contacts by stage" is a real dimension — before this, the router approximated "stage"
+// to the nearest tool (sector) and silently swapped the user's dimension (Gate-0 retest #2).
+export function stageBreakdown(d: BookData): ComputeResult {
+  const stageOf = (c: BookData["contacts"][number]): string =>
+    c.met ? "Met" : c.two_way ? "Two-way conversation" : c.responded ? "Responded" : c.messaged ? "Messaged" : "Not yet messaged";
+  const ORDER = ["Met", "Two-way conversation", "Responded", "Messaged", "Not yet messaged"];
+  const counts = new Map<string, number>();
+  for (const c of d.contacts) { const k = stageOf(c); counts.set(k, (counts.get(k) || 0) + 1); }
+  const total = d.contacts.length;
+  return {
+    intro: `Your network by funnel stage (furthest stage reached, ${total.toLocaleString()} contacts):`,
+    columns: ["Stage", "Contacts", "Share"],
+    rows: ORDER.filter((k) => counts.get(k)).map((k) => ({ cells: [k, String(counts.get(k)), `${Math.round(((counts.get(k) || 0) / total) * 100)}%`] })),
+  };
+}
+
 // 9 + 11. resolveContact + contactBrief — one person's full picture.
 // Fold diacritics + case so "José Fernández" resolves to a stored "Jose Fernandez" (consultants type both,
 // and whether the model echoes or strips the accent otherwise decides the match — a cross-tier coin-flip).
@@ -1016,8 +1033,25 @@ export function oppsCount(d: BookData): ComputeResult {
     columns: [], rows: [], more: { count: open.length, tab: "opportunities", intent: {} },
   };
 }
+// Dimension-aware breakdown routing. The user's dimension is APPLIED or the route SURRENDERS with
+// the supported list — it is never silently swapped for sector (Gate-0 retest #2: "by stage" → sector).
+export function breakdownRoute(d: BookData, t: string): ComputeResult | null {
+  const wantsBreakdown = /\bbreakdown by\b|\bbroken down by\b|\bbreak(?:ing)? (?:it |them |my [a-z]+ )?down by\b|\bweighted toward\b|\bacross sectors\b|\bwhich sector\b|\bwhat sector\b|\bby (?:funnel )?stage\b|\bby sector\b|\bby industry\b|\bby vertical\b|\bby function\b|\bby department\b|\bby seniority\b|\bby level\b|\bby role\b|\bper stage\b|\bat each stage\b|\beach stage\b/;
+  if (!wantsBreakdown.test(t)) return null;
+  if (/\b(?:funnel |pipeline )?stages?\b|\bfunnel\b/.test(t)) return stageBreakdown(d);
+  if (/\bsector\b|\bindustry\b|\bvertical\b|\bweighted toward\b|\bacross sectors\b/.test(t)) return funnelBreakdown(d, "sector_group");
+  if (/\bseniority\b|\blevel\b/.test(t)) return funnelBreakdown(d, "seniority");
+  if (/\bfunction\b|\brole\b|\bdepartment\b/.test(t)) return funnelBreakdown(d, "function");
+  // A breakdown was asked for along an unsupported dimension — surrender honestly, never approximate.
+  const m = t.match(/\b(?:breakdown by|broken down by|down by|by)\s+([a-z][a-z ]{2,24}?)(?:[?.,]|$)/);
+  return {
+    intro: `I can break your network down by sector, function, seniority, or funnel stage — ${m ? `"${m[1].trim()}" isn't a dimension I hold data for.` : "say which and I'll run it."}`,
+    columns: [], rows: [],
+  };
+}
+
 // Is this a COUNT-shaped ask (the number is the answer)?
-const COUNT_SHAPE = /^\s*(?:so\s+|and\s+|ok\s+)?how many\b|\bnumber of\b|\bcount of\b|\bwhat'?s the (?:total )?(?:number|count)\b/;
+const COUNT_SHAPE = /^\s*(?:so\s+|and\s+|ok\s+)?how many\b|\bnumber of\b|\bcount of\b|\bhead\s?count\b|\bwhat'?s the (?:total )?(?:number|count)\b/;
 
 // EXACT RECORD-NAME MATCH WINS (Gate-0 #38-verify): a query containing a record's actual name must hit
 // THAT record, regardless of store vocabulary ("the KPMG Strategy engagement" is an OPPORTUNITY even
@@ -1139,6 +1173,7 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
   // COUNT-shaped asks → scalar answers (the number IS the answer — never a 40-row dump).
   if (COUNT_SHAPE.test(t)) {
     const negated = /\b(never|haven'?t|hasn'?t|without|not)\b/.test(t);
+    if (/\bby (?:funnel )?stage\b|\bper stage\b|\bat each stage\b|\beach stage\b/.test(t)) return stageBreakdown(d);
     if (/\bmeetings?\b/.test(t) && !/\bopportunit|\bdeals?\b/.test(t) && !negated) return meetingsCount(d, today, t);
     if (/\b(contacts?|people|connections?|network)\b/.test(t) && !/\bopportunit|\bdeals?\b|\bmeeting|\bwarm|\bcold/.test(t) && !negated) return contactsCount(d);
     if ((/\bopportunit/.test(t) || /\bdeals?\b/.test(t)) && !/\bmeeting/.test(t) && !negated) return oppsCount(d);
@@ -1201,6 +1236,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // COUNT-shaped asks → scalar answers, never a row dump (Gate-0 #1/#5).
   if (COUNT_SHAPE.test(t)) {
     const negated = /\b(never|haven'?t|hasn'?t|without|not)\b/.test(t);
+    if (/\bby (?:funnel )?stage\b|\bper stage\b|\bat each stage\b|\beach stage\b/.test(t)) return stageBreakdown(d);
     if (/\bmeetings?\b/.test(t) && !/\bopportunit|\bdeals?\b/.test(t) && !negated) return meetingsCount(d, today, t);
     if (/\b(contacts?|people|connections?|network)\b/.test(t) && !/\bopportunit|\bdeals?\b|\bmeeting|\bwarm|\bcold|\bat\s+[a-z]/.test(t) && !negated) return contactsCount(d);
     if ((/\bopportunit/.test(t) || /\bdeals?\b/.test(t)) && !/\bmeeting/.test(t) && !negated) return oppsCount(d);
@@ -1323,8 +1359,10 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
       if (agg) return agg;
     }
   }
-  if (/\bweighted toward|breakdown by|broken down by|by sector|by industry|which sector|what sector|across sectors/.test(t)) return funnelBreakdown(d, "sector_group");
-  if (/\bby function\b|\bby seniority\b|\bby role\b/.test(t)) return funnelBreakdown(d, /seniority/.test(t) ? "seniority" : "function");
+  {
+    const bd = breakdownRoute(d, t);
+    if (bd) return bd;
+  }
 
   // ── Contacts by funnel filter ───────────────────────────────────────────────────────────────────
   if (/agreed to meet/.test(t) && /(haven'?t|not|yet|still)/.test(t)) return findContacts(d, { stage: "agreed_not_met" });
@@ -1537,7 +1575,11 @@ export function runTool(call: ToolCall, d: BookData, today: string, sourceText =
     case "weeklyFocus": return weeklyFocus(d, today);
     case "owedReplies": return owedReplies(d, today);
     case "latentOpportunities": return latentOpportunities(d);
-    case "funnelBreakdown": return funnelBreakdown(d, str(a.dimension) === "function" ? "function" : str(a.dimension) === "seniority" ? "seniority" : "sector_group");
+    case "funnelBreakdown": {
+      const dim = str(a.dimension);
+      if (dim === "stage" || dim === "funnel") return stageBreakdown(d);
+      return funnelBreakdown(d, dim === "function" ? "function" : dim === "seniority" ? "seniority" : "sector_group");
+    }
     // A pronoun/self name → null, so answer() falls through to the grounded book path (which resolves
     // the thread's actual person) instead of briefing a coincidental substring match.
     case "contactBrief": { const n = named(a.name) || named(a.contact); return n ? contactBrief(d, n, today) : null; }
