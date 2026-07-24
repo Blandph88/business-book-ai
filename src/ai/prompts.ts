@@ -220,8 +220,10 @@ export const CRISIS_RESPONSE =
 export type Capability3 = "small" | "mid" | "high";
 export function companionPrompt(question: string, history: ChatTurn[], level: Capability3, opts: { heavy?: boolean; bookAmbient?: string } = {}): PromptArgs {
   const bookAmbient = opts.bookAmbient || "";
+  // Bounded like the router digest: table markdown stripped, per-turn + total caps, so a long thread can't
+  // crowd a small model's window (same root as the Gate-0 #17 long-thread routing collapse).
   const convo = history.length
-    ? `\n\nConversation so far:\n${history.slice(-8).map((t) => `${t.role === "you" ? "Them" : "You"}: ${t.text}`).join("\n")}`
+    ? `\n\nConversation so far:\n${history.slice(-8).map((t) => `${t.role === "you" ? "Them" : "You"}: ${t.text.replace(/^\|.*$/gm, "").replace(/\s+/g, " ").trim().slice(0, 280)}`).join("\n").slice(0, 1800)}`
     : "";
   // The ONE dimension we hand-tune per tier in prose: how much conviction the direction/challenge carries.
   const direction =
@@ -459,7 +461,7 @@ export const ROUTER_SCHEMA = {
     route: { type: "string", enum: ["tool", "chat", "book", "action", "help"] },
     tool: {
       type: "string",
-      enum: ["findContacts", "findMeetings", "findOpportunities", "findContracts", "rankContacts", "rankOpportunities", "pipelineStats", "pipelineAggregate", "revenueAggregate", "funnelBreakdown", "contactBrief", "accountSummary", "weeklyFocus", "owedReplies", "latentOpportunities", "oppsWithoutMeeting", "meetingsWithoutOpp", "accountsWithOppAndContacts", "coldAtActiveAccounts", "contactsMetAtLeast", "personalSnapshot"],
+      enum: ["findContacts", "findMeetings", "findOpportunities", "findContracts", "rankContacts", "rankOpportunities", "pipelineStats", "pipelineAggregate", "revenueAggregate", "funnelBreakdown", "contactBrief", "accountSummary", "weeklyFocus", "owedReplies", "latentOpportunities", "oppsWithoutMeeting", "oppsWithRecentMeeting", "meetingsWithoutOpp", "accountsWithOppAndContacts", "coldAtActiveAccounts", "contactsMetAtLeast", "personalSnapshot"],
     },
     args: { type: "object" },
     entity: { type: "string", enum: ["contact", "meeting", "opportunity", "contract"] },
@@ -468,10 +470,19 @@ export const ROUTER_SCHEMA = {
   required: ["route"],
 } as const;
 
+// The router's history digest: FIXED budget regardless of thread length (Gate-0 #17 — an 18-turn thread's
+// raw history, full of persisted table markdown, crowded the router's context on-device until tool
+// selection collapsed into fallback templates). Table rows are stripped (the router needs the SUBJECTS
+// discussed, not the data), each turn is capped, and the whole digest is bounded — so the router prompt is
+// O(1) in conversation length.
+function routerHistoryDigest(history: ChatTurn[]): string {
+  if (!history.length) return "";
+  const strip = (s: string) => s.replace(/^\|.*$/gm, "").replace(/\s+/g, " ").trim();
+  const lines = history.slice(-4).map((h) => `${h.role === "you" ? "User" : "Assistant"}: ${strip(h.text).slice(0, h.role === "you" ? 220 : 160)}`);
+  return `\n\nRecent conversation (context — resolve "her"/"that deal"/follow-ups against it):\n${lines.join("\n").slice(0, 1000)}`;
+}
 export function routerPrompt(text: string, history: ChatTurn[] = []): PromptArgs {
-  const convo = history.length
-    ? `\n\nRecent conversation (context — resolve "her"/"that deal"/follow-ups against it):\n${history.slice(-4).map((h) => `${h.role === "you" ? "User" : "Assistant"}: ${h.text}`).join("\n")}`
-    : "";
+  const convo = routerHistoryDigest(history);
   return {
     schema: ROUTER_SCHEMA as unknown as Record<string, unknown>,
     system:
@@ -491,7 +502,7 @@ export function routerPrompt(text: string, history: ChatTurn[] = []): PromptArgs
       "ONLY when they're actually giving the details to save. NOT for a QUESTION or capability ask.\n" +
       "1. \"tool\" — the message is a lookup / list / ranking / stat / calculation over their OWN data. Pick the " +
       "single best tool and fill its args. Phrasing is often INDIRECT — map the INTENT, not the keywords:\n" +
-      "   - findContacts {company?, stage?, decisionRole?, sector?, function?} — list people. stage ∈ messaged|responded|two_way|agreed_to_meet|met|agreed_not_met|not_responded. sector (e.g. \"energy\",\"banking\",\"financial services\",\"oil and gas\") lists that sector's people by seniority; function (e.g. \"finance\",\"technology\",\"operations\") lists that job-family. (\"who do I know at EY\"→company; \"if a bank rang who could I put in the room\"→sector:\"financial services\"; \"who runs finance functions\"→function:\"finance\")\n" +
+      "   - findContacts {company?, stage?, decisionRole?, sector?, function?} — list people. stage ∈ messaged|responded|two_way|agreed_to_meet|met|agreed_not_met|not_responded|not_met (not_met = people I've NEVER met — use it for \"who haven't I met\"). sector (e.g. \"energy\",\"banking\",\"financial services\",\"oil and gas\") lists that sector's people by seniority; function (e.g. \"finance\",\"technology\",\"operations\") lists that job-family. (\"who do I know at EY\"→company; \"if a bank rang who could I put in the room\"→sector:\"financial services\"; \"who runs finance functions\"→function:\"finance\")\n" +
       "   - findMeetings {direction?, windowDays?, range?} — direction ∈ past|upcoming; windowDays = number when a window is stated. (\"who've I broken bread with lately\"→past; \"what's landing over the next couple of weeks\"→upcoming,windowDays:14; \"anything on the horizon\"→upcoming)\n" +
       "   - findOpportunities {status?, company?, minValue?, sector?} — list deals. status ∈ Open|Won|Lost. sector filters open deals by the company's sector. (\"open deals over 100000\"; \"any live deals in oil, gas or utilities\"→sector:\"energy\")\n" +
       "   - findContracts {status?, company?, byValue?} — engagements/SoWs; byValue:true ranks by recognised value.\n" +
@@ -500,7 +511,8 @@ export function routerPrompt(text: string, history: ChatTurn[] = []): PromptArgs
       "   - rankOpportunities {by} — by ∈ value|probability|risk. (\"biggest deals\"→value; \"most likely to close\"→probability; \"which am I kidding myself about / at risk / stalling\"→risk)\n" +
       "   - rankContacts {by} — by ∈ warmth|cold. (\"warmest leads / who likes me most\"→warmth; \"who's gone quiet / gone cold / who should I rescue\"→cold)\n" +
       "   - owedReplies {} — people I OWE a reply to. (\"who've I left on read\", \"am I ghosting anyone\", \"who's waiting on me\", \"haven't got back to\")\n" +
-      "   - oppsWithoutMeeting {} — open deals with NO meeting held (anti-join). (\"chasing a deal but haven't sat down with anyone\", \"deals with no meeting\")\n" +
+      "   - oppsWithoutMeeting {} — open deals with NO NEXT meeting booked — the follow-up-debt list (anti-join). (\"deals with no meeting booked\", \"which opportunities have nothing in the diary\", \"what's sitting unattended\")\n" +
+      "   - oppsWithRecentMeeting {window?} — open deals whose client HAS met me inside the window (join). (\"clients with an open opp AND a meeting last month\")\n" +
       "   - meetingsWithoutOpp {} — met contacts with NO opportunity (anti-join). (\"meetings that went nowhere / never turned into anything\")\n" +
       "   - accountsWithOppAndContacts {minContacts?} — orgs with BOTH an open deal AND several contacts (join). (\"accounts where I have both a deal and real relationships / genuine presence\")\n" +
       "   - coldAtActiveAccounts {} — cold contacts at orgs where I ALSO have live work (cross-join). (\"cold contacts at companies I'm already working with\")\n" +

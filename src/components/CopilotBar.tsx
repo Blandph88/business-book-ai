@@ -20,7 +20,7 @@ import { useAiAvailable, aiAvailability, aiPromptStream, aiJson, searchAvailable
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeText, runTool, shouldInterpretResult, privacyResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -981,8 +981,15 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // 26k book showed the cloud router routing "who should I chase", "footprint at X", "who did I speak to",
       // "what's in my diary" all to the companion. computeForQuery DEFERS genuinely nuanced/advice/drafting
       // queries (isReasoningRequest → null) to the LLM router below; the crisis/personal floors already ran.
+      // PRE-PASS SPLIT (the Gate-0 root-cause fix — restores the July design that was never wired):
+      // CAPABLE tiers get ONLY the NARROW exact rail (computeExact — floors, exact record names, counts,
+      // aggregate maths, anti-joins/joins) and then the LLM ROUTER routes everything else — the broad
+      // greedy keyword router no longer short-circuits a capable model's routing. SMALL tiers (WebLLM/
+      // Nano — no LLM router) keep the full keyword router as their router, now with the constraint/
+      // deixis/negation guards. The keyword router remains the error fallback for capable tiers below.
       const prevUserText = [...prior].reverse().find((tn) => tn.role === "you")?.text;
-      const pre = computeForQuery(text, data, today, prevUserText);
+      const preCapable = capabilityLevel(avail.backend, avail.model) !== "small";
+      const pre = preCapable ? computeExact(text, data, today) : computeForQuery(text, data, today, prevUserText);
       if (pre) { renderCompute(pre); return; }
       // DETERMINISTIC ACTION PRE-CHECK: an EXPLICIT record command ("add a contact", "log a meeting with Tom",
       // "create an opportunity") opens the propose→confirm card in code — the chatty LLM router was sending a
