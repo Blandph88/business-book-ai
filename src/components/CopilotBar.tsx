@@ -62,10 +62,17 @@ type RelatedHit =
 // A chat turn as shown in the UI — a persisted you/ai message (with optional related links), or a
 // transient "action" turn carrying a propose→confirm card (not persisted).
 type Chip = { label: string; prompt: string };
-type UITurn = { role: "you" | "ai" | "action"; text: string; related?: RelatedHit[]; action?: ActionCardData; undo?: () => void; chips?: Chip[]; compute?: ComputeResult; genMs?: number; genTok?: number };
+type UITurn = { role: "you" | "ai" | "action"; text: string; related?: RelatedHit[]; action?: ActionCardData; undo?: () => void; chips?: Chip[]; compute?: ComputeResult; genMs?: number; genTok?: number; receipt?: boolean };
 
 // Rough token estimate for the live/after "N tokens" readout (we don't get exact counts mid-stream).
 const approxTokens = (s: string) => Math.max(1, Math.round((s || "").length / 4));
+// Web snippets arrive with raw HTML entities (&#039; &amp;) — decode without touching the DOM (no innerHTML).
+function decodeEntities(s: string): string {
+  return (s || "")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&nbsp;/g, " ");
+}
 
 // First-token stall watchdog. Rejects only if the model produces NO first token within `baseMs` — but
 // while a model DOWNLOAD is actively in progress (first-time WebLLM fetch can take minutes), it keeps
@@ -343,9 +350,10 @@ function serializeForPersist(turns: UITurn[]): StoredTurn[] {
   for (const t of turns) {
     if (t.role === "action") {
       if (t.action?.status === "saved" && t.action.savedSummary) {
-        // A SAVED card collapses to its summary line — its undo is a live function we can't restore.
+        // A SAVED card collapses to a PERMANENT RECEIPT row (audit trail — Gate-0 decision: the ✓ banner
+        // persists in the thread; Undo stays live-toast-only and is deliberately not restorable).
         if (out.length && out[out.length - 1].role === "ai") out.pop();
-        out.push({ role: "ai", text: t.action.savedSummary });
+        out.push({ role: "ai", text: t.action.savedSummary, receipt: true });
       } else if (t.action && t.action.status === "draft") {
         // Persist the DRAFT (unconfirmed) card so it survives leaving + returning to the thread (#28).
         // ActionCardData is fully serializable; the render loop rebuilds an interactive card by index.
@@ -353,7 +361,7 @@ function serializeForPersist(turns: UITurn[]): StoredTurn[] {
       }
       continue;
     }
-    out.push({ role: t.role, text: t.text, ...(t.chips && t.chips.length ? { chips: t.chips } : {}) });
+    out.push({ role: t.role, text: t.text, ...(t.chips && t.chips.length ? { chips: t.chips } : {}), ...(t.compute ? { compute: t.compute } : {}), ...(t.receipt ? { receipt: true } : {}) });
   }
   return out;
 }
@@ -460,16 +468,19 @@ const THINK_VERBS = [
   "Thinking", "Crunching", "Proofing", "Connecting", "Digging", "Scanning", "Weighing",
   "Sharpening", "Mapping", "Synthesising", "Strategising", "Consulting",
 ];
-function ThinkingIndicator({ label, startMs }: { label?: string; startMs?: number }) {
+function ThinkingIndicator({ label, startMs, staged }: { label?: string; startMs?: number; staged?: boolean }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 420);
     return () => clearInterval(t);
   }, []);
   const secs = startMs ? Math.max(0, Math.floor((Date.now() - startMs) / 1000)) : 0;
+  // STAGED mode (composed compute answers — Gate-0 delivery decision): the wait communicates competence by
+  // narrating the real pipeline — the numbers landed instantly, the commentary is being written.
+  const stagedWord = secs < 2 ? "Reading your book" : secs < 4 ? "Computing" : secs >= 30 ? "Still writing" : "Writing";
   // A fixed label (model download / "Working…") shows verbatim; otherwise rotate a quirky verb every ~3s,
   // and settle into "Almost there…" on long waits so it never feels stuck.
-  const word = label ?? `${secs >= 22 ? "Almost there" : THINK_VERBS[Math.floor(tick / 7) % THINK_VERBS.length]}…`;
+  const word = label ?? `${staged ? stagedWord : secs >= 22 ? "Almost there" : THINK_VERBS[Math.floor(tick / 7) % THINK_VERBS.length]}…`;
   return (
     <span className="thinking">
       <span className="thinking-glyph" key={tick % THINK_GLYPHS.length}>{THINK_GLYPHS[tick % THINK_GLYPHS.length]}</span>
@@ -554,6 +565,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const [asking, setAsking] = useState(false);
   const [streaming, setStreaming] = useState(false); // a reply is streaming in token-by-token
   const [actionBusy, setActionBusy] = useState(false);
+  // Composed compute answers hold table+narration and show the staged pipeline indicator meanwhile.
+  const [stagedThinking, setStagedThinking] = useState(false);
   const [genTokens, setGenTokens] = useState(0); // live token estimate shown while a reply streams
   const genStartRef = useRef(0); // ms when the current generation began (for the live secs + "Thought for XXs")
   const wasGenRef = useRef(false); // tracks generating→idle transitions to stamp the finished turn
@@ -694,7 +707,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   function persistTo(id: string, turns: (ChatTurn | StoredTurn)[]) {
     if (!turns.length) return;
     const existing = getChat(id);
-    saveChat({ id, title: titleFromTurns(turns), createdAt: existing?.createdAt ?? Date.now(), updatedAt: Date.now(), turns: turns.map((t) => ({ role: t.role, text: t.text, ...(t.chips && t.chips.length ? { chips: t.chips } : {}), ...("action" in t && t.action ? { action: t.action } : {}) })) });
+    saveChat({ id, title: titleFromTurns(turns), createdAt: existing?.createdAt ?? Date.now(), updatedAt: Date.now(), turns: turns.map((t) => ({ role: t.role, text: t.text, ...(t.chips && t.chips.length ? { chips: t.chips } : {}), ...("action" in t && t.action ? { action: t.action } : {}), ...("compute" in t && t.compute ? { compute: t.compute } : {}), ...("receipt" in t && t.receipt ? { receipt: true } : {}) })) });
     setSaved(listChats());
     onChatsChanged?.();
   }
@@ -763,26 +776,41 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   // looks finished before the narrative lands. Best-effort and non-blocking.
   async function interpretCompute(question: string, md: string, id: string, base: UITurn[], tableTurn: UITurn, persisted: ChatTurn[], tablePersist: ChatTurn, position: "above" | "below") {
     const compose = (narr: string): UITurn[] => position === "above" ? [...base, { role: "ai", text: narr }, tableTurn] : [...base, tableTurn, { role: "ai", text: narr }];
-    let firstTok = true;
+    // COMPOSED delivery: tokens accumulate silently (no partial renders, no reflow — the Gate-0 decision);
+    // the answer lands once, complete. Hard 60s bound so a stalled model can never hold the table hostage —
+    // on stall/error the table delivers alone with an honest note (and a partial narration ≥120 chars is
+    // salvaged rather than binned).
+    let acc = "";
+    const NOTE = "_Couldn't add commentary this time — the model stalled. The numbers above are complete._";
+    const deliverFallback = () => {
+      if (chatIdRef.current !== id) return;
+      const salvage = acc.trim().length >= 120 ? `${acc.trim()}…` : "";
+      if (salvage) {
+        setChat(compose(salvage));
+        persistTo(id, position === "above" ? [...persisted, { role: "ai", text: salvage } as ChatTurn, tablePersist] : [...persisted, tablePersist, { role: "ai", text: salvage } as ChatTurn]);
+      } else {
+        setChat([...base, tableTurn, { role: "ai", text: NOTE }]);
+        persistTo(id, [...persisted, tablePersist, { role: "ai", text: NOTE }]);
+      }
+    };
     try {
       if (chatIdRef.current !== id) return;
-      // Table-first: the table is already on screen, so show the live meter immediately (never looks finished).
-      // Narrative-first: the question is up with a Thinking indicator (asking) until the first token arrives.
-      if (position === "below") { setStreaming(true); setGenTokens(0); }
-      let acc = "";
-      const streamed = await aiPromptStream(interpretResultPrompt(question, md), (full) => {
-        if (chatIdRef.current !== id) return;
-        acc = full;
-        if (firstTok) { firstTok = false; setAsking(false); setStreaming(true); setGenTokens(0); }
-        setGenTokens(approxTokens(full));
-        setChat(compose(full));
-      });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const bound = new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error("interpret-timeout")), 60_000); });
+      let streamed = "";
+      try {
+        streamed = await Promise.race([
+          aiPromptStream(interpretResultPrompt(question, md), (full) => { acc = full; }),
+          bound,
+        ]);
+      } finally { if (timer) clearTimeout(timer); }
       const finalText = (streamed || acc).trim();
-      if (!finalText || chatIdRef.current !== id) { setChat([...base, tableTurn]); persistTo(id, [...persisted, tablePersist]); return; }
+      if (chatIdRef.current !== id) return;
+      if (!finalText) { setChat([...base, tableTurn]); persistTo(id, [...persisted, tablePersist]); return; }
       setChat(compose(finalText));
       const narr: ChatTurn = { role: "ai", text: finalText };
       persistTo(id, position === "above" ? [...persisted, narr, tablePersist] : [...persisted, tablePersist, narr]);
-    } catch { setChat([...base, tableTurn]); }
+    } catch { deliverFallback(); }
     finally { setAsking(false); setStreaming(false); }
   }
 
@@ -909,7 +937,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const base: UITurn[] = [...prior, { role: "you", text }];
       const tableTurn: UITurn = { role: "ai", text: md, compute: computed, chips: chips.length ? chips : undefined };
       const persisted: ChatTurn[] = [...history, { role: "you", text }];
-      const tablePersist: ChatTurn = { role: "ai", text: md, chips: chips.length ? chips : undefined };
+      const tablePersist: ChatTurn & { compute?: ComputeResult } = { role: "ai", text: md, chips: chips.length ? chips : undefined, compute: computed };
       // The follow-on read. The factual "About <company>" web blurb is appended ONLY when the user asks about
       // the COMPANY itself (what does X do / tell me about X) — NOT on a footprint/depth question ("how deep at
       // X", "lay of the land"), where a Wikipedia paragraph is irrelevant padding. Otherwise an analytical
@@ -919,21 +947,22 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const willEnrich = computed.enrich?.kind === "company" && wantsCompanyFacts;
       const cap = isCapableBackend(avail.backend);
       const willInterpret = !willEnrich && (cap || avail.backend === "webllm") && shouldInterpretResult(text, computed);
-      // CAPABLE → narrative-first (table below, streams in above); WebLLM → table-first (instant anchor, narrative
-      // streams below with the working indicator still running so it never looks finished).
-      const narrativeFirst = willInterpret && cap;
+      // COMPOSED DELIVERY (decided during Gate-0): hold the table until the narration is ready and deliver
+      // them together as ONE complete answer — two-stage delivery read as "partial answer, then more than
+      // the answer". The wait shows the STAGED indicator ("Reading your book… → Computing… → Writing…");
+      // a narration timeout/failure still delivers the table with a quiet note (the numbers never wait on
+      // a broken model). Turns with no narration render immediately as before.
       persistTo(id, [...persisted, tablePersist]);
       markDone(id);
-      if (narrativeFirst) {
-        // Show the question with a Thinking indicator (asking stays true from ask()); interpretCompute streams
-        // the narrative in, then the table below it. No instant table — the narrative reads first.
-        if (chatIdRef.current === id) setChat(base);
+      if (willInterpret) {
+        if (chatIdRef.current === id) setChat(base); // question + staged spinner; the composed answer lands once
+        setStagedThinking(true);
+        void interpretCompute(text, md, id, base, tableTurn, persisted, tablePersist, "above").finally(() => setStagedThinking(false));
       } else {
         if (chatIdRef.current === id) setChat([...base, tableTurn]);
         setAsking(false);
+        if (willEnrich) void enrichCompany(computed.enrich!.name, id, [...base, tableTurn], [...persisted, tablePersist]);
       }
-      if (willEnrich) void enrichCompany(computed.enrich!.name, id, [...base, tableTurn], [...persisted, tablePersist]);
-      else if (willInterpret) void interpretCompute(text, md, id, base, tableTurn, persisted, tablePersist, narrativeFirst ? "above" : "below");
     };
     // Confidentiality question → answer accurately from the LIVE backend (never the model, which over-promises
     // "nothing is sent anywhere" even on a cloud tier). Deterministic, so it's correct and identical every time.
@@ -1072,9 +1101,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // me everyone at EY" → an EY account card), so a records request always gives something to click.
     for (const h of entityHits(text, data)) {
       if (related.length >= 6) break;
+      // Cross-kind dedup too (Gate-0 #42): "HSBC" + "HSBC — Technology engagement" + "Technology
+      // engagement · HSBC" used to render as three cards for one account — one entity, one card.
+      const key = (r: { main?: string; meta?: string } & Record<string, unknown>) => `${r.main || ""}|${r.meta || ""}`.toLowerCase().replace(/[^a-z0-9|]+/g, "");
       const dup = related.some((r) =>
         (r.kind === "company" && h.kind === "company" && r.org === h.org) ||
-        (r.kind === "record" && h.kind === "record" && r.id === h.id));
+        (r.kind === "record" && h.kind === "record" && r.id === h.id) ||
+        key(r as Record<string, unknown>) === key(h as Record<string, unknown>));
       if (!dup) related.push(h);
     }
     let webContext = "";
@@ -1082,8 +1115,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       try {
         if (await searchAvailable()) {
           const results = await searchWeb(text, 3);
-          webContext = results.map((r) => `- ${r.title}: ${(r.snippet || "").slice(0, 160)} (${r.url})`).join("\n");
-          for (const r of results.slice(0, 3)) related.push({ kind: "web", url: r.url, main: r.title, meta: (r.snippet || "").slice(0, 100) });
+          webContext = results.map((r) => `- ${decodeEntities(r.title)}: ${decodeEntities(r.snippet || "").slice(0, 160)} (${r.url})`).join("\n");
+          for (const r of results.slice(0, 3)) related.push({ kind: "web", url: r.url, main: decodeEntities(r.title), meta: decodeEntities(r.snippet || "").slice(0, 100) });
         }
       } catch { /* best-effort */ }
     }
@@ -1606,7 +1639,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                   </div>
                 ) : (
                   <div key={i} className={"copilot-turn copilot-turn--" + t.role}>
-                    <div className="copilot-turn-text">{t.role === "ai" ? (t.compute ? <ComputeTable data={t.compute} onNavigate={onNavigate} onClose={onClose} /> : <Markdown text={t.text} />) : t.text}</div>
+                    <div className="copilot-turn-text">{t.role === "ai" ? (t.receipt ? (<div className="actc actc--saved"><span className="actc-tick">✓</span><span className="actc-savedtext">{t.text}</span></div>) : t.compute ? <ComputeTable data={t.compute} onNavigate={onNavigate} onClose={onClose} /> : <Markdown text={t.text} />) : t.text}</div>
                     {t.role === "ai" && renderRelated(t.related)}
                     {t.role === "ai" && t.chips && t.chips.length > 0 && (
                       <div className="copilot-chips">
@@ -1621,7 +1654,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                   </div>
                 ),
               )}
-              {!streaming && (asking || actionBusy || isBusy(chatIdRef.current)) && <div className="copilot-turn copilot-turn--ai"><div className="copilot-turn-text copilot-turn-text--thinking"><ThinkingIndicator label={aiLoad?.active ? `${aiLoad.firstRun ? "Downloading the assistant (one-time)" : "Starting the assistant"}… ${Math.round((aiLoad.progress || 0) * 100)}%` : actionBusy ? "Working…" : undefined} startMs={genStartRef.current} /></div></div>}
+              {!streaming && (asking || actionBusy || isBusy(chatIdRef.current)) && <div className="copilot-turn copilot-turn--ai"><div className="copilot-turn-text copilot-turn-text--thinking"><ThinkingIndicator label={aiLoad?.active ? `${aiLoad.firstRun ? "Downloading the assistant (one-time)" : "Starting the assistant"}… ${Math.round((aiLoad.progress || 0) * 100)}%` : actionBusy ? "Working…" : undefined} staged={stagedThinking} startMs={genStartRef.current} /></div></div>}
               {streaming && <div className="copilot-genmeta copilot-genmeta--live">~{formatTokens(genTokens)} tokens · {Math.max(0, Math.round((Date.now() - genStartRef.current) / 1000))}s</div>}
             </div>
             {(doc || docNote) && (

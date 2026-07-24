@@ -3,6 +3,7 @@
 // every other store here. One key holds the list; each chat is a title + its turns.
 
 import type { ActionCardData } from "../components/ActionCard";
+import type { ComputeResult } from "../ai/compute";
 import { persistLocal, scopedKey } from "./persist";
 
 // The persisted turn shape. A superset of the model-facing ChatTurn: it also carries an unconfirmed DRAFT
@@ -14,6 +15,12 @@ export type StoredTurn = {
   text: string;
   chips?: { label: string; prompt: string }[];
   action?: ActionCardData;
+  // A computed table, persisted so reloaded answers keep their CLICKABLE rows (Gate-0: persisted compute
+  // answers used to degrade to a static markdown table on reload — ephemeral/persistent parity).
+  compute?: ComputeResult;
+  // A permanent action RECEIPT ("✓ Updated X — marked lost") — the audit-trail row a saved card collapses
+  // to. Undo is deliberately NOT persisted (live-toast only — a live Undo in old history is a hazard).
+  receipt?: boolean;
 };
 
 export type SavedChat = {

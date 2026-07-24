@@ -309,7 +309,8 @@ export function askBookPrompt(question: string, context: string, history: ChatTu
       "name isn't in their book, say so plainly (\"I don't see a Rachel O'Connor in your book\") and offer to add " +
       "them — don't fabricate, and don't expose your internal workings or blame their data. ONE exception: for " +
       "general knowledge about a well-known COMPANY (\"what does Next do?\"), use what you reliably know — describe it " +
-      "accurately and briefly; if you're genuinely unsure, say so rather than guess.\n\n" +
+      "accurately and briefly, and LABEL it as outside their book (e.g. \"— that's general knowledge, not from your " +
+      "book\") so book facts and world knowledge never blur; if you're genuinely unsure, say so rather than guess.\n\n" +
       "A MISSING FIELD IS NOT A MISSING PERSON. If they ask for a detail you don't hold (salary, mobile, home " +
       "address) about someone who IS in their book, say that detail isn't recorded — never respond \"I don't see " +
       "them in your book\" when they're right there. Confirm who the person is from what you DO have. And when a " +
@@ -397,8 +398,12 @@ export function interpretResultPrompt(question: string, resultText: string, cont
       "something is ABSENT, that \"none\" of them qualify, that they're \"all\" at accounts you serve, or that any " +
       "filter/relationship holds, unless the table itself shows it — you do not have the rest of their book in " +
       "front of you, so an unstated claim about what ISN'T here is a fabrication. If the table is a plain list, " +
-      "don't invent a cross-cutting conclusion it doesn't support. Plain and warm — no headings, no preamble, no " +
-      "bullet-point recap of the table, no emoji.",
+      "don't invent a cross-cutting conclusion it doesn't support. ATTRIBUTE DISCIPLINE (this exact mistake has " +
+      "been observed): when you mention a row's sentiment, warmth, stage or any cell value, it must be the row's " +
+      "ACTUAL cell value read from the table — never a remembered or assumed one, and never a blanket \"both/all " +
+      "marked X\" unless every named row's cell literally shows X. Counts you quote must be the table's stated " +
+      "totals, and count the right NOUN (33 meetings is not 33 companies — companies can repeat across rows). " +
+      "Plain and warm — no headings, no preamble, no bullet-point recap of the table, no emoji.",
     prompt: `Their question: ${question}\n\nThe computed result (ground truth, already shown to them):\n${resultText}${context ? `\n\nRelevant book context:\n${context}` : ""}\n\nGive your interpretation now — insight and a next move, not a recap.`,
   };
 }
