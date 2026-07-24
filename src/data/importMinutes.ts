@@ -186,15 +186,43 @@ export function mergeSeedMinutes(
   return { addedMeetings, addedOpportunities };
 }
 
+// DEMO FRESHNESS RE-ANCHOR (Gate-0 #5-item): the seed file bakes ABSOLUTE dates at gen-demo build time,
+// so the demo book decays daily against the real clock — three weeks after a build, "meetings in the last
+// two weeks" answers zero and the storefront demo reads as a dead book. Shift EVERY seed date forward so
+// the most recent HELD meeting lands on yesterday: the demo is then always exactly as fresh as it was on
+// the day it was authored, forever. (Runs only in demo mode — the owned path never calls this bootstrap.)
+function reanchorSeeds(seeds: SeedMinute[], today: string): SeedMinute[] {
+  const helds = seeds.map((s) => s.date_held).filter((d): d is string => !!d).sort();
+  const maxHeld = helds[helds.length - 1];
+  if (!maxHeld) return seeds;
+  const day = (iso: string) => Date.parse(iso + "T00:00:00Z") / 86_400_000;
+  const delta = Math.round(day(today) - day(maxHeld)) - 1; // most recent held meeting → yesterday
+  if (delta <= 0) return seeds; // freshly built (or clock skew) — leave untouched
+  const shift = (iso?: string) => {
+    if (!iso) return iso;
+    const d = new Date(iso + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + delta);
+    return d.toISOString().slice(0, 10);
+  };
+  return seeds.map((s) => ({
+    ...s,
+    date_held: shift(s.date_held),
+    date_scheduled: shift(s.date_scheduled),
+    date_agreed: shift(s.date_agreed),
+    followup_date: shift(s.followup_date),
+  }));
+}
+
 // Fetch + merge in one call, for the app bootstrap (./main.tsx). Best-effort: any
 // failure (missing JSON, fetch error) leaves the app to boot normally with no seed.
 export async function bootstrapSeedMinutes(): Promise<void> {
   try {
-    const [seeds, contacts] = await Promise.all([
+    const [rawSeeds, contacts] = await Promise.all([
       fetchSeedMinutes(),
       loadContacts(),
     ]);
-    if (seeds.length === 0) return;
+    if (rawSeeds.length === 0) return;
+    const seeds = reanchorSeeds(rawSeeds, new Date().toISOString().slice(0, 10));
     const { addedMeetings, addedOpportunities } = mergeSeedMinutes(seeds, contacts);
     if (addedMeetings || addedOpportunities) {
       console.info(

@@ -339,3 +339,26 @@ describe("Gate-0 #38: compound won-and-log money never overwrites est_value", ()
     expect(v.est_value).toBe("30000");
   });
 });
+
+// ── PHASE E: tier-aware meta answers ─────────────────────────────────────────────────────────────
+import { modelResponse, privacyResponse } from "./compute";
+
+describe("Gate-0 #47/#48: tier-aware meta answers", () => {
+  it("which-model answers from the live backend", () => {
+    const r = modelResponse("What AI model are you running on right now?", { backend: "ollama", model: "qwen2.5:14b" });
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/qwen2.5:14b/);
+    expect(r!.intro).toMatch(/your own machine/i);
+  });
+  it("privacy answer describes the ACTIVE backend — a stored key can't flip a local user to cloud copy", () => {
+    const r = privacyResponse("Where does my data go when I ask you questions?", { backend: "ollama", byok: true });
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/never leave the machine|stays on this device/i);
+    expect(r!.intro).not.toMatch(/your own API key/i);
+  });
+  it("the demo tier answers honestly", () => {
+    const r = privacyResponse("Is my data private?", { backend: "democloud" });
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/hosted demo/i);
+  });
+});

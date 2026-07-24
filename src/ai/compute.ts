@@ -1651,6 +1651,27 @@ export function capabilitiesResponse(text: string): ComputeResult | null {
   return capabilitiesResult(text);
 }
 
+// Which-model META answer (Gate-0 #48): "what AI model are you running?" is a trust question every
+// skeptical buyer asks — it must be answered from the LIVE backend, never the capabilities menu.
+export function modelResponse(text: string, avail?: Availability & { model?: string }): ComputeResult | null {
+  const t = text.toLowerCase();
+  const asksModel = /\b(what|which)\b[^?]*\b(ai|llm|language)?\s*model\b|\bmodel are you\b|\bwhat are you (?:running|powered by)\b|\bpowered by\b|\bwhich (?:ai|llm)\b|\bwhat ai (?:is|are) (?:this|you)\b/.test(t);
+  if (!asksModel) return null;
+  if (!avail || !avail.backend) return { intro: "I'm still detecting your AI setup — check the tier label at the bottom of the composer, or your AI settings on Freehold.", columns: [], rows: [] };
+  const model = (avail as { model?: string }).model || "";
+  const backend = avail.backend;
+  const where = backend === "webllm" ? "running fully in your browser — on this device"
+    : backend === "builtin" ? "your browser's built-in on-device model"
+    : backend === "ollama" ? "running on your own machine via your local AI server"
+    : backend === "democloud" ? "a Freehold-hosted demo model (this is the hosted demo — don't paste real client data)"
+    : "a cloud model connected with your own API key";
+  const privacy = backend === "webllm" || backend === "builtin" || backend === "ollama"
+    ? "Your book and your questions stay on this machine."
+    : backend === "democloud" ? "Demo questions are sent to the hosted model."
+    : "Your questions (plus the relevant records) go to your provider under your own account.";
+  return { intro: `You're on ${model ? `${model} — ` : ""}${where}. ${privacy} You can change the model in your AI settings on Freehold.`, columns: [], rows: [] };
+}
+
 export function privacyResponse(text: string, avail?: Availability): ComputeResult | null {
   const t = text.toLowerCase();
   // NB: no "go/goes/going" — far too common ("going to help", "how's it going") and it false-triggered the
@@ -1664,8 +1685,11 @@ export function privacyResponse(text: string, avail?: Availability): ComputeResu
     /\bcan anyone (?:else )?(?:see|access|read)\b/.test(t) ||
     /\bdoes (?:this|it|anything|that) (?:get |ever )?(?:sent|uploaded|shared|stored)\b/.test(t);
   if (!isPrivacyQ) return null;
-  const onDevice = !!avail && (avail.backend === "webllm" || avail.backend === "builtin" || avail.backend === "ollama") && !avail.byok;
-  const cloud = !!avail && (avail.byok || avail.backend === "byok");
+  // ACTIVE-BACKEND semantics (Gate-0 #47): the answer describes the backend actually RUNNING. The old
+  // check let a merely-STORED BYOK key flip a local-tier user onto the cloud description ("sent to the
+  // model you connected with your key" — while everything ran at localhost).
+  const onDevice = !!avail && (avail.backend === "webllm" || avail.backend === "builtin" || avail.backend === "ollama");
+  const cloud = !!avail && avail.backend === "byok";
   // The storefront demo runs a Freehold-HOSTED model (democloud) so a first visitor gets instant AI with no
   // download — which means the questions they type ARE sent to a Freehold server. Say so plainly; do NOT give
   // the on-device "nothing leaves" answer here.

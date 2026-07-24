@@ -20,7 +20,7 @@ import { useAiAvailable, aiAvailability, aiPromptStream, aiJson, searchAvailable
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -1034,6 +1034,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     if (!docText && !isGenerate) {
       const priv = privacyResponse(text, avail);
       if (priv) { renderCompute(priv); return; }
+      // Which-model meta question — answered from the LIVE backend, deterministically (Gate-0 #48).
+      const mdl = modelResponse(text, avail);
+      if (mdl) { renderCompute(mdl); return; }
     }
     // DETERMINISTIC SAFETY FLOOR — a distress signal must NEVER depend on the model routing correctly. Checked
     // before the router, on every tier, so a tiny model can't misroute "I want to end it" into a pipeline query.
