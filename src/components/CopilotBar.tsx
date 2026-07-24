@@ -885,7 +885,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const narr: ChatTurn = { role: "ai", text: finalText };
       persistTo(id, position === "above" ? [...persisted, narr, tablePersist] : [...persisted, tablePersist, narr]);
     } catch { deliverFallback(); }
-    finally { setAsking(false); setStreaming(false); markDone(id); }
+    finally { setAsking(false); setStreaming(false); }
   }
 
   // The COMPANION stream: for a personal / general / advice turn the topic-gate routed AWAY from the book.
@@ -1003,7 +1003,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     const isGenerate = /^\s*(draft|write|compose|prepare|prep|send|email|message|reply|respond)\b/i.test(text);
     const avail = await aiAvailability();
     // Render a computed result directly (clickable rows via `compute`); markdown kept for persistence + chips.
-    const renderCompute = (computed: ComputeResult) => {
+    const renderCompute = async (computed: ComputeResult): Promise<void> => {
       const md = computeText(computed);
       // Only derive chips when there are REAL records — a "can't find / nothing matches" reply has no
       // entities worth anchoring to, and deriving them produces non-sequiturs (a stray "Smith" → "DS Smith").
@@ -1034,7 +1034,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         // delivery exists to prevent). interpretCompute marks done in its finally.
         if (chatIdRef.current === id) setChat(base); // question + staged spinner; the composed answer lands once
         setStagedThinking(true);
-        void interpretCompute(text, md, id, base, tableTurn, persisted, tablePersist, "above").finally(() => setStagedThinking(false));
+        await interpretCompute(text, md, id, base, tableTurn, persisted, tablePersist, "above").finally(() => setStagedThinking(false));
       } else {
         markDone(id);
         if (chatIdRef.current === id) setChat([...base, tableTurn]);
@@ -1049,10 +1049,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // can you do") goes through the LLM router below — capabilities is a router "help" route, not a pre-gate.
     if (!docText && !isGenerate) {
       const priv = privacyResponse(text, avail);
-      if (priv) { renderCompute(priv); return; }
+      if (priv) { await renderCompute(priv); return; }
       // Which-model meta question — answered from the LIVE backend, deterministically (Gate-0 #48).
       const mdl = modelResponse(text, avail);
-      if (mdl) { renderCompute(mdl); return; }
+      if (mdl) { await renderCompute(mdl); return; }
     }
     // DETERMINISTIC SAFETY FLOOR — a distress signal must NEVER depend on the model routing correctly. Checked
     // before the router, on every tier, so a tiny model can't misroute "I want to end it" into a pipeline query.
@@ -1102,7 +1102,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const prevUserText = [...prior].reverse().find((tn) => tn.role === "you")?.text;
       const preCapable = capabilityLevel(avail.backend, avail.model) !== "small";
       const pre = preCapable ? computeExact(text, data, today) : computeForQuery(text, data, today, prevUserText);
-      if (pre) { renderCompute(pre); return; }
+      if (pre) { await renderCompute(pre); return; }
       // DETERMINISTIC ACTION PRE-CHECK: an EXPLICIT record command ("add a contact", "log a meeting with Tom",
       // "create an opportunity") opens the propose→confirm card in code — the chatty LLM router was sending a
       // bare "add a contact" to companion ("give me their details…") instead of the empty form. Scoped to the
@@ -1132,7 +1132,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       if (routed?.route === "help") {
         // Capability/meta question → the canonical capabilities answer (code, not the model), tailored to the
         // domain the question names (and varied across general asks so it doesn't read identically each time).
-        renderCompute(capabilitiesResult(text));
+        await renderCompute(capabilitiesResult(text));
         return;
       } else if (routed?.route === "action" && routed.entity) {
         // The model says the user is recording data → open the propose→confirm card (fields extracted by the
@@ -1142,7 +1142,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       } else if (routed?.route === "tool" && routed.tool) {
         const result = runTool({ tool: routed.tool, args: routed.args }, data, today, text);
         // Empty tool result → don't dead-end; fall through to the grounded book answer below.
-        if (result && (result.rows.length || result.intro)) { renderCompute(result); return; }
+        if (result && (result.rows.length || result.intro)) { await renderCompute(result); return; }
       } else if (routed?.route === "chat") {
         await streamCompanion(text, prior, id, history, capabilityLevel(avail.backend, avail.model));
         return;
@@ -1154,7 +1154,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         // covers ACTIONS (regex action-intent → the same card) and capability questions. NOTE: route:"book" is a
         // DELIBERATE model choice and is deliberately excluded here — it falls through to the grounded book answer.
         const cap = capabilitiesResponse(text);
-        if (cap) { renderCompute(cap); return; }
+        if (cap) { await renderCompute(cap); return; }
         const rgx = routeIntent(text, { hasDoc: false });
         if (isActionIntent(rgx) && rgx.entity) {
           await startAction(rgx.entity, rgx.op ?? "create", rgx.target ?? text, text, prior, id, text);
@@ -1162,7 +1162,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         }
         const prevText = [...prior].reverse().find((tn) => tn.role === "you")?.text;
         const computed = computeForQuery(text, data, today, prevText);
-        if (computed) { renderCompute(computed); return; }
+        if (computed) { await renderCompute(computed); return; }
         const prevUserText = [...prior].reverse().find((tn) => tn.role === "you")?.text || "";
         const prevCompanion = !!prevUserText && conversationPath(prevUserText, data) === "companion";
         if (conversationPath(text, data, prevCompanion) === "companion") {
