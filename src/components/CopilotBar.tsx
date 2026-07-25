@@ -16,7 +16,7 @@ import { loadAllOpportunities, type Opportunity } from "../storage/opportunities
 import { loadAllSows, type Sow } from "../storage/revenue";
 import { todayISO } from "../data/agenda";
 import { isCommonOrgToken } from "../data/orgTokens";
-import { useAiAvailable, aiAvailability, aiPromptStream, aiJson, searchAvailable, searchWeb, searchEntity, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
+import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searchAvailable, searchWeb, searchEntity, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
@@ -36,6 +36,7 @@ import { listChats, getChat, saveChat, deleteChat, newChatId, titleFromTurns, ty
 import { relevantNotes, addNotes, listNotes, deleteNote, clearNotes, type Note } from "../storage/memory";
 import { markBusy, markDone, isBusy, subscribeInflight } from "../ai/inflight";
 import { checkNarration, isDisambiguation } from "../ai/narrationCheck";
+import { explainFailure, startKeepalive } from "../ai/health";
 import type { Navigate, TabId, TabIntent } from "./TabNav";
 import "./CopilotBar.css";
 
@@ -531,7 +532,7 @@ const THINK_VERBS = [
   "Thinking", "Crunching", "Proofing", "Connecting", "Digging", "Scanning", "Weighing",
   "Sharpening", "Mapping", "Synthesising", "Strategising", "Consulting",
 ];
-function ThinkingIndicator({ label, startMs, staged }: { label?: string; startMs?: number; staged?: boolean }) {
+function ThinkingIndicator({ label, startMs, staged, tokens }: { label?: string; startMs?: number; staged?: boolean; tokens?: number }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 420);
@@ -548,7 +549,7 @@ function ThinkingIndicator({ label, startMs, staged }: { label?: string; startMs
     <span className="thinking">
       <span className="thinking-glyph" key={tick % THINK_GLYPHS.length}>{THINK_GLYPHS[tick % THINK_GLYPHS.length]}</span>
       <span className="thinking-word">{word}</span>
-      {secs > 0 && <span className="thinking-secs">· {secs}s</span>}
+      {secs > 0 && <span className="thinking-secs">· {secs}s{tokens && tokens > 0 ? ` · ~${tokens} tok` : ""}</span>}
     </span>
   );
 }
@@ -632,6 +633,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const [stagedThinking, setStagedThinking] = useState(false);
   const [genTokens, setGenTokens] = useState(0); // live token estimate shown while a reply streams
   const genStartRef = useRef(0); // ms when the current generation began (for the live secs + "Thought for XXs")
+  const mountedAtRef = useRef(Date.now()); // for the pre-hydration gate (empty store in the first seconds ≠ empty book)
   const wasGenRef = useRef(false); // tracks generating→idle transitions to stamp the finished turn
   const [saved, setSaved] = useState<SavedChat[]>(() => listChats());
   const [notes, setNotes] = useState<Note[]>([]); // the AI's distilled memory (loaded when the view opens)
@@ -707,6 +709,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   // navigated away). Runs once on unmount with whatever the chat held at that point.
   latestChatRef.current = chat;
   useEffect(() => () => { void maybeDistil(latestChatRef.current, chatIdRef.current); }, []);
+  // Keepalive: stops local servers evicting the model mid-session (LM Studio TTL) — Batch 2 health layer.
+  useEffect(() => startKeepalive(async (t) => aiPrompt({ prompt: t })), []);
 
   // Listen for one-time model-download progress from the broker.
   useEffect(() => {
@@ -890,7 +894,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       let streamed = "";
       try {
         streamed = await Promise.race([
-          aiPromptStream(interpretResultPrompt(question, md), (full) => { acc = full; lastProgress = Date.now(); }),
+          aiPromptStream(interpretResultPrompt(question, md), (full) => { acc = full; lastProgress = Date.now(); setGenTokens(approxTokens(full)); }),
           bound,
         ]);
       } finally { if (timer) clearInterval(timer); }
@@ -924,15 +928,20 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       setChat([...prior, { role: "you", text }, { role: "ai", text: full }]);
     });
     try {
+      // TOTAL TURN BUDGET (Batch 2): the retest logged 178–507s "Almost there…" spirals; a hard ceiling
+      // with an honest diagnosis beats an open-ended wait — and the abandoned generation is bailed so a
+      // retry doesn't queue behind it.
+      const turnBudget = new Promise<never>((_, rej) => setTimeout(() => { bailed = true; rej(new Error("turn-budget")); }, 75_000));
       const reply = await Promise.race([
         streamP,
+        turnBudget,
         firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
       ]);
       const aiText = reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, "") || "(no response)";
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
       if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
     } catch {
-      const aiText = "Sorry — that one took too long for the on-device model to get through (it can be slow to warm up the first time). Mind giving it another go? It's usually quicker the second time.";
+      const aiText = await explainFailure("no-first-token");
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
       if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
     } finally {
@@ -949,8 +958,16 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     if (real.length < 2) return; // need at least one full exchange
     if ((distilledRef.current.get(id) ?? 0) >= real.length) return; // nothing new since last distil
     try {
+      // Foreground first (Batch 2): on a single local model a distil call queues AHEAD of the user's next
+      // question. If anything is generating, skip — distilledRef stays unset, so the next leave retries.
+      if (asking || streaming) return;
       const av = await aiAvailability();
       if (capabilityLevel(av.backend, av.model) === "small") return; // tiny models can't distil reliably
+      if (av.local || av.backend === "ollama") {
+        // Small grace so a user hopping straight into a new chat gets the model first.
+        await new Promise((r) => setTimeout(r, 4000));
+        if (asking || streaming) return;
+      }
       if ((distilledRef.current.get(id) ?? 0) >= real.length) return; // re-check after the await
       distilledRef.current.set(id, real.length);
       const transcript = real.map((t) => `${t.role === "you" ? "User" : "Assistant"}: ${t.text}`).join("\n").slice(0, 4000);
@@ -1096,6 +1113,16 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         setAsking(false); markDone(id);
         return;
       }
+    }
+    // PRE-HYDRATION GATE (Batch 2): the demo seed loads async — a compute in the first seconds after
+    // mount answered "0 contacts" as confident truth (found during the delivery-bug reproduction).
+    if (!docText && data.contacts.length === 0 && data.meetingRows.length === 0 && data.opps.length === 0
+      && Date.now() - mountedAtRef.current < 12_000 && bookShapedText(text, data)) {
+      const msg = "Your book is still loading — give it a couple of seconds and ask me again.";
+      persistTo(id, [...history, { role: "you", text }, { role: "ai", text: msg }]);
+      if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: msg }]);
+      setAsking(false); markDone(id);
+      return;
     }
     // CARD-CONTEXT META COMMANDS (front door step 1, Batch 2): a bare "cancel that" aimed at an open
     // draft card must close the card — the retest (#30) had it spawning a SECOND card with "Cancel
@@ -1310,7 +1337,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const compact = !capable;
       // Only a capable backend runs the extra chip-generation round-trip — small on-device models are too
       // slow for a second call and too unreliable at JSON, so there we use the instant deterministic chips.
-      const canGenChips = capable;
+      // Background model calls CONTEND with the next question's router on a single local model — the
+      // LM Studio logs showed chips/memory calls inflating router prompt-processing to 21s (which blew
+      // its timeout and cascaded). Local tiers keep the instant deterministic chips.
+      const canGenChips = capable && !(avail.local || avail.backend === "ollama");
       // STREAM the answer in — show it forming token-by-token instead of a long "Thinking…". On the first
       // token we drop the spinner and start rendering the partial reply.
       const relatedOrUndef = related.length ? related : undefined;
@@ -1325,8 +1355,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // Safety net: a small on-device model can stall on load/prefill (WebLLM runs one job at a time). If NO
       // token has streamed within the window, stop waiting and fall back gracefully (the catch below surfaces
       // any matched records) instead of leaving the user on an endless "Thinking…".
+      // TOTAL TURN BUDGET (Batch 2): the retest logged 178–507s "Almost there…" spirals; a hard ceiling
+      // with an honest diagnosis beats an open-ended wait — and the abandoned generation is bailed so a
+      // retry doesn't queue behind it.
+      const turnBudget = new Promise<never>((_, rej) => setTimeout(() => { bailed = true; rej(new Error("turn-budget")); }, 75_000));
       const reply = await Promise.race([
         streamP,
+        turnBudget,
         firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
       ]);
       setStreaming(false);
@@ -1352,11 +1387,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       }
     } catch {
       // Even if the model errors, still surface any records the message pointed at (e.g. the EY account
-      // card) so a records request isn't a dead end.
+      // card) so a records request isn't a dead end. The apology is DIAGNOSED from live backend state —
+      // never the canned warm-up excuse the retest caught being wrong about a warm LM Studio (#13/#22).
       const relatedOrUndef = related.length ? related : undefined;
+      const diagnosed = await explainFailure("no-first-token", avail);
       const aiText = relatedOrUndef
-        ? "Sorry — the on-device model stalled before it finished that one, but I did pull these from your book in the meantime — open any of them:"
-        : "Sorry about that — the on-device model took too long to respond (it can be slow to warm up the first time). Mind giving it another go? It's usually quicker the second time.";
+        ? `${diagnosed}\n\nMeanwhile, these matched from your book — open any of them:`
+        : diagnosed;
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
       if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText, related: relatedOrUndef }]);
     } finally {
@@ -1853,7 +1890,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                   </div>
                 ),
               )}
-              {!streaming && (asking || actionBusy || isBusy(chatIdRef.current)) && <div className="copilot-turn copilot-turn--ai"><div className="copilot-turn-text copilot-turn-text--thinking"><ThinkingIndicator label={aiLoad?.active ? `${aiLoad.firstRun ? "Downloading the assistant (one-time)" : "Starting the assistant"}… ${Math.round((aiLoad.progress || 0) * 100)}%` : actionBusy ? "Working…" : undefined} staged={stagedThinking} startMs={genStartRef.current} /></div></div>}
+              {!streaming && (asking || actionBusy || isBusy(chatIdRef.current)) && <div className="copilot-turn copilot-turn--ai"><div className="copilot-turn-text copilot-turn-text--thinking"><ThinkingIndicator key={genStartRef.current} label={aiLoad?.active ? `${aiLoad.firstRun ? "Downloading the assistant (one-time)" : "Starting the assistant"}… ${Math.round((aiLoad.progress || 0) * 100)}%` : actionBusy ? "Working…" : undefined} staged={stagedThinking} startMs={genStartRef.current} tokens={genTokens} /></div></div>}
               {streaming && <div className="copilot-genmeta copilot-genmeta--live">~{formatTokens(genTokens)} tokens · {Math.max(0, Math.round((Date.now() - genStartRef.current) / 1000))}s</div>}
             </div>
             {(doc || docNote) && (

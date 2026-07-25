@@ -41,11 +41,23 @@ export async function contextBudget(): Promise<ContextBudget> {
   // Small in-browser / built-in models PREFILL slowly on a laptop GPU — a big prompt is the main cause of a long
   // "Thinking…". Keep every portion tight so answers start fast; capable backends can hold much more.
   const small = info.backend === "webllm" || info.backend === "builtin";
-  const grounding = small ? Math.min(Math.round(totalChars * 0.55), 1_600) : Math.min(Math.round(totalChars * 0.55), 16_000);
+  // LOCAL runtime (LM Studio / Ollama — a real model, but PREFILL-bound on laptop silicon): the retest's
+  // LM Studio logs showed byok-sized 7–8k-token prompts taking 60–90s of prompt processing, which is where
+  // every stall lived. A local model gets a MIDDLE budget: real grounding, but sized so prefill stays
+  // conversational (~15–25s worst case), because on-device latency is correctness — timeouts reroute
+  // answers to worse paths.
+  const localModel = info.local === true || info.backend === "ollama";
+  const grounding = small ? Math.min(Math.round(totalChars * 0.55), 1_600)
+    : localModel ? Math.min(Math.round(totalChars * 0.55), 5_000)
+    : Math.min(Math.round(totalChars * 0.55), 16_000);
   // History gets a real slice of the window instead of an arbitrary last-8 clip: enough that a long chat on a
   // big model is remembered, and only what fits on a small one (budgetedHistory in prompts.ts trims to fit).
-  const history = small ? Math.min(Math.round(totalChars * 0.25), 1_200) : Math.min(Math.round(totalChars * 0.3), 24_000);
-  const memory = small ? Math.min(Math.round(totalChars * 0.12), 600) : Math.min(Math.round(totalChars * 0.12), 4_000);
+  const history = small ? Math.min(Math.round(totalChars * 0.25), 1_200)
+    : localModel ? Math.min(Math.round(totalChars * 0.3), 2_500)
+    : Math.min(Math.round(totalChars * 0.3), 24_000);
+  const memory = small ? Math.min(Math.round(totalChars * 0.12), 600)
+    : localModel ? Math.min(Math.round(totalChars * 0.12), 800)
+    : Math.min(Math.round(totalChars * 0.12), 4_000);
   return { tokens, backend: info.backend, grounding, history, memory };
 }
 
