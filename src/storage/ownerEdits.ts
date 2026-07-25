@@ -20,6 +20,9 @@ import { readJsonSafe } from "./safeRead";
 // date fields are plain strings (dates as ISO "YYYY-MM-DD" from <input type="date">).
 export type OwnerEdits = {
   based_in?: string;
+  // Role/title override — promotions and moves are the most common voice-edit ("she's now a Director"),
+  // and the copilot card needs a field that persists it (Batch 2 field audit).
+  position?: string;
   relationship_strength?: RelationshipStrength;
   priority?: Priority;
   decision_role?: DecisionRole;

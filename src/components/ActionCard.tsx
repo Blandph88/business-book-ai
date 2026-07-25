@@ -16,6 +16,7 @@ export type ActionCardData = {
   needsContact: boolean;
   subjectUrl?: string;
   targetId?: string; // the existing record being updated (opportunity/contract), so confirm edits in place
+  prev?: Record<string, string>; // the record's stored values before the command's changes — drives the diff labels
   status: "draft" | "saved";
   savedSummary?: string;
 };
@@ -89,9 +90,12 @@ export function ActionCard({
       {visible.map((f) => {
         const v = values[f.key] ?? "";
         const miss = f.required && !v.trim();
+        // DIFF VIEW (Batch 2, retest #31/#40/#43): on an update, a field the command CHANGED shows its
+        // previous value — so what's about to change is unmissable before the confirming click.
+        const was = data.op === "update" && data.prev && data.prev[f.key] != null && data.prev[f.key] !== "" && data.prev[f.key] !== v ? data.prev[f.key] : null;
         return (
-          <label key={f.key} className={"actc-field" + (miss ? " actc-field--missing" : "")}>
-            <span>{f.label}{f.required ? " *" : ""}</span>
+          <label key={f.key} className={"actc-field" + (miss ? " actc-field--missing" : "") + (was ? " actc-field--changed" : "")}>
+            <span>{f.label}{f.required ? " *" : ""}{was ? <em className="actc-was"> was: {was}</em> : null}</span>
             {f.type === "enum" ? (
               <select value={v} onChange={(e) => set(f.key, e.target.value)}>
                 <option value="">—</option>

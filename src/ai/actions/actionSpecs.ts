@@ -83,6 +83,17 @@ export function relativeDate(today: string, text: string): string {
     let back = todayDow - target; if (back <= 0) back += 7;
     return addDays(today, -back);
   }
+  // FUTURE references — reminders ("remind me… next Friday" left the date buried in text, retest #33).
+  if (/\btomorrow\b/.test(t)) return addDays(today, 1);
+  const inDays = t.match(/\bin\s+(\d+)\s*days?\b/); if (inDays) return addDays(today, Number(inDays[1]));
+  const nwk = t.match(/\b(?:next|this(?:\s+coming)?)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+  if (nwk) {
+    const target = WEEKDAYS.indexOf(nwk[1]);
+    const todayDow = new Date(`${today}T00:00:00Z`).getUTCDay();
+    let fwd = target - todayDow; if (fwd <= 0) fwd += 7;
+    return addDays(today, fwd);
+  }
+  if (/\bnext week\b/.test(t)) return addDays(today, 7);
   return "";
 }
 const MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
@@ -143,6 +154,9 @@ function groundedIn(value: string | undefined, source: string): string {
 function stripMeetingCommand(text: string): string {
   return text
     .replace(/^\s*(log|record|add|create|note|capture|save|had|have)\b[^:.\n]*?\bmeeting\b[^:.\n]*?\b(?:with|for)\s+[\w .'-]+/i, "")
+    // "Log that I bumped into Karen…" — drop the command verb, keep the substance (retest #29: the raw
+    // command text, "Log that" included, landed verbatim in the Notes field).
+    .replace(/^\s*(?:log|record|note|capture|save)\s+(?:that\s+|down\s+)?/i, "")
     .replace(/^[\s:,.–—-]+/, "")
     .trim();
 }
@@ -250,7 +264,7 @@ function extractOrg(text: string, ctx: ActionCtx): string {
 // used to capture "Berlin" and score prefix junk). Returns "" when no span parses (caller falls back).
 export function extractSubjectSpan(text: string): string {
   const head = text.split(/[:;–—]|(?:\s-\s)|,/)[0];
-  const m = head.match(/\b(?:with|to|for|about|on|re)\s+(.+)$/i);
+  const m = head.match(/\b(?:with|to|for|about|on|re|into)\s+(.+)$/i);
   if (!m) return "";
   return m[1]
     .replace(/\s+(?:that|who|she|he|they|it|about|regarding|re|yesterday|today|tomorrow|last|next|this|worth|for|at|on)\b[\s\S]*$/i, "")
@@ -276,6 +290,8 @@ const meetingSpec: EntitySpec = {
     { key: "followup", label: "Follow-up", type: "text" },
     { key: "followup_date", label: "Follow-up date", type: "date" },
     { key: "opportunity_spotted", label: "Opportunity spotted", type: "enum", options: OPPORTUNITY_SPOTTED },
+    { key: "org_insights", label: "Org insights", type: "text" },
+    { key: "pain_points", label: "Pain points", type: "text" },
   ],
   title: (ctx) => (ctx.op === "update" ? `Update meeting with ${contactName(ctx, ctx.subjectUrl)}` : `New meeting with ${contactName(ctx, ctx.subjectUrl)}`),
   extract: async (ctx) => {
@@ -303,7 +319,11 @@ const meetingSpec: EntitySpec = {
       if (/\b(held|happened|done|completed|we met|met them)\b/i.test(ctx.text)) { v.meeting_stage = "Held"; if (!v.date_held) v.date_held = ctx.today; }
       return v;
     }
-    const future = /\b(i'?m meeting|i am meeting|will meet|going to meet|next (week|month|tuesday|monday|wednesday|thursday|friday)|upcoming|schedule|set up|seeing .* (on|next))\b/i.test(ctx.text);
+    // PAST-TENSE precedence (retest #29): "I BUMPED INTO her this morning… and we agreed to catch up
+    // NEXT MONTH" is a HELD meeting with a future follow-up — the future clause must not flip the stage.
+    const past = /\b(bumped into|ran into|met|saw|had (?:a )?(?:meeting|coffee|call|chat|catch[- ]?up)|caught up with|spoke (?:with|to)|just met)\b/i.test(ctx.text)
+      || /\b(this morning|this afternoon|earlier today|yesterday|just now)\b/i.test(ctx.text);
+    const future = !past && /\b(i'?m meeting|i am meeting|will meet|going to meet|next (week|month|tuesday|monday|wednesday|thursday|friday)|upcoming|schedule|set up|seeing .* (on|next))\b/i.test(ctx.text);
     // Notes default to any REAL content the user typed (the bare "log a meeting with X" command is stripped,
     // not echoed into the field) — they'll usually fill this from notes/a transcript.
     const v: Record<string, string> = { meeting_stage: future ? "Scheduled" : "Held", notes: stripMeetingCommand(ctx.text) };
@@ -341,6 +361,7 @@ const meetingSpec: EntitySpec = {
       purpose: values.purpose || undefined, notes: values.notes || undefined,
       actions_mine: values.actions_mine || undefined, actions_theirs: values.actions_theirs || undefined,
       followup: values.followup || undefined, followup_date: values.followup_date || undefined,
+      org_insights: values.org_insights || undefined, pain_points: values.pain_points || undefined,
       sentiment: (norm(values.sentiment, SENTIMENT) as Sentiment) || undefined,
       opportunity_spotted: (norm(values.opportunity_spotted, OPPORTUNITY_SPOTTED) as OpportunitySpotted) || undefined,
     });
@@ -377,6 +398,7 @@ const CONTACT_CREATE_FIELDS: FieldSpec[] = [
 ];
 const CONTACT_UPDATE_FIELDS: FieldSpec[] = [
   { key: "relationship_strength", label: "Relationship", type: "enum", options: RELATIONSHIP_STRENGTH },
+  { key: "position", label: "Role / title", type: "text" },
   { key: "priority", label: "Priority", type: "enum", options: PRIORITY },
   { key: "decision_role", label: "Decision role", type: "enum", options: DECISION_ROLE },
   { key: "based_in", label: "Based in", type: "text" },
@@ -424,8 +446,25 @@ const contactSpec: EntitySpec = {
     if (/\bhigh priority\b/i.test(t)) v.priority = "High"; else if (/\b(medium|med)\s+priority\b/i.test(t)) v.priority = "Medium"; else if (/\blow priority\b/i.test(t)) v.priority = "Low";
     if (/\bdecision[- ]?maker\b/i.test(t)) v.decision_role = "Decision Maker"; else if (/\binfluencer\b/i.test(t)) v.decision_role = "Influencer"; else if (/\bgatekeeper\b/i.test(t)) v.decision_role = "Gatekeeper";
     const based = t.match(/\bbased in\s+([\w ,.'-]+)/i); if (based) v.based_in = based[1].trim().replace(/[.,]$/, "");
-    const remind = t.match(/\b(?:remind me to|next action[:]?|next step[:]?)\s+(.+)/i); if (remind) v.next_action = remind[1].trim();
+    // A location MOVE ("switching to the Madrid office in October") → based_in, with the note kept.
+    const moving = t.match(/\b(?:switch(?:ing)?|mov(?:e|ing)|relocat(?:e|ing)|transferr?(?:ing)?)\s+to\s+(?:the\s+)?([A-Z][\w .'-]+?)\s+office\b/i);
+    if (moving && !v.based_in) v.based_in = moving[1].trim();
+    // Reminders: the DATE parses into the date field (retest #33 left "next Friday" inside the text where
+    // nothing could surface it), and the action text drops the command wrapper.
+    const remind = t.match(/\b(?:remind me to|next action[:]?|next step[:]?)\s+(.+)/i);
+    if (remind) {
+      let act = remind[1].trim().replace(/[.,!]+$/, "");
+      const when = relativeDate(ctx.today, t) || namedMonthDate(ctx.today, t);
+      if (when) {
+        v.next_action_date = when;
+        act = act.replace(/\s*(?:on|by|before)?\s*(?:next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month)\s*$/i, "").trim();
+        act = act.replace(/\s*(?:tomorrow|today)\s*$/i, "").trim();
+      }
+      v.next_action = act;
+    }
     const note = t.match(/\bnote(?:\s+(?:to|on|for|about)\s+[\w ]+?)?[:]\s*(.+)/i); if (note) v.notes = note[1].trim();
+    // "Note on X: <substance>" without a colon variant — keep the substance as the note, never the command.
+    if (!v.notes) { const n2 = t.match(/^\s*note\s+(?:on|about|for)\s+[A-Za-z .'-]+?\s*[—–-]\s*(.+)$/i); if (n2) v.notes = n2[1].trim(); }
     return v;
   },
   write: (values, ctx) => {
@@ -449,6 +488,7 @@ const contactSpec: EntitySpec = {
     if (values.priority) next.priority = values.priority as Priority;
     if (values.decision_role) next.decision_role = values.decision_role as DecisionRole;
     if (values.based_in) next.based_in = values.based_in;
+    if (values.position) next.position = values.position;
     if (values.next_action) next.next_action = values.next_action;
     if (values.next_action_date) next.next_action_date = values.next_action_date;
     if (values.notes) next.notes = prior.notes ? `${prior.notes}\n${values.notes}` : values.notes;
@@ -473,6 +513,7 @@ const OPP_FIELDS: FieldSpec[] = [
   { key: "service_line", label: "Service line", type: "enum", options: SERVICE_LINE },
   { key: "current_step", label: "Stage", type: "enum", options: STEP_IDS },
   { key: "est_value", label: "Est. value", type: "number" },
+  { key: "probability", label: "Probability (0–1)", type: "number" },
   { key: "description", label: "Description", type: "textarea" },
 ];
 const opportunitySpec: EntitySpec = {
@@ -516,6 +557,10 @@ const opportunitySpec: EntitySpec = {
     const won = /\b(won|signed|closed[- ]?won|landed|secured|in the bag)\b/i.test(ctx.text);
     const lost = /\b(lost|dead|declined|fell through|not proceeding|passed on|withdrew|went cold|no longer)\b/i.test(ctx.text);
     if (won) v.current_step = "contracting";
+    // EXPLICIT stage move ("move the Google deal to Proposal Build") — the command's payload must land
+    // on the card (retest #31: the requested stage never appeared; confirming was a silent no-op).
+    const stageMove = ctx.text.match(/\b(?:move|bump|advance|push|progress|set|put)\b[^?]*?\bto\s+(?:the\s+)?(meeting|qualify|pursuit|scoping|clearance|proposal[\s_-]?build|proposal[\s_-]?delivery|procurement|contracting|setup|delivery|revenue)\b/i);
+    if (stageMove) v.current_step = stageMove[1].toLowerCase().replace(/[\s-]+/g, "_");
     if (existing) {
       v.outcome = won ? "Won" : lost ? "Lost"
         : existing.lost ? "Lost"
@@ -530,6 +575,18 @@ const opportunitySpec: EntitySpec = {
     const money = /\b(revenue|recognis|recogniz|invoiced?|billed?|fees?)\b/i.test(ctx.text) ? 0 : parseMoney(ctx.text);
     const valueFramed = /\b(?:worth|valued?|est\.?(?:imate[d]?)?|to)\s*(?:of\s*|at\s*)?[£$€]?\s*\d/i.test(ctx.text);
     if (money && (!existing || valueFramed)) v.est_value = String(money);
+    // Deterministic additions run on EVERY tier (before the skipModel early-return):
+    // (a) a secondary NOTE clause on an update ("…and note the £90k invoice") lands in the description
+    //     or the half-command silently vanishes (retest #43);
+    if (existing) {
+      const noteClause = ctx.text.match(/\b(?:and\s+)?note\s+(?:that\s+|down\s+)?(.+?)(?:[.!]|$)/i);
+      if (noteClause && noteClause[1].trim().length > 2) {
+        const noteTxt = noteClause[1].trim();
+        v.description = v.description ? `${v.description}\n${noteTxt}` : noteTxt;
+      }
+    }
+    // (b) the conventional name pre-suggests so the required field never opens empty (retest #35/#39).
+    if (!existing && !v.opportunity_name && v.organisation) v.opportunity_name = `${v.organisation} — ${v.service_line || "Strategy"} engagement`;
     if (ctx.skipModel) return v; // deterministic-only (on-device): the form opens pre-filled, fast
     try {
       const ex = await aiJson<OppFill>(fillOpportunityPrompt(ctx.text, SERVICE_LINE));
@@ -572,7 +629,7 @@ const opportunitySpec: EntitySpec = {
         service_line: (norm(values.service_line, SERVICE_LINE) as ServiceLine) || existing.service_line,
         current_step: finalStep,
         est_value: values.est_value ? Number(values.est_value) : existing.est_value,
-        probability: stepProb(finalStep),
+        probability: values.probability ? Math.min(1, Math.max(0, Number(values.probability))) : stepProb(finalStep),
         description: values.description || existing.description,
         lost,
       };
@@ -598,7 +655,7 @@ const opportunitySpec: EntitySpec = {
       service_line: (norm(values.service_line, SERVICE_LINE) as ServiceLine) || "Strategy",
       current_step: step,
       est_value: values.est_value ? Number(values.est_value) : undefined,
-      probability: stepProb(step),
+      probability: values.probability ? Math.min(1, Math.max(0, Number(values.probability))) : stepProb(step),
       description: values.description || undefined,
       contact_url: ctx.subjectUrl || undefined,
     };

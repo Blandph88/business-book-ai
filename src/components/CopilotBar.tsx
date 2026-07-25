@@ -928,7 +928,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         streamP,
         firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
       ]);
-      const aiText = reply.trim() || "(no response)";
+      const aiText = reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, "") || "(no response)";
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
       if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
     } catch {
@@ -1330,7 +1330,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
       ]);
       setStreaming(false);
-      const aiText = reply.trim() || "(no response)";
+      const aiText = reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, "") || "(no response)";
       // Chips come ONLY from who the answer actually names (accurate on every tier). If the answer named
       // nobody recognisable (e.g. a purely analytical reply), show no chips here rather than inventing a
       // random book contact/company — the model-generated, answer-validated chips below may still add some.
@@ -1426,6 +1426,21 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         if (matches.length !== 1) { const mm = matchContacts(target, contacts); if (mm.length) matches = mm; }
       }
       if (matches.length === 1) subjectUrl = matches[0].url;
+      // AMBIGUOUS NAMED SUBJECT on a create ("set up an opportunity for Sarah" — 37 Sarahs): ask WHICH
+      // person via chips that re-issue the command with the full name, instead of a card carrying an
+      // unresolved literal (retest #45). Same resolver philosophy as the query side.
+      if (!subjectUrl && needsContact && op === "create" && matches.length > 1 && matches.length <= 60 && span && !pronounOnly) {
+        const CAPC = 6;
+        const chips: Chip[] = matches.slice(0, CAPC).map((c) => ({
+          label: `${c.first} ${c.last}`.trim() + (c.organisation ? ` · ${c.organisation}` : ""),
+          prompt: extractText.replace(new RegExp(`\\b${span.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), `${c.first} ${c.last}`.trim()),
+        }));
+        const turn: UITurn = { role: "ai", text: `${matches.length} people called ${span} — which one did you mean?`, chips };
+        setActionBusy(false);
+        if (chatIdRef.current === id) setChat([...prior, { role: "you", text: display }, turn]);
+        persistTo(id, [...prior.filter((tt) => tt.role !== "action").map((tt) => ({ role: tt.role as "you" | "ai", text: tt.text })), { role: "you", text: display }, { role: "ai", text: turn.text, chips }]);
+        return;
+      }
       // PRONOUN-led follow-up ("add a meeting with HIM tomorrow", "create an opportunity for THEM") — the
       // message names no one, so resolve the subject from the most recent prior turn that unambiguously did.
       if (!subjectUrl && (pronounOnly || /\b(him|her|hers|his|them|their|they|he|she|it|that|this|those|these)\b/i.test(target))) {
@@ -1493,7 +1508,20 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       if (timer) clearTimeout(timer);
     }
     const fields = typeof spec.fields === "function" ? spec.fields(op) : spec.fields;
-    const card: ActionCardData = { kind, op, title: spec.title(ctx), fields, values, needsContact, subjectUrl, targetId, status: "draft" };
+    // DIFF baseline for updates: snapshot the record's CURRENT values so the card can label what the
+    // command is changing (retest #31/#40/#43 — value/stage changes arrived unlabelled, and one card
+    // didn't even reveal the previous value it was overwriting).
+    let prev: Record<string, string> | undefined;
+    if (op === "update" && targetId) {
+      if (kind === "opportunity") {
+        const o = opps.find((x) => x.id === targetId);
+        if (o) prev = { opportunity_name: o.opportunity_name || "", organisation: o.organisation || "", primary_contact: o.primary_contact || "", service_line: o.service_line || "", current_step: o.current_step || "", est_value: o.est_value != null ? String(o.est_value) : "", probability: o.probability != null ? String(o.probability) : "", description: o.description || "" };
+      } else if (kind === "meeting") {
+        const m = meetingRows.find((x) => x.id === targetId);
+        if (m) prev = { meeting_stage: m.meeting_stage || "", date_held: m.date_held || "", date_scheduled: m.date_scheduled || "", purpose: m.purpose || "", notes: m.notes || "", sentiment: m.sentiment || "" };
+      }
+    }
+    const card: ActionCardData = { kind, op, title: spec.title(ctx), fields, values, needsContact, subjectUrl, targetId, prev, status: "draft" };
     let lead = op === "create" ? `Here's a draft ${spec.label.toLowerCase()} from what you said — check it${needsContact && !subjectUrl ? ", pick the contact" : ""} and confirm to save.` : `Here's the change — review and confirm to update.`;
     // A meeting UPDATE defaults to the contact's MOST RECENT meeting; when they have several, name WHICH one
     // in the lead (date + who) so the user can't silently confirm an edit to the wrong call — they can say the
