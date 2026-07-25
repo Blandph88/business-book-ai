@@ -14,7 +14,8 @@ import {
   meetingsCount, exactRecordLookup, compareEntities, destructiveAskResponse,
   deicticWithoutEntity, contactBrief, rankOpportunities, capabilitiesResult, stageBreakdown,
   frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, scanEntities,
-  deicticRecordRef, resolveCompareDeixis,
+  deicticRecordRef, resolveCompareDeixis, windowMonth, calendarMeetings, compoundContactsWarm,
+  isReasoningRequest as reasonRq, warmNoDeal,
 } from "./compute";
 import { normalizeRoute } from "./prompts";
 import type { BookData } from "./bookContext";
@@ -212,7 +213,7 @@ describe("Gate-0 #38: exact-record-name match wins", () => {
   it("'the KPMG Strategy engagement' resolves to the OPPORTUNITY despite the SoW word", () => {
     const r = computeForQuery("What's the est. value of the KPMG Strategy engagement?", D, TODAY);
     expect(r).not.toBeNull();
-    expect(r!.intro).toMatch(/£75k/);
+    expect(r!.intro).toMatch(/[£$]75k/);
     expect(r!.intro).toMatch(/Open/);
   });
   it("exactRecordLookup returns null for text without a record name", () => {
@@ -225,7 +226,7 @@ describe("Gate-0 #17: value-filtered risk ranking", () => {
   it("'over £20k gone quiet' routes to risk with the min-value applied", () => {
     const r = computeForQuery("Which opportunities over £200k have gone quiet?", D, TODAY);
     expect(r).not.toBeNull();
-    expect(r!.intro).toMatch(/£200k/);
+    expect(r!.intro).toMatch(/[£$]200k/);
   });
 });
 
@@ -264,7 +265,7 @@ describe("Gate-0 #14-item: status-labelled related opps", () => {
   it("a contact whose company has only lost opps sees them labelled as past, not 'related'", () => {
     const withPfz = book({ ...D, contacts: [...D.contacts, contact({ first: "Rachel", last: "Jones", organisation: "Pfizer", met: true, url: "https://www.linkedin.com/in/rjones" })] });
     const r = contactBrief(withPfz, "Rachel Jones", TODAY);
-    expect(r.intro).toMatch(/past \(won or lost\)|past — won or lost/i);
+    expect(r.intro).toMatch(/1 lost/);
     expect(r.intro).not.toMatch(/1 related opportunit/i);
   });
 });
@@ -560,5 +561,111 @@ describe("Batch2-B: compare with thread referents", () => {
   it("contactBrief carries its subject for the ledger", () => {
     const r = contactBrief(BOOK, "Robert Schmidt", TODAY);
     expect(r.subject).toEqual(expect.objectContaining({ kind: "contact", label: "Robert Schmidt" }));
+  });
+});
+
+// ── BATCH 2 · Phase C: vocab routes, calendar windows, compound exemption ────────────────────────
+describe("Batch2-C: calendar-month windows (retest #11)", () => {
+  // TODAY = 2026-07-23 in this suite → "last month" = June 2026.
+  it("windowMonth parses last/this/named months", () => {
+    expect(windowMonth("who was my final meeting of last month with?", TODAY)).toEqual(expect.objectContaining({ start: "2026-06-01", end: "2026-06-30" }));
+    expect(windowMonth("meetings this month", TODAY)).toEqual(expect.objectContaining({ start: "2026-07-01" }));
+    expect(windowMonth("meetings in june", TODAY)).toEqual(expect.objectContaining({ start: "2026-06-01" }));
+    expect(windowMonth("meetings in the past 10 days", TODAY)).toBeNull();
+  });
+  const JUNE_A = meeting({ id: "jm1", contact_url: KAREN.url, date_held: "2026-06-24", contactInfo: { name: "Karen OConnor", organisation: "ExxonMobil", seniority: "", function: "", sector_group: "", phone: "" } });
+  const JUNE_B = meeting({ id: "jm2", contact_url: DANIEL.url, date_held: "2026-06-29", sentiment: "Very Positive", contactInfo: { name: "Susan Evans", organisation: "Herbert Smith Freehills", seniority: "", function: "", sector_group: "", phone: "" } });
+  const JULY = meeting({ id: "jm3", contact_url: DANIEL.url, date_held: "2026-07-20", contactInfo: { name: "Daniel Garcia", organisation: "Confluent", seniority: "", function: "", sector_group: "", phone: "" } });
+  const D2 = book({ contacts: [KAREN, DANIEL], meetingRows: [JUNE_A, JUNE_B, JULY] });
+  it("'Who was my final meeting of last month with?' → the SINGLE June record (not latest overall)", () => {
+    const r = computeForQuery("Who was my final meeting of last month with?", D2, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/final meeting of last month/i);
+    expect(r!.intro).toMatch(/Susan Evans/);
+    expect(r!.intro).not.toMatch(/Daniel Garcia/);
+  });
+  it("'meetings last month' → the June list only", () => {
+    const r = calendarMeetings("what meetings did I hold last month?", D2, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.rows.length).toBe(2);
+  });
+});
+
+describe("Batch2-C: compound-count exemption + route (retest #38)", () => {
+  it("the compound is NOT a reasoning request (intra-sentence 'of those')", () => {
+    expect(reasonRq("How many contacts do I have, and how many of those are keen?")).toBe(false);
+    expect(reasonRq("Of those FS contacts, how many have I met?")).toBe(true); // genuine prior-list scope stays gated
+  });
+  it("the compound answers BOTH halves, computed", () => {
+    const warm = contact({ first: "W", last: "One", url: "https://l/w1", messaged: true });
+    (warm as unknown as Record<string, unknown>).relationship_strength = "Warm";
+    const D3 = book({ contacts: [warm, KAREN, DANIEL] });
+    const r = compoundContactsWarm("how many contacts do i have, and how many of those are keen?", D3);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/3 contacts/);
+    expect(r!.intro).toMatch(/1 of them rate/);
+  });
+});
+
+describe("Batch2-C: vocab routes (retest #7/#13/#15/#16/#17/#22)", () => {
+  const NOOPP = contact({ first: "Twice", last: "Met", organisation: "NoDealCo", met: true, messaged: true, url: "https://l/tm" });
+  const M1 = meeting({ id: "t1", contact_url: NOOPP.url, date_held: "2026-06-01" });
+  const M2 = meeting({ id: "t2", contact_url: NOOPP.url, date_held: "2026-07-01" });
+  const D4 = book({ contacts: [NOOPP, KAREN], meetingRows: [M1, M2], opps: [opp({ organisation: "ExxonMobil", contact_url: KAREN.url })] });
+  it("'Anyone I've seen twice or more without ever opening an opportunity?' → the anti-join list", () => {
+    const r = computeForQuery("Anyone I've seen twice or more without ever opening an opportunity?", D4, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/no opportunity ever opened/i);
+    expect(r!.rows.map((x) => x.cells[0])).toEqual(["Twice Met"]);
+  });
+  it("'Which deals started in the past 2 months?' → the dated opps route (no stall path)", () => {
+    const dOpp = opp({ organisation: "ExxonMobil", contact_url: KAREN.url });
+    const mSrc = meeting({ id: "src1", contact_url: KAREN.url, date_held: "2026-07-01" });
+    const D5 = book({ contacts: [KAREN], meetingRows: [mSrc], opps: [dOpp] });
+    const r = computeForQuery("Which deals started in the past 2 months?", D5, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/first recorded activity|No opportunities with activity/i);
+  });
+  it("'Name my keen contacts where no deal exists yet.' → warmNoDeal, never a which-deal card", () => {
+    const keen = contact({ first: "Keen", last: "Person", organisation: "FreshCo", messaged: true, url: "https://l/kp" });
+    (keen as unknown as Record<string, unknown>).relationship_strength = "Keen";
+    const D6 = book({ contacts: [keen, KAREN], opps: [opp({ organisation: "ExxonMobil", contact_url: KAREN.url })] });
+    const r = computeForQuery("Name my keen contacts where no deal exists yet.", D6, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/Warm contacts with no open deal/i);
+    expect(r!.rows.map((x) => x.cells[0])).toEqual(["Keen Person"]);
+  });
+  it("'Of my deals above £100k, which have gone silent?' → risk rank WITH the threshold", () => {
+    const big = opp({ organisation: "BigCo", est_value: 150_000, current_step: "qualify" });
+    const small = opp({ organisation: "SmallCo", est_value: 50_000, current_step: "qualify" });
+    const D7 = book({ opps: [big, small] });
+    const r = computeForQuery("Of my deals above £100k, which have gone silent?", D7, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/At risk of stalling/i);
+    expect(r!.rows.map((x) => x.cells[1])).toEqual(["BigCo"]);
+  });
+  it("'Have I ever crossed paths with anyone from Rolls-Royce?' → instant honest zero", () => {
+    const r = computeForQuery("Have I ever crossed paths with anyone from Rolls-Royce?", book({ contacts: [KAREN] }), TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/no one from Rolls-Royce/i);
+  });
+  it("'How many people in my book have I still not sat down with?' → SCALAR, not a dump", () => {
+    const r = computeForQuery("How many people in my book have I still not sat down with?", book({ contacts: [KAREN, DANIEL, COLD1] }), TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.rows.length).toBe(0);
+    expect(r!.intro).toMatch(/1 of your 3 contacts/);
+  });
+  it("warmNoDeal empty book → honest zero", () => {
+    expect(warmNoDeal(book({}), TODAY).intro).toMatch(/No warm contacts without a deal/i);
+  });
+});
+
+describe("Batch2-C: owner-edit warmth precedence (retest #19)", () => {
+  it("the user's rating leads; the derived tone is a labelled parenthetical", () => {
+    const c = contact({ first: "Priya", last: "OConnor", organisation: "ExxonMobil", messaged: true, url: "https://l/po" });
+    (c as unknown as Record<string, unknown>).relationship_strength = "Warm";
+    (c as unknown as Record<string, unknown>).warmthSentiment = { score: 4 };
+    const r = contactBrief(book({ contacts: [c] }), "Priya OConnor", TODAY);
+    expect(r.intro).toMatch(/Relationship: Warm \(your rating; the message tone reads/);
   });
 });

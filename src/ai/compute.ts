@@ -10,11 +10,13 @@
 import type { BookData } from "./bookContext";
 import type { Contact, WarmthSentiment } from "../data/contacts";
 import type { Opportunity } from "../storage/opportunities";
+import type { MeetingRow } from "../data/meetings";
 import type { TabId, TabIntent } from "../components/TabNav";
 import { buildAgenda } from "../data/agenda";
 import { isCommonOrgToken } from "../data/orgTokens";
 import { oppDisplayName } from "../data/opportunities";
 import { matchSector, matchFunction } from "../data/criteria";
+import { CURRENCY_SYMBOL } from "../data/format";
 
 export type ComputeRecord = { tab: "meetings" | "contacts" | "opportunities" | "revenue"; id: string };
 export type ComputeRow = { cells: string[]; record?: ComputeRecord };
@@ -40,6 +42,70 @@ function windowDays(t: string): { days: number | null; label: string; defaulted?
   if (/\byear\b/.test(t)) return { days: 365, label: "year" };
   return { days: 14, label: "two weeks", defaulted: true };
 }
+// CALENDAR windows ("last month", "this month", "in June") — month BOUNDS, not rolling days
+// (retest #11: "final meeting of last month" got a rolling 30-day window and crowned the latest
+// meeting overall). Returns null when the text names no calendar window.
+const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+export function windowMonth(t: string, today: string): { start: string; end: string; label: string } | null {
+  const [y, mo] = [Number(today.slice(0, 4)), Number(today.slice(5, 7))];
+  const bounds = (yy: number, mm: number) => {
+    const start = `${yy}-${String(mm).padStart(2, "0")}-01`;
+    const last = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+    return { start, end: `${yy}-${String(mm).padStart(2, "0")}-${String(last).padStart(2, "0")}` };
+  };
+  if (/\blast month\b/i.test(t)) { const mm = mo === 1 ? 12 : mo - 1; const yy = mo === 1 ? y - 1 : y; return { ...bounds(yy, mm), label: "last month" }; }
+  if (/\bthis month\b/i.test(t)) return { ...bounds(y, mo), label: "this month" };
+  const m = t.toLowerCase().match(new RegExp(`\\b(?:in|during|for|of)\\s+(${MONTHS.join("|")})\\b`));
+  if (m) {
+    const mm = MONTHS.indexOf(m[1]) + 1;
+    const yy = mm > mo ? y - 1 : y; // a named month in the future means LAST year's (people ask about the past)
+    return { ...bounds(yy, mm), label: m[1][0].toUpperCase() + m[1].slice(1) };
+  }
+  return null;
+}
+
+// Meetings in a CALENDAR window, with superlative support ("final/last meeting of last month" → the
+// single record, not a 57-row dump).
+export function calendarMeetings(t: string, d: BookData, today: string): ComputeResult | null {
+  if (!/\bmeeting/i.test(t)) return null;
+  // A JOIN/compound query ("clients with an open opportunity AND a meeting last month") belongs to the
+  // relational routes — the calendar list must not hijack it.
+  if (/\b(opportunit|deals?|clients?|accounts?|companies)\b/i.test(t)) return null;
+  const win = windowMonth(t, today);
+  if (!win) return null;
+  const held = d.meetingRows
+    .filter((m) => m.meeting_stage === "Held" && m.date_held && m.date_held >= win.start && m.date_held <= win.end)
+    .sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
+  const wantsLast = /\b(final|latest|most recent)\b/i.test(t) || /\blast meeting\b/i.test(t);
+  const wantsFirst = /\b(first|earliest)\b/i.test(t);
+  if (!held.length) return { intro: `No meetings held in ${win.label} (${win.start} to ${win.end}).`, columns: [], rows: [] };
+  const single = (m: MeetingRow, which: string): ComputeResult => ({
+    intro: `Your ${which} meeting of ${win.label}: ${m.contactInfo?.name || "—"}${m.contactInfo?.organisation ? ` (${m.contactInfo.organisation})` : ""} on ${m.date_held}${m.sentiment ? ` — ${m.sentiment}` : ""}.`,
+    columns: [], rows: [{ cells: [m.date_held || "—", m.contactInfo?.name || "—", m.contactInfo?.organisation || "—", m.sentiment || "—"], record: { tab: "meetings", id: m.id } }],
+  });
+  if (wantsLast) return single(held[0], "final");
+  if (wantsFirst) return single(held[held.length - 1], "first");
+  return {
+    intro: `Meetings you held in ${win.label} (${held.length}):`,
+    columns: ["Date", "Contact", "Company", "Sentiment"],
+    rows: held.slice(0, 40).map((m) => ({ cells: [m.date_held || "—", m.contactInfo?.name || "—", m.contactInfo?.organisation || "—", m.sentiment || "—"], record: { tab: "meetings", id: m.id } })),
+  };
+}
+
+// Opportunities STARTED in a calendar window ("which deals started in June?").
+export function calendarOpps(t: string, d: BookData, today: string): ComputeResult | null {
+  if (!/\b(deals?|opportunit|pipeline)\b/i.test(t) || !/\b(started|began|begun|opened|entered|created|kicked off|came in|landed)\b/i.test(t)) return null;
+  const win = windowMonth(t, today);
+  if (!win) return null;
+  const started = d.opps.filter((o) => { const dt = oppDate(o, d); return dt && dt >= win.start && dt <= win.end; });
+  if (!started.length) return { intro: `No opportunities started in ${win.label} (dated by first recorded activity).`, columns: [], rows: [] };
+  return {
+    intro: `Opportunities that started in ${win.label} (${started.length}, dated by first recorded activity):`,
+    columns: ["Opportunity", "Company", "Stage", "Est. value"],
+    rows: started.slice(0, 30).map((o) => ({ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), money(o.est_value)], record: { tab: "opportunities", id: o.id } })),
+  };
+}
+
 const fullName = (c: Contact) => `${c.first} ${c.last}`.trim();
 function stageLabel(c: Contact): string {
   if (c.met) return "Met"; if (c.agreed_to_meet) return "Agreed to meet"; if (c.two_way) return "Two-way contact";
@@ -114,13 +180,14 @@ export function contactSignalsText(c: Contact): string {
   if (lastIn) parts.push(`The last thing they wrote to you: "${lastIn.slice(0, 240)}"`);
   return parts.length ? parts.join(".\n") + "." : "";
 }
-// £-prefixed (a UK consulting book) and CONSISTENT everywhere — the deterministic tables set the currency
-// so the model never introduces a stray "$" (the polish run had it saying "$800k" next to the tools' "800k").
+// CONSISTENT with the app's display-currency setting (retest dashboard cluster: the dashboard honoured
+// the USD toggle while the copilot said £ — a split-brain that read as broken conversion). The symbol is
+// the live binding from format.ts; figures are never converted, only labelled — same as everywhere else.
 function money(n?: number): string {
   if (!n) return "—";
-  if (n >= 1_000_000) return `£${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}m`;
-  if (n >= 1000) return `£${Math.round(n / 1000)}k`;
-  return `£${n}`;
+  if (n >= 1_000_000) return `${CURRENCY_SYMBOL}${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}m`;
+  if (n >= 1000) return `${CURRENCY_SYMBOL}${Math.round(n / 1000)}k`;
+  return `${CURRENCY_SYMBOL}${n}`;
 }
 // Opportunity status/weighting — inlined (keeps this module node-importable for the QA harness).
 const STEP_ORDER = ["meeting", "qualify", "pursuit", "scoping", "clearance", "proposal_build", "proposal_delivery", "procurement", "contracting", "setup", "delivery", "revenue"];
@@ -428,12 +495,15 @@ export function contractsAggregate(d: BookData, t: string, metric?: RevenueMetri
 // 6c. contactsMetAtLeast — count-THRESHOLD over held meetings ("met more than once", "three or more times").
 // Counts HELD meetings per contact. The keyword layer used to read "met more than once" as the plain "met"
 // filter and return everyone you'd met even once — the classic off-by-threshold error.
-export function contactsMetAtLeast(d: BookData, min: number): ComputeResult {
+export function contactsMetAtLeast(d: BookData, min: number, noOpp = false): ComputeResult {
   const count = new Map<string, number>();
   for (const m of d.meetingRows) if (m.meeting_stage === "Held" && m.contact_url) count.set(m.contact_url, (count.get(m.contact_url) || 0) + 1);
-  const list = d.contacts.filter((c) => (count.get(c.url) || 0) >= min).sort((a, b) => (count.get(b.url) || 0) - (count.get(a.url) || 0));
-  const label = min === 2 ? "more than once" : `at least ${min} times`;
-  if (!list.length) return { intro: `No one you've met ${label} — so far every contact you've met, you've met just the once.`, columns: [], rows: [] };
+  let list = d.contacts.filter((c) => (count.get(c.url) || 0) >= min).sort((a, b) => (count.get(b.url) || 0) - (count.get(a.url) || 0));
+  // ANTI-JOIN variant ("…without ever opening an opportunity"): drop anyone who is an opp's contact or
+  // whose company has any opportunity (retest #16 — this ask became a log-a-meeting card).
+  if (noOpp) list = list.filter((c) => !d.opps.some((o) => o.contact_url === c.url || orgMatches(o.organisation, c.organisation)));
+  const label = `${min === 2 ? "more than once" : `at least ${min} times`}${noOpp ? ", with no opportunity ever opened" : ""}`;
+  if (!list.length) return { intro: noOpp ? `No one you've met ${min === 2 ? "twice or more" : `${min}+ times`} is without an opportunity — everyone you've seen repeatedly has one (open or closed).` : `No one you've met ${label} — so far every contact you've met, you've met just the once.`, columns: [], rows: [] };
   const shown = list.slice(0, 40);
   const res: ComputeResult = {
     intro: `People you've met ${label} (${list.length}):`,
@@ -686,6 +756,25 @@ export function funnelBreakdown(d: BookData, dim: "sector_group" | "function" | 
   };
 }
 
+// Warm-rated contacts whose company has NO OPEN opportunity ("name my keen contacts where no deal
+// exists yet" — retest #15, which fired a which-deal disambiguator instead). Warm+ = owner rating or
+// message-tone Keen/Warm.
+export function warmNoDeal(d: BookData, today: string): ComputeResult {
+  void today;
+  const rel = (c: Contact) => String((c as unknown as Record<string, unknown>).relationship_strength || "");
+  const openOrgs = new Set(d.opps.filter((o) => oppStatus(o) === "Open").map((o) => foldAccents(o.organisation || "")));
+  const openUrls = new Set(d.opps.filter((o) => oppStatus(o) === "Open").map((o) => o.contact_url).filter(Boolean));
+  const list = d.contacts.filter((c) =>
+    (/^(warm|keen|hot)$/i.test(rel(c)) || ["Keen", "Warm"].includes(warmthLabel(c.warmthSentiment)))
+    && !openUrls.has(c.url) && !openOrgs.has(foldAccents(c.organisation || "")));
+  if (!list.length) return { intro: "No warm contacts without a deal right now — everyone rated Warm or Keen already has an open opportunity at their company.", columns: [], rows: [] };
+  return {
+    intro: `Warm contacts with no open deal yet (${list.length}) — your likeliest new opportunities:`,
+    columns: ["Name", "Role", "Company", "Warmth"],
+    rows: list.slice(0, 30).map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", warmthCell(c) !== "—" ? warmthCell(c) : rel(c) || "—"], record: { tab: "contacts", id: c.url } })),
+  };
+}
+
 // 8c. stageBreakdown — the network by FUNNEL STAGE (furthest stage reached, mutually exclusive).
 // Exists so "contacts by stage" is a real dimension — before this, the router approximated "stage"
 // to the nearest tool (sector) and silently swapped the user's dimension (Gate-0 retest #2).
@@ -718,6 +807,29 @@ export function resolveContact(d: BookData, ref: string, today: string): Contact
   const partial = d.contacts.filter((c) => foldAccents(fullName(c)).includes(r) || r.includes(foldAccents(fullName(c))));
   return partial.length === 1 ? partial[0] : (partial.sort((a, b) => warmth(b, lm, today) - warmth(a, lm, today))[0] ?? null);
 }
+// Say WHICH way past opportunities went — the record knows, so "(won or lost)" hedging is banned
+// (retest #23/#37 nit).
+function pastLabel(all: Opportunity[]): string {
+  const won = all.filter((o) => oppStatus(o) === "Won").length;
+  const lost = all.filter((o) => oppStatus(o) === "Lost").length;
+  const bits = [won ? `${won} won` : "", lost ? `${lost} lost` : ""].filter(Boolean);
+  return bits.length ? bits.join(", ") : "none past";
+}
+
+function ownerWarmthLine(c: Contact): string {
+  const rel = String((c as unknown as Record<string, unknown>).relationship_strength || "").trim();
+  const tone = c.warmthSentiment ? warmthCell(c) : "";
+  if (rel && tone) {
+    const toneLabel = warmthLabel(c.warmthSentiment);
+    const agree = toneLabel.toLowerCase() === rel.toLowerCase();
+    return agree ? `Relationship: ${rel} (your rating — the message tone agrees).`
+      : `Relationship: ${rel} (your rating; the message tone reads ${tone}).`;
+  }
+  if (rel) return `Relationship: ${rel} (your rating).`;
+  if (tone) return `Warmth: ${tone} (from the tone of their messages).`;
+  return "";
+}
+
 export function contactBrief(d: BookData, ref: string, today: string): ComputeResult {
   // Bare SHARED first name → DISAMBIGUATE rather than silently briefing the warmest match. Picking one
   // unverified builds every later turn (a drafted email!) on the wrong person — confidentiality-grade. Only
@@ -750,12 +862,15 @@ export function contactBrief(d: BookData, ref: string, today: string): ComputeRe
   const lines = [
     `${fullName(c)} — ${c.position || "—"} at ${c.organisation || "—"}.`,
     `Stage: ${stageLabel(c)}.${meetings.length ? ` ${meetings.length} meeting${meetings.length === 1 ? "" : "s"}, last on ${meetings[0].date_held} (${meetings[0].sentiment || "—"}).` : " No meetings logged yet."}`,
-    c.warmthSentiment ? `Warmth: ${warmthCell(c)} (from the tone of their messages).` : "",
+    // OWNER-SET relationship rating takes precedence (retest #19: the derived tone overrode the user's
+    // own "Warm" and contradicted the dashboard). The derived tone shows as a labelled parenthetical
+    // when it disagrees — a feature, not a conflict.
+    ownerWarmthLine(c),
     owed,
     c.latentOpp?.text ? `Possible opportunity spotted in your messages: ${c.latentOpp.text}.` : "",
     // STATUS-LABELLED related opps (Gate-0 #14 fix item): open counted as "related"; won/lost named as
     // PAST — the old statusless count had the narration advising users to chase dead deals.
-    opps.length ? `${opps.length} open opportunit${opps.length === 1 ? "y" : "ies"} at ${c.organisation}${pastOpps ? ` (plus ${pastOpps} past — won or lost)` : ""}.` : pastOpps ? `No open opportunities at ${c.organisation} — ${pastOpps} past (won or lost).` : "",
+    opps.length ? `${opps.length} open opportunit${opps.length === 1 ? "y" : "ies"} at ${c.organisation}${pastOpps ? ` (plus ${pastLabel(allOpps)})` : ""}.` : pastOpps ? `No open opportunities at ${c.organisation} — ${pastLabel(allOpps)}.` : "",
   ].filter(Boolean);
   return {
     intro: lines.join("\n"),
@@ -824,7 +939,7 @@ export function accountSummary(d: BookData, company: string): ComputeResult {
   ].filter(Boolean);
   const res: ComputeResult = {
     subject: { kind: "org", id: org, label: org },
-    intro: `${org}: ${people.length} contact${people.length === 1 ? "" : "s"}, ${meetings} meeting${meetings === 1 ? "" : "s"} held, ${opps.length} open opportunit${opps.length === 1 ? "y" : "ies"}${openVal ? ` (${money(openVal)})` : ""}${pastOpps ? ` + ${pastOpps} past (won/lost)` : ""}.${sigBits.length ? `\nRelationship read: ${sigBits.join(" · ")}.` : ""}`,
+    intro: `${org}: ${people.length} contact${people.length === 1 ? "" : "s"}, ${meetings} meeting${meetings === 1 ? "" : "s"} held, ${opps.length} open opportunit${opps.length === 1 ? "y" : "ies"}${openVal ? ` (${money(openVal)})` : ""}${pastOpps ? ` + ${pastLabel(allOpps)}` : ""}.${sigBits.length ? `\nRelationship read: ${sigBits.join(" · ")}.` : ""}`,
     columns: ["Name", "Role", "Stage"],
     rows: people.slice(0, 20).map((c) => ({ cells: [fullName(c), c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
     // Hint to the caller: blend in what this organisation actually DOES (a brokered web/entity lookup),
@@ -872,7 +987,7 @@ export function oppDate(o: Opportunity, d: BookData): string {
 }
 // CONSTRAINT PRESERVATION on temporal asks: FILTER when a date is derivable; SURRENDER honestly for the
 // records that carry no date at all — never silently drop the window (Gate-0 #10/#13 master invariant).
-const TEMPORAL_Q = /\b(?:this|last|past|recent)\s+(?:week|month|quarter|year)\b|\bthis (?:week|month|quarter|year)\b|\blast \d+\s*(?:day|week|month)|\bytd\b|\byear to date\b|\brecently\b|\bcreated (?:this|last|in|recently)\b|\bfrom the last\b|\bnew (?:this|last)\b/;
+const TEMPORAL_Q = /\b(?:this|last|past|recent)\s+(?:week|month|quarter|year)\b|\bthis (?:week|month|quarter|year)\b|\b(?:last|past|previous)\s+\d+\s*(?:day|week|month)|\bytd\b|\byear to date\b|\brecently\b|\bcreated (?:this|last|in|recently)\b|\bfrom the last\b|\bnew (?:this|last)\b/;
 function withDateSurrender(res: ComputeResult, t: string, what: string): ComputeResult {
   if (!TEMPORAL_Q.test(t)) return res;
   return { ...res, intro: `${res.intro}\n(Note: showing all-time — I can't date ${what} precisely here, so the time window in your question isn't applied.)` };
@@ -923,7 +1038,7 @@ function extractCompany(t: string, d: BookData): string | undefined {
 // it isn't a threshold query. "more than once"/"twice" → 2; "three or more times"/"at least 3" → 3;
 // "more than twice" → 3. Negated forms ("haven't met") are excluded — those are a different question.
 function meetThreshold(t: string): number | null {
-  if (!/\bmet\b/.test(t) || /\bhaven'?t\b|\bhasn'?t\b|\bnever\b|\bnot\b/.test(t)) return null;
+  if (!/\b(?:met|seen|sat down with)\b/.test(t) || /\bhaven'?t\b|\bhasn'?t\b|\bnever\b|\bnot\b/.test(t)) return null;
   const W: Record<string, number> = { once: 1, twice: 2, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
   const num = (s: string) => W[s.toLowerCase()] ?? Number(s);
   let m;
@@ -985,7 +1100,11 @@ export function isReasoningRequest(text: string): boolean {
   // risk?") still routes deterministically.
   if (/\b(?:of|between) (?:the )?(?:two|three|four)\b/i.test(s)) return true;
   // A scoped count that depends on the prior list ("of those FS contacts, how many have I met?").
-  if (/\bof those\b[^?]*\bhow many\b/i.test(s) || /\bhow many of (?:those|these|them)\b/i.test(s)) return true;
+  // EXEMPT the SELF-CONTAINED compound ("how many contacts do I have, and how many of those are keen?"):
+  // there "those" refers to the first clause of the SAME sentence, not a prior list — treating it as
+  // thread-dependent handed retest #38 to the model path, which fabricated "10 contacts".
+  const selfContainedCompound = /\bhow many\b[^?]*\b(?:contacts?|people|connections?|meetings?|deals?|opportunit\w+|engagements?|clients?|leads?)\b[^?]*\bhow many of (?:those|these|them)\b/i.test(s);
+  if (!selfContainedCompound && (/\bof those\b[^?]*\bhow many\b/i.test(s) || /\bhow many of (?:those|these|them)\b/i.test(s))) return true;
   // A count/share that depends on prior context ("what percentage of my book is that?").
   if (/\bwhat (?:percentage|proportion|share|fraction|%)\b/i.test(s)) return true;
   // Per-item GENERATION the tools can't do ("draft each a different angle", "write them both a note").
@@ -1024,6 +1143,21 @@ export function contactsCount(d: BookData): ComputeResult {
     columns: [], rows: [], more: { count: n, tab: "contacts", intent: {} },
   };
 }
+// COMPOUND count ("how many contacts do I have, and how many of those are keen/warm?") — BOTH halves
+// answered in one computed sentence (retest #38's question, post-exemption). Warm+ = the owner-set
+// relationship_strength (Warm/Keen/Hot) OR a scored message-tone of Warm or better.
+export function compoundContactsWarm(t: string, d: BookData): ComputeResult | null {
+  if (!/\bhow many\b[^?]*\b(?:contacts?|people|connections?)\b[^?]*\b(?:and\b|,)[^?]*\bhow many (?:of (?:those|these|them) )?are\b[^?]*\b(keen|warm|hot|engaged|interested|enthusiastic)\b/i.test(t)) return null;
+  const n = d.contacts.length;
+  const rel = (c: Contact) => String((c as unknown as Record<string, unknown>).relationship_strength || "");
+  const warmSet = d.contacts.filter((c) => /^(warm|keen|hot)$/i.test(rel(c)) || ["Keen", "Warm"].includes(warmthLabel(c.warmthSentiment)));
+  return {
+    intro: `${n.toLocaleString()} contacts in your book — ${warmSet.length.toLocaleString()} of them rate Warm or Keen (your own relationship ratings plus the message-tone read).`,
+    columns: [], rows: [],
+    more: { count: warmSet.length, tab: "contacts", intent: {} },
+  };
+}
+
 // Scalar opportunity COUNT — open/won/lost + value in a sentence.
 export function oppsCount(d: BookData): ComputeResult {
   const open = d.opps.filter((o) => oppStatus(o) === "Open");
@@ -1185,8 +1319,33 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
   // Deixis with no named entity → the thread owns the referent; the router/grounded path resolves it.
   if (deicticWithoutEntity(text, d)) return null;
   // COUNT-shaped asks → scalar answers (the number IS the answer — never a 40-row dump).
+  // CALENDAR windows (retest #11/#13): month-bounded meetings/deals, superlative-aware — checked before
+  // the count shapes so "who was my final meeting of last month with?" gets the single record.
+  { const cal = calendarMeetings(text, d, today) || calendarOpps(text, d, today); if (cal) return cal; }
+  // Warm/keen contacts with no deal (retest #15) — the subject is CONTACTS, so the deal-word must never
+  // pull this into opportunity land.
+  if (/\b(keen|warm(?:est)?|enthusiastic|interested|engaged|hot)\b[^?]*\b(contacts?|people|leads?|relationships?)\b[^?]*\b(?:no|without|not? )\b[^?]*\b(?:deal|opportunit)/i.test(t)
+    || /\b(contacts?|people|leads?)\b[^?]*\b(keen|warm|enthusiastic|interested|engaged)\b[^?]*\b(?:no|without)\b[^?]*\b(?:deal|opportunit)/i.test(t)) return warmNoDeal(d, today);
+  // Company-existence sweep ("crossed paths with anyone from X", "know anyone at X") — a deterministic
+  // org lookup with a fast honest zero (retest #22 rode the model path into a 179s stall).
+  {
+    const cp = t.match(/\b(?:crossed paths with|know anyone (?:at|from)|met anyone (?:at|from)|anyone from|anybody (?:at|from))\s+([a-z0-9][a-z0-9 .&''\-]{1,40}?)\s*[?.!]?\s*$/i);
+    if (cp) {
+      const org = cp[1].trim().replace(/^(?:anyone|anybody|someone|people)\s+(?:at|from)\s+/i, "");
+      const hits = d.contacts.filter((c) => orgMatches(c.organisation, org));
+      if (!hits.length) return { intro: `No — no one from ${org} in your book yet. Want me to keep an eye out as you add contacts?`, columns: [], rows: [] };
+      return findContacts(d, { company: org });
+    }
+  }
   if (COUNT_SHAPE.test(t)) {
     const negated = /\b(never|haven'?t|hasn'?t|without|not)\b/.test(t);
+    { const comp = compoundContactsWarm(t, d); if (comp) return comp; }
+    // NEGATED contact count ("how many have I still not met/sat down with?") → the SCALAR, not a 40-row
+    // dump (retest #7: right number, wrong shape). The full list stays one click away.
+    if (negated && /\b(contacts?|people|connections?)\b/.test(t) && /\b(met|meet|seen|sat down|sit down)\b/.test(t) && !/\bopportunit|\bdeals?\b/.test(t)) {
+      const never = d.contacts.filter((c) => !c.met).length;
+      return { intro: `${never.toLocaleString()} of your ${d.contacts.length.toLocaleString()} contacts you've never met.`, columns: [], rows: [], more: { count: never, tab: "contacts", intent: { filter: { key: "met", value: "No" } } } };
+    }
     if (/\bby (?:funnel )?stage\b|\bper stage\b|\bat each stage\b|\beach stage\b/.test(t)) return stageBreakdown(d);
     if (/\bmeetings?\b/.test(t) && !/\bopportunit|\bdeals?\b/.test(t) && !negated) return meetingsCount(d, today, t);
     if (/\b(contacts?|people|connections?|network)\b/.test(t) && !/\bopportunit|\bdeals?\b|\bmeeting|\bwarm|\bcold/.test(t) && !negated) return contactsCount(d);
@@ -1222,7 +1381,7 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
     if (sec) return opportunitiesBySector(d, sec);
   }
   // Count-THRESHOLD on meetings ("met more than once / three or more times").
-  { const min = meetThreshold(t); if (min && min >= 2) return contactsMetAtLeast(d, min); }
+  { const min = meetThreshold(t); if (min && min >= 2) return contactsMetAtLeast(d, min, /\b(?:no|without|never)\b[^?]*\b(?:deal|opportunit)/i.test(t)); }
   return null;
 }
 
@@ -1248,8 +1407,33 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   if (deicticWithoutEntity(text, d)) return null;
   const t = text.toLowerCase();
   // COUNT-shaped asks → scalar answers, never a row dump (Gate-0 #1/#5).
+  // CALENDAR windows (retest #11/#13): month-bounded meetings/deals, superlative-aware — checked before
+  // the count shapes so "who was my final meeting of last month with?" gets the single record.
+  { const cal = calendarMeetings(text, d, today) || calendarOpps(text, d, today); if (cal) return cal; }
+  // Warm/keen contacts with no deal (retest #15) — the subject is CONTACTS, so the deal-word must never
+  // pull this into opportunity land.
+  if (/\b(keen|warm(?:est)?|enthusiastic|interested|engaged|hot)\b[^?]*\b(contacts?|people|leads?|relationships?)\b[^?]*\b(?:no|without|not? )\b[^?]*\b(?:deal|opportunit)/i.test(t)
+    || /\b(contacts?|people|leads?)\b[^?]*\b(keen|warm|enthusiastic|interested|engaged)\b[^?]*\b(?:no|without)\b[^?]*\b(?:deal|opportunit)/i.test(t)) return warmNoDeal(d, today);
+  // Company-existence sweep ("crossed paths with anyone from X", "know anyone at X") — a deterministic
+  // org lookup with a fast honest zero (retest #22 rode the model path into a 179s stall).
+  {
+    const cp = t.match(/\b(?:crossed paths with|know anyone (?:at|from)|met anyone (?:at|from)|anyone from|anybody (?:at|from))\s+([a-z0-9][a-z0-9 .&''\-]{1,40}?)\s*[?.!]?\s*$/i);
+    if (cp) {
+      const org = cp[1].trim().replace(/^(?:anyone|anybody|someone|people)\s+(?:at|from)\s+/i, "");
+      const hits = d.contacts.filter((c) => orgMatches(c.organisation, org));
+      if (!hits.length) return { intro: `No — no one from ${org} in your book yet. Want me to keep an eye out as you add contacts?`, columns: [], rows: [] };
+      return findContacts(d, { company: org });
+    }
+  }
   if (COUNT_SHAPE.test(t)) {
     const negated = /\b(never|haven'?t|hasn'?t|without|not)\b/.test(t);
+    { const comp = compoundContactsWarm(t, d); if (comp) return comp; }
+    // NEGATED contact count ("how many have I still not met/sat down with?") → the SCALAR, not a 40-row
+    // dump (retest #7: right number, wrong shape). The full list stays one click away.
+    if (negated && /\b(contacts?|people|connections?)\b/.test(t) && /\b(met|meet|seen|sat down|sit down)\b/.test(t) && !/\bopportunit|\bdeals?\b/.test(t)) {
+      const never = d.contacts.filter((c) => !c.met).length;
+      return { intro: `${never.toLocaleString()} of your ${d.contacts.length.toLocaleString()} contacts you've never met.`, columns: [], rows: [], more: { count: never, tab: "contacts", intent: { filter: { key: "met", value: "No" } } } };
+    }
     if (/\bby (?:funnel )?stage\b|\bper stage\b|\bat each stage\b|\beach stage\b/.test(t)) return stageBreakdown(d);
     if (/\bmeetings?\b/.test(t) && !/\bopportunit|\bdeals?\b/.test(t) && !negated) return meetingsCount(d, today, t);
     if (/\b(contacts?|people|connections?|network)\b/.test(t) && !/\bopportunit|\bdeals?\b|\bmeeting|\bwarm|\bcold|\bat\s+[a-z]/.test(t) && !negated) return contactsCount(d);
@@ -1340,7 +1524,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   if ((/\bwarm(est)?\b/.test(t) && /\blead|contact|people|prospect|relationship/.test(t)) || /\bhottest\b/.test(t) || /\bmost engaged\b/.test(t) || /\bbest (?:lead|contact|relationship|prospect)/.test(t) || /\bstrongest relationship/.test(t)) return rankContacts(d, "warmth", today);
   if (/\b(biggest|largest|highest[- ]value|top|most valuable)\b[^?]*\b(deals?|opportunit)/.test(t)) return rankOpportunities(d, "value", parseMinValue(t));
   if (/\b(most likely to close|closest to closing|highest probability|best chance|likeliest)\b/.test(t)) return rankOpportunities(d, "probability");
-  if (/\b(at risk|stalled|stalling|going cold|cooling|slipping|neglected|gone quiet)\b[^?]*\b(deals?|opportunit|pipeline)/.test(t) || /\b(deals?|opportunit)[^?]*\b(at risk|stalled|stalling|going cold|cooling|slipping|gone quiet)\b/.test(t)) return rankOpportunities(d, "risk", parseMinValue(t));
+  if (/\b(at risk|stalled|stalling|going cold|cooling|slipping|neglected|gone (?:quiet|silent|dark))\b[^?]*\b(deals?|opportunit|pipeline)/.test(t) || /\b(deals?|opportunit)[^?]*\b(at risk|stalled|stalling|going cold|cooling|slipping|gone (?:quiet|silent|dark))\b/.test(t)) return rankOpportunities(d, "risk", parseMinValue(t));
   // Follow-up form after a pipeline/deals table ("which of those is most at risk?") — "at risk of stalling"
   // is inherently about DEALS, so route it deterministically even without the deal/opportunity keyword
   // (the model otherwise misreads pipeline-summary metric rows like "Open value" as if they were deals).
@@ -1383,7 +1567,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   if (/(haven'?t|hasn'?t|hadn'?t|didn'?t|doesn'?t|don'?t|not|no|never)\s+(responded|replied|heard back|got back|answered)/.test(t) || /\b(?:un|non)-?responsive\b|\bghosted\b|\bno reply\b|\bgone silent\b/.test(t)) return findContacts(d, { stage: "not_responded" });
   // Count-THRESHOLD on meetings ("met more than once / twice / three or more times") — a subset of "met",
   // NOT the whole met set. Must precede the plain "met" route below, which would otherwise ignore the count.
-  { const min = meetThreshold(t); if (min && min >= 2) return contactsMetAtLeast(d, min); }
+  { const min = meetThreshold(t); if (min && min >= 2) return contactsMetAtLeast(d, min, /\b(?:no|without|never)\b[^?]*\b(?:deal|opportunit)/i.test(t)); }
   if (/\b(people|who|contacts)\b[^?]*\b(?:i'?ve|i have|have i)\s+met\b/.test(t) && !/haven'?t|hasn'?t|not/.test(t)) return findContacts(d, { stage: "met" });
   if (/\bdecision[- ]?makers?\b|\bc-?suite\b|\bexecutives?\b|\bsenior (?:people|contacts|leaders|stakeholders)\b/.test(t)) {
     // Honour a funnel qualifier in the SAME question ("...C-suite I've actually met" → met only).
@@ -1408,7 +1592,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
     if (sec) return opportunitiesBySector(d, sec);
   }
   // ── Opportunities / deals ───────────────────────────────────────────────────────────────────────
-  if (/\bopportunit|\bdeals?\b/.test(t) && (LIST_VERB.test(t) || /\b(open|won|lost|any|all|my)\b/.test(t))) {
+  if (/\bopportunit|\bdeals?\b/.test(t) && (LIST_VERB.test(t) || /\b(open|won|lost|any|all|my|started|began|begun|opened|entered|created|kicked off|landed|came in)\b/.test(t))) {
     const filt: OppFilter = { status: (/\bwon\b/.test(t) ? "Won" : /\blost\b/.test(t) ? "Lost" : "Open") as OppFilter["status"], minValue: parseMinValue(t), company: extractCompany(t, d) };
     return findOpportunitiesDated(d, today, t, filt);
   }
