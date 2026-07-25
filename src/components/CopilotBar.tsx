@@ -18,9 +18,9 @@ import { todayISO } from "../data/agenda";
 import { isCommonOrgToken } from "../data/orgTokens";
 import { useAiAvailable, aiAvailability, aiPromptStream, aiJson, searchAvailable, searchWeb, searchEntity, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
 import { BusinessBookLogo } from "./Brand";
-import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
+import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -1073,6 +1073,27 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         return;
       }
     }
+    // CARD-CONTEXT META COMMANDS (front door step 1, Batch 2): a bare "cancel that" aimed at an open
+    // draft card must close the card — the retest (#30) had it spawning a SECOND card with "Cancel
+    // that." as its notes. With no card open it gets an honest one-liner instead of the router.
+    if (!docText && cancelIntent(text)) {
+      const hasCard = prior.some((t) => t.role === "action" && t.action && t.action.status !== "saved");
+      const reply = hasCard ? "Closed that draft — nothing was saved." : "Nothing's pending — there was no draft open to cancel.";
+      const next: UITurn[] = [...prior.filter((t) => !(t.role === "action" && t.action && t.action.status !== "saved")), { role: "you", text }, { role: "ai", text: reply }];
+      persistTo(id, [...history, { role: "you", text }, { role: "ai", text: reply }]);
+      if (chatIdRef.current === id) setChat(next);
+      setAsking(false); markDone(id);
+      return;
+    }
+    // "Note on <contact>: …" is ALWAYS a contact update (front door step 3 — retest #44 sent an exact
+    // contact name to a which-DEAL disambiguator). Deterministic: exact/known contact only.
+    if (!docText) {
+      const noteCmd = noteOnContact(text, data, today);
+      if (noteCmd) {
+        await startAction("contact", "update", noteCmd.name, text, prior, id, text);
+        return;
+      }
+    }
     // DETERMINISTIC PERSONAL FLOOR — the same principle as the crisis floor, one notch down. A CLEARLY
     // personal/emotional message (small talk, a life/career decision, or a personal register with no BD
     // intent) is routed to the companion BEFORE the LLM router runs — so a tiny on-device router can't
@@ -1101,6 +1122,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // Nano — no LLM router) keep the full keyword router as their router, now with the constraint/
       // deixis/negation guards. The keyword router remains the error fallback for capable tiers below.
       const prevUserText = [...prior].reverse().find((tn) => tn.role === "you")?.text;
+      // RESOLVER-FIRST (front door step 4): any look-up verb + a name reaches the deterministic
+      // contactBrief — which disambiguates shared first names, falls to accountSummary for orgs, and
+      // answers not-found honestly and FAST. The retest lost five turns (incl. a fabricated person and
+      // a 507s stall) to brief synonyms riding the model path.
+      const brief = frontDoorBrief(text, data, today);
+      if (brief) { await renderCompute(brief); return; }
       const preCapable = capabilityLevel(avail.backend, avail.model) !== "small";
       const pre = preCapable ? computeExact(text, data, today) : computeForQuery(text, data, today, prevUserText);
       if (pre) { await renderCompute(pre); return; }
@@ -1109,7 +1136,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // bare "add a contact" to companion ("give me their details…") instead of the empty form. Scoped to the
       // dictionary phrasings (not the softer "met/coffee" signal) so reflective turns still reach the model.
       const actIntent = routeIntent(text, { hasDoc: false });
-      if (isActionIntent(actIntent) && actIntent.entity && actIntent.source === "dictionary") {
+      if (isActionIntent(actIntent) && actIntent.entity && actIntent.source === "dictionary" && !questionBlocksAction(text)) {
         await startAction(actIntent.entity, actIntent.op ?? "create", actIntent.target ?? text, text, prior, id, text);
         return;
       }
@@ -1126,7 +1153,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       if (routerCapable) {
         let routeTimer: ReturnType<typeof setTimeout> | undefined;
         const routeTimeout = new Promise<null>((resolve) => { routeTimer = setTimeout(() => resolve(null), 22_000); });
-        try { routed = await Promise.race([aiJson<RouteResult>(routerPrompt(text, history)), routeTimeout]); }
+        try {
+          const rawRoute = await Promise.race([aiJson<Record<string, unknown>>(routerPrompt(text, history)), routeTimeout]);
+          routed = normalizeRoute(rawRoute); // schema-tolerant: accepts the malformed-but-obvious shapes seen in the LM Studio logs
+        }
         catch { routed = null; }
         finally { if (routeTimer) clearTimeout(routeTimer); }
       }
@@ -1135,16 +1165,26 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         // domain the question names (and varied across general asks so it doesn't read identically each time).
         await renderCompute(capabilitiesResult(text));
         return;
-      } else if (routed?.route === "action" && routed.entity) {
+      } else if (routed?.route === "action" && routed.entity && !questionBlocksAction(text)) {
         // The model says the user is recording data → open the propose→confirm card (fields extracted by the
-        // model inside startAction). text is both the display bubble and the extraction source (no attachment here).
+        // model inside startAction). text is both the display bubble and the extraction source (no attachment
+        // here). Question-shaped turns are BLOCKED from this route (retest #16/#30/#36/#46) and fall through.
         await startAction(routed.entity, routed.op ?? "create", text, text, prior, id, text);
         return;
       } else if (routed?.route === "tool" && routed.tool) {
-        const result = runTool({ tool: routed.tool, args: routed.args }, data, today, text);
+        // DISPATCH GUARD (Batch 2): revenueAggregate needs revenue vocabulary in the actual message — the
+        // local router defaulted to it for any aggregate-sounding ask (retest #3/#5). Re-route through the
+        // deterministic layer instead of trusting the claim.
+        let toolCall = { tool: routed.tool, args: routed.args };
+        if (routed.tool === "revenueAggregate" && !revenueVocabOk(text)) {
+          const det = computeForQuery(text, data, today, prevUserText);
+          if (det) { await renderCompute(det); return; }
+          if (/\b(open|pipeline|deals?|opportunit)\b/i.test(text)) toolCall = { tool: "pipelineStats", args: {} };
+        }
+        const result = runTool(toolCall, data, today, text);
         // Empty tool result → don't dead-end; fall through to the grounded book answer below.
         if (result && (result.rows.length || result.intro)) { await renderCompute(result); return; }
-      } else if (routed?.route === "chat") {
+      } else if (routed?.route === "chat" && !bookShapedText(text, data)) {
         await streamCompanion(text, prior, id, history, capabilityLevel(avail.backend, avail.model));
         return;
       } else if (!routed || routed.route !== "book") {
@@ -1157,16 +1197,17 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         const cap = capabilitiesResponse(text);
         if (cap) { await renderCompute(cap); return; }
         const rgx = routeIntent(text, { hasDoc: false });
-        if (isActionIntent(rgx) && rgx.entity) {
+        if (isActionIntent(rgx) && rgx.entity && !questionBlocksAction(text)) {
           await startAction(rgx.entity, rgx.op ?? "create", rgx.target ?? text, text, prior, id, text);
           return;
         }
-        const prevText = [...prior].reverse().find((tn) => tn.role === "you")?.text;
-        const computed = computeForQuery(text, data, today, prevText);
+        const computed = computeForQuery(text, data, today, prevUserText);
         if (computed) { await renderCompute(computed); return; }
-        const prevUserText = [...prior].reverse().find((tn) => tn.role === "you")?.text || "";
+        // COMPANION GATE (Batch 2): a BOOK-shaped question must never land on the companion — asked book
+        // stats it fabricates them (retest #38: "10 contacts"). Book-shaped fallthroughs go to the
+        // grounded path below (real data in context) instead.
         const prevCompanion = !!prevUserText && conversationPath(prevUserText, data) === "companion";
-        if (conversationPath(text, data, prevCompanion) === "companion") {
+        if (!bookShapedText(text, data) && conversationPath(text, data, prevCompanion) === "companion") {
           await streamCompanion(text, prior, id, history, capabilityLevel(avail.backend, avail.model));
           return;
         }

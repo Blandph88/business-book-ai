@@ -90,9 +90,14 @@ export function conversationPath(text: string, d: BookData, prevCompanion = fals
 // still reach the LLM router. Used as a DETERMINISTIC pre-router floor alongside the crisis floor: a
 // clearly personal message is caught BEFORE the LLM router, so a tiny on-device model can't misroute
 // "work is grinding me down" into a pipeline/book answer. (crisis is handled separately by the caller.)
+// Personal MONEY decisions ("should I put my savings into index funds?") belong to the companion —
+// which answers warmly WITH the not-a-financial-advisor caveat (Phil's ratified behaviour). The retest
+// (#49) showed this phrasing slipping past the floor to a capabilities-list decline.
+const MONEY_DECISION = /\b(?:my (?:savings|money|pension|mortgage|finances|investments?)|index funds?|etfs?|stock market|crypto(?:currency)?|financial advi[cs]e|(?:should|shall) i (?:put|invest|save|buy (?:a house|property|stocks|shares|crypto)))\b/i;
+
 export function clearlyPersonal(text: string): boolean {
   if (BOOK_INTENT.test(text) || BD_EXTRA.test(text)) return false;
-  return SMALL_TALK.test(text) || LIFE_DECISION.test(text) || personalRegister(text);
+  return SMALL_TALK.test(text) || LIFE_DECISION.test(text) || MONEY_DECISION.test(text) || personalRegister(text);
 }
 
 export type Hit = { id: string; main: string; meta: string };

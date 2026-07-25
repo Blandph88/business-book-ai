@@ -460,20 +460,51 @@ export type RouteResult = {
 
 // JSON schema handed to the backend for constrained decoding — the model literally cannot emit an invalid
 // route, tool, or entity. Args are left loose (runTool tolerates partial/typed args defensively).
+export const TOOL_NAMES = ["findContacts", "findMeetings", "findOpportunities", "findContracts", "rankContacts", "rankOpportunities", "pipelineStats", "pipelineAggregate", "revenueAggregate", "funnelBreakdown", "contactBrief", "accountSummary", "weeklyFocus", "owedReplies", "latentOpportunities", "oppsWithoutMeeting", "oppsWithRecentMeeting", "meetingsWithoutOpp", "accountsWithOppAndContacts", "coldAtActiveAccounts", "contactsMetAtLeast", "personalSnapshot", "compareEntities", "stageBreakdown"] as const;
+
 export const ROUTER_SCHEMA = {
   type: "object",
   properties: {
     route: { type: "string", enum: ["tool", "chat", "book", "action", "help"] },
-    tool: {
-      type: "string",
-      enum: ["findContacts", "findMeetings", "findOpportunities", "findContracts", "rankContacts", "rankOpportunities", "pipelineStats", "pipelineAggregate", "revenueAggregate", "funnelBreakdown", "contactBrief", "accountSummary", "weeklyFocus", "owedReplies", "latentOpportunities", "oppsWithoutMeeting", "oppsWithRecentMeeting", "meetingsWithoutOpp", "accountsWithOppAndContacts", "coldAtActiveAccounts", "contactsMetAtLeast", "personalSnapshot"],
-    },
+    tool: { type: "string", enum: TOOL_NAMES as unknown as string[] },
     args: { type: "object" },
     entity: { type: "string", enum: ["contact", "meeting", "opportunity", "contract"] },
     op: { type: "string", enum: ["create", "update"] },
   },
   required: ["route"],
 } as const;
+
+// SCHEMA-TOLERANT route parsing (Batch 2): the LM Studio logs caught the local router emitting
+// {"route":"findOpportunities",...}, {"route":"contactBrief","name":…} and {"route":"accountSummary",
+// "company":…} — all obvious, all previously dropped to the expensive fallback path (which is where
+// every stall lived). Normalise the shapes we've SEEN plus their trivial variants; anything still
+// ambiguous stays null so the caller's honest fallback runs.
+export function normalizeRoute(raw: unknown): RouteResult | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  let route = typeof r.route === "string" ? r.route : "";
+  let tool = typeof r.tool === "string" ? r.tool : "";
+  const known = (n: string) => (TOOL_NAMES as readonly string[]).includes(n);
+  if (!route && tool && known(tool)) route = "tool";
+  if (route && route !== "tool" && known(route)) { if (!tool) tool = route; route = "tool"; }
+  if (route === "tool" && !known(tool)) {
+    const alt = [r.name, r.toolName, r.fn].find((v) => typeof v === "string" && known(v as string));
+    if (alt) tool = alt as string; else return null;
+  }
+  // Lift stray top-level arg keys into args (seen: name/company at the top level).
+  const args: Record<string, unknown> = r.args && typeof r.args === "object" ? { ...(r.args as Record<string, unknown>) } : {};
+  for (const k of ["name", "company", "dimension", "by", "metric", "windowDays", "direction", "status", "min", "sector"]) {
+    if (args[k] == null && r[k] != null && k in r) args[k] = r[k];
+  }
+  if (route === "tool") return { route: "tool", tool, args } as RouteResult;
+  if (route === "action") {
+    const entity = typeof r.entity === "string" ? r.entity : "";
+    if (!["contact", "meeting", "opportunity", "contract"].includes(entity)) return null;
+    return { route: "action", entity, op: r.op === "update" ? "update" : "create" } as RouteResult;
+  }
+  if (["chat", "book", "help"].includes(route)) return { route } as RouteResult;
+  return null;
+}
 
 // The router's history digest: FIXED budget regardless of thread length (Gate-0 #17 — an 18-turn thread's
 // raw history, full of persisted table markdown, crowded the router's context on-device until tool
@@ -482,8 +513,16 @@ export const ROUTER_SCHEMA = {
 // O(1) in conversation length.
 function routerHistoryDigest(history: ChatTurn[]): string {
   if (!history.length) return "";
-  const strip = (s: string) => s.replace(/^\|.*$/gm, "").replace(/\s+/g, " ").trim();
-  const lines = history.slice(-4).map((h) => `${h.role === "you" ? "User" : "Assistant"}: ${strip(h.text).slice(0, h.role === "you" ? 220 : 160)}`);
+  const strip = (s: string) => s
+    .replace(/^\|.*$/gm, "")
+    // Card scaffolding + save receipts are DELIVERY, not conversation subjects — leaving them in primed
+    // the router to route every subsequent message as an action (retest #46: a news question became an
+    // opportunity card after seven card turns).
+    .replace(/^(?:Here's (?:a draft|the change)\b|✓ (?:Created|Saved|Updated)\b|Done —|New · |Update · ).*$/gm, "")
+    .replace(/\s+/g, " ").trim();
+  const lines = history.slice(-4)
+    .map((h) => `${h.role === "you" ? "User" : "Assistant"}: ${strip(h.text).slice(0, h.role === "you" ? 220 : 160)}`)
+    .filter((l) => !/^(?:User|Assistant): *$/.test(l));
   return `\n\nRecent conversation (context — resolve "her"/"that deal"/follow-ups against it):\n${lines.join("\n").slice(0, 1000)}`;
 }
 export function routerPrompt(text: string, history: ChatTurn[] = []): PromptArgs {

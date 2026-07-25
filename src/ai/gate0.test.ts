@@ -13,7 +13,9 @@ import {
   computeForQuery, computeExact, findContacts, openOppsWithoutMeeting, oppsWithRecentMeeting,
   meetingsCount, exactRecordLookup, compareEntities, destructiveAskResponse,
   deicticWithoutEntity, contactBrief, rankOpportunities, capabilitiesResult, stageBreakdown,
+  frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, scanEntities,
 } from "./compute";
+import { normalizeRoute } from "./prompts";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
 import type { MeetingRow } from "../data/meetings";
@@ -411,5 +413,117 @@ describe("Retest #2: breakdown dimensions are applied or surrendered, never swap
     expect(r).toBeTruthy();
     expect(r!.intro).toMatch(/sector, function, seniority, or funnel stage/i);
     expect(r!.rows.length).toBe(0);
+  });
+});
+
+// ── BATCH 2 · Phase A: the front door ─────────────────────────────────────────────────────────────
+describe("Batch2-A: interrogative guard — questions never open action cards", () => {
+  const blocked = [
+    "Anyone I've seen twice or more without ever opening an opportunity?",
+    "What was our last meeting about?",
+    "Anything in the news about JPMorgan lately?",
+    "Have I ever crossed paths with anyone from Rolls-Royce?",
+    "Which deals started in the past 2 months?",
+  ];
+  for (const t of blocked) it(`blocks: ${t.slice(0, 40)}`, () => expect(questionBlocksAction(t)).toBe(true));
+  const allowed = [
+    "Log that I bumped into Karen OConnor at a conference this morning.",
+    "Can you log a meeting with Tom?",
+    "Mark the Google deal as lost.",
+    "New opportunity — Karen OConnor, worth £40k.",
+  ];
+  for (const t of allowed) it(`allows: ${t.slice(0, 40)}`, () => expect(questionBlocksAction(t)).toBe(false));
+});
+
+describe("Batch2-A: front-door brief resolver", () => {
+  const FREYA1 = contact({ first: "Freya", last: "Murphy", organisation: "Verizon", position: "Head of Technology", met: true, messaged: true, url: "https://l/fm1" });
+  const FREYA2 = contact({ first: "Freya", last: "Murphy", organisation: "Vantage Solutions", position: "Financial Analyst", url: "https://l/fm2" });
+  const SARAH1 = contact({ first: "Sarah", last: "Singh", organisation: "ExxonMobil", url: "https://l/ss1" });
+  const SARAH2 = contact({ first: "Sarah", last: "Evans", organisation: "Walmart", url: "https://l/se1" });
+  const BOOK = book({ contacts: [FREYA1, FREYA2, SARAH1, SARAH2, KAREN, DANIEL] });
+  it("'Give me the picture on Freya Murphy.' → resolves (two Freyas → a real result, not a deflection)", () => {
+    const r = frontDoorBrief("Give me the picture on Freya Murphy.", BOOK, TODAY);
+    expect(r).toBeTruthy();
+  });
+  it("'Pull up everything on Karen OConnor' → her brief", () => {
+    const r = frontDoorBrief("Pull up everything on Karen OConnor", BOOK, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/Karen OConnor/);
+  });
+  it("'Look at Daniel Garcia' → his brief, not a null turn", () => {
+    const r = frontDoorBrief("Look at Daniel Garcia", BOOK, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/Daniel Garcia/);
+  });
+  it("'Who's Sarah again?' → the which-one disambiguation, never a fabricated person", () => {
+    const r = frontDoorBrief("Who's Sarah again?", BOOK, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/which one did you mean/i);
+    expect(r!.rows.length).toBe(2);
+  });
+  it("'Brief me on Bartholomew Quixote-Fernsby.' → honest not-found WITHOUT the trailing full stop", () => {
+    const r = frontDoorBrief("Brief me on Bartholomew Quixote-Fernsby.", BOOK, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/no "Bartholomew Quixote-Fernsby" in your book/);
+  });
+  it("does NOT hijack list/self asks", () => {
+    expect(frontDoorBrief("Show me everyone at EY", BOOK, TODAY)).toBeNull();
+    expect(frontDoorBrief("Tell me about my pipeline", BOOK, TODAY)).toBeNull();
+    expect(frontDoorBrief("tell me about myself", BOOK, TODAY)).toBeNull();
+  });
+});
+
+describe("Batch2-A: note-on-contact + cancel + book-shape + revenue guard", () => {
+  const BOOK = book({ contacts: [DANIEL, KAREN] });
+  it("'Note on Daniel Garcia: he's switching to the Madrid office in October.' → CONTACT update", () => {
+    const n = noteOnContact("Note on Daniel Garcia: he's switching to the Madrid office in October.", BOOK, TODAY);
+    expect(n).toBeTruthy();
+    expect(n!.name).toBe("Daniel Garcia");
+    expect(n!.note).toMatch(/Madrid/);
+  });
+  it("no contact match → null (falls through, never a wrong-entity card)", () => {
+    expect(noteOnContact("Note on Zebedee Quark: hello", BOOK, TODAY)).toBeNull();
+  });
+  it("cancel intent matches the card-killers and nothing else", () => {
+    expect(cancelIntent("Cancel that.")).toBe(true);
+    expect(cancelIntent("never mind")).toBe(true);
+    expect(cancelIntent("Cancel the meeting with Tom")).toBe(false);
+  });
+  it("book-shaped text detection (the companion fabrication gate)", () => {
+    expect(bookShapedText("How many contacts do I have, and how many of those are keen?", BOOK)).toBe(true);
+    expect(bookShapedText("What did Daniel Garcia and I talk about?", BOOK)).toBe(true);
+    expect(bookShapedText("how are you today?", BOOK)).toBe(false);
+  });
+  it("revenue vocab guard: #3/#5 phrasings fail it, #6 passes", () => {
+    expect(revenueVocabOk("What's the combined value of everything open right now?")).toBe(false);
+    expect(revenueVocabOk("Total up every meeting I've ever logged.")).toBe(false);
+    expect(revenueVocabOk("How much revenue have I actually banked across all engagements?")).toBe(true);
+  });
+  it("entity scan finds exact contacts and orgs", () => {
+    const scan = scanEntities("I met Karen OConnor from ExxonMobil", BOOK);
+    expect(scan.contacts.map((c) => c.last)).toContain("OConnor");
+    expect(scan.orgs).toContain("ExxonMobil");
+  });
+});
+
+describe("Batch2-A: schema-tolerant router parsing (shapes from the LM Studio logs, verbatim)", () => {
+  it('{"route":"findOpportunities","args":{...}} → tool route', () => {
+    const r = normalizeRoute({ route: "findOpportunities", args: { status: "Open" } });
+    expect(r).toEqual(expect.objectContaining({ route: "tool", tool: "findOpportunities" }));
+  });
+  it('{"route":"contactBrief","name":"Olivia Thomas"} → tool + lifted arg', () => {
+    const r = normalizeRoute({ route: "contactBrief", name: "Olivia Thomas" }) as { route: string; tool?: string; args?: Record<string, unknown> };
+    expect(r?.tool).toBe("contactBrief");
+    expect(r?.args?.name).toBe("Olivia Thomas");
+  });
+  it('{"route":"accountSummary","company":"AlixPartners"} → tool + lifted arg', () => {
+    const r = normalizeRoute({ route: "accountSummary", company: "AlixPartners" }) as { route: string; tool?: string; args?: Record<string, unknown> };
+    expect(r?.tool).toBe("accountSummary");
+    expect(r?.args?.company).toBe("AlixPartners");
+  });
+  it("garbage still fails safely", () => {
+    expect(normalizeRoute({})).toBeNull();
+    expect(normalizeRoute({ route: "tool" })).toBeNull();
+    expect(normalizeRoute(null)).toBeNull();
   });
 });

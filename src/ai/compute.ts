@@ -1497,6 +1497,99 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
 // Run a tool call (from the LLM tool-router or, later, native function-calling) against the data. Defensive
 // about arg shapes — the model's JSON is lenient. Returns null for an unknown tool → caller falls back.
 export type ToolCall = { tool: string; args?: Record<string, unknown> };
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// FRONT DOOR HELPERS (Batch 2): the shared deterministic layer every turn passes through BEFORE any
+// model is consulted. Each is exported for the gate0 suite. The retest showed every failure lived in
+// DISPATCH (which path a message lands on) — these make the path decision mechanical where it can be.
+
+// Entities the message NAMES, scanned deterministically. Exact full-name contact matches + orgs.
+export type EntityScan = { contacts: Contact[]; orgs: string[] };
+export function scanEntities(text: string, d: BookData): EntityScan {
+  const t = " " + foldAccents(text).replace(/[^a-z0-9']+/g, " ").replace(/\s+/g, " ").trim() + " ";
+  const contacts: Contact[] = [];
+  const seen = new Set<string>();
+  for (const c of d.contacts) {
+    const fn = foldAccents(fullName(c)).replace(/[^a-z0-9']+/g, " ").trim();
+    if (fn && fn.includes(" ") && t.includes(" " + fn + " ") && !seen.has(c.url)) { contacts.push(c); seen.add(c.url); }
+  }
+  const orgs: string[] = [];
+  const orgSeen = new Set<string>();
+  for (const c of d.contacts) {
+    const o = (c.organisation || "").trim();
+    const key = foldAccents(o).replace(/[^a-z0-9']+/g, " ").trim();
+    if (!o || key.length < 3 || orgSeen.has(key)) continue;
+    orgSeen.add(key);
+    if (t.includes(" " + key + " ")) orgs.push(o);
+  }
+  return { contacts, orgs };
+}
+
+// Does the message read as a QUESTION with no imperative record-verb? Questions must never open an
+// action card (retest #16/#30/#36/#46 — "Anyone I've seen twice…?" became a log-a-meeting draft).
+const QUESTION_OPEN = /^\s*(?:who|whom|whose|what|which|where|when|why|how|is|are|was|were|do|does|did|have|has|had|can|could|would|should|will|am|any|anyone|anybody|anything)\b/i;
+const ACTION_IMPERATIVE = /\b(?:log|record|add|create|make|set\s?up|open|book|schedule|mark|flag|update|change|move|bump|remind|save|rename|edit|close (?:the |this |that |it )?\s*(?:deal|opportunit)|note (?:on|about|for|down))\b/i;
+export function questionBlocksAction(text: string): boolean {
+  const t = text.trim();
+  const looksQuestion = QUESTION_OPEN.test(t) || /\?\s*$/.test(t);
+  return looksQuestion && !ACTION_IMPERATIVE.test(t);
+}
+
+// "Note on <contact>: …" is a CONTACT update — never an opportunity reference (retest #44, where an
+// exact contact name got a "which deal did you mean?" list).
+export function noteOnContact(text: string, d: BookData, today: string): { name: string; note: string } | null {
+  const m = text.match(/^\s*(?:add\s+a?\s*)?note\s+(?:on|about|for)\s+([A-Za-z\u00C0-\u017F''.\- ]{2,50}?)\s*[:—–-]\s*(.+)$/i)
+    || text.match(/^\s*(?:add\s+a?\s*)?note\s+(?:on|about|for)\s+([A-Za-z\u00C0-\u017F''.\- ]{2,50})\s*$/i);
+  if (!m) return null;
+  const c = resolveContact(d, m[1].trim(), today);
+  if (!c || !foldAccents(fullName(c)).includes(foldAccents(m[1].trim().split(/\s+/)[0]))) return null;
+  return { name: fullName(c), note: (m[2] || "").trim() };
+}
+
+// Brief-shaped retrieval: a look-up verb + a name → the deterministic contactBrief (which already
+// disambiguates shared first names, falls through to accountSummary for orgs, and answers honest
+// not-found fast). The retest lost 5 turns to synonyms of "brief me on" riding the model path
+// (#27 "give me the picture", #28, #34 "pull up", #37a "look at" → stalls/deflections/fabrication).
+const BRIEF_CAPTURE = /\b(?:pull up(?: everything)?(?: on| about)?|look at|show me|give me the (?:picture|rundown|lowdown)(?: on)?|run me through(?: my dealings with)?|what do i have on|what have i got on|tell me about|brief me on|who is|who'?s|background on|profile of|my dealings with)\s+([A-Za-z\u00C0-\u017F''.\- ]{2,60})/i;
+export function frontDoorBrief(text: string, d: BookData, today: string): ComputeResult | null {
+  const m = text.match(BRIEF_CAPTURE);
+  if (!m) return null;
+  let ref = m[1].trim().replace(/[.?!,;:]+$/, "").replace(/\s+again$/i, "").trim();
+  if (!ref) return null;
+  // Never hijack self/book/plural asks — those belong to the snapshot/list routes.
+  if (/^(?:me|myself|my\b|the\b|it|that|this|them|him|her|us|everyone|everybody|anyone|all\b|contacts?|people|deals?|meetings?|opportunit|pipeline|network|book)/i.test(ref)) return null;
+  if (ref.split(/\s+/).length > 4) return null;
+  // Only fire when the ref plausibly names a PERSON or ORG: a book match, or a capitalised name shape
+  // (so "Brief me on Bartholomew Quixote-Fernsby" still gets the fast honest not-found).
+  const scan = scanEntities(ref, d);
+  const nameShaped = /^[A-Z\u00C0-\u017F][A-Za-z\u00C0-\u017F''.\-]*(?:\s+[A-Z\u00C0-\u017F][A-Za-z\u00C0-\u017F''.\-]*){0,3}$/.test(ref);
+  const bareFirst = !/\s/.test(ref) && d.contacts.some((c) => foldAccents(c.first) === foldAccents(ref));
+  if (!scan.contacts.length && !scan.orgs.length && !nameShaped && !bareFirst) return null;
+  return contactBrief(d, ref, today);
+}
+
+// Meta-commands aimed at an OPEN draft card ("Cancel that.") — routed to the card, never the router
+// (retest #30: cancelling a card spawned a second card with "Cancel that." as its notes).
+export function cancelIntent(text: string): boolean {
+  return /^\s*(?:cancel|discard|scrap|drop|forget|never\s?mind|close)\s*(?:that|it|this|the\s+(?:card|draft|form))?\s*[.!]?\s*$/i.test(text);
+}
+
+// Is the message about the BOOK (data vocab or a named book entity)? Used to gate the companion
+// fallback: a book-shaped question must NEVER land on the companion, which fabricates book stats
+// when asked them (retest #38 — "10 contacts"). Honest-grounded or honest-failure instead.
+const BOOK_VOCAB_RX = /\b(contacts?|network|book|pipeline|deals?|opportunit\w+|meetings?|engagements?|clients?|leads?|warm(?:est|th)?|cold|keen|follow[- ]?ups?|revenue|accounts?|prospects?|diary|calendar)\b/i;
+export function bookShapedText(text: string, d: BookData): boolean {
+  if (BOOK_VOCAB_RX.test(text)) return true;
+  const scan = scanEntities(text, d);
+  return scan.contacts.length > 0 || scan.orgs.length > 0;
+}
+
+// Tool-claim validation: the router may only dispatch revenueAggregate when the message actually
+// carries revenue vocabulary (retest #3/#5 — "combined value of everything open" and "total up my
+// meetings" both landed on the revenue answer).
+export function revenueVocabOk(text: string): boolean {
+  return /\b(revenue|earn(?:ed|ings)?|bank(?:ed)?|recognis\w*|recogniz\w*|invoice[sd]?|bill(?:ed|ing)?|engagements?|signed|fees?|made|income)\b/i.test(text);
+}
+
 export function runTool(call: ToolCall, d: BookData, today: string, sourceText = ""): ComputeResult | null {
   const a = call.args || {};
   const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
