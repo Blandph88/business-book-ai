@@ -1720,7 +1720,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                     />
                   </div>
                 ) : (
-                  <div key={i} className={"copilot-turn copilot-turn--" + t.role}>
+                  <div key={i} className={"copilot-turn copilot-turn--" + t.role + (t.narrPending ? " copilot-turn--narrskel" : "")}>
                     <div className="copilot-turn-text">{t.role === "ai" ? (t.narrPending ? (<div className="copilot-narr-skel" aria-label="Writing commentary…"><span className="copilot-narr-skel-bar" /><span className="copilot-narr-skel-bar" /><span className="copilot-narr-skel-bar copilot-narr-skel-bar--short" /></div>) : t.receipt ? (<div className="actc actc--saved"><span className="actc-tick">✓</span><span className="actc-savedtext">{t.text}</span></div>) : t.compute ? <ComputeTable data={t.compute} onNavigate={onNavigate} onClose={onClose} /> : <Markdown text={t.text} />) : t.text}</div>
                     {t.role === "ai" && renderRelated(t.related)}
                     {t.role === "ai" && t.chips && t.chips.length > 0 && (

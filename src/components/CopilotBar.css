@@ -366,9 +366,17 @@
 }
 .copilot-ai-off strong { color: var(--text, #374151); font-weight: 600; }
 
-/* Reserved narration panel — the composed commentary fills this space in place (table never moves). */
-.copilot-narr-skel { display: flex; flex-direction: column; gap: 8px; min-height: 66px; padding: 2px 0; justify-content: center; }
-.copilot-narr-skel-bar { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, #dbe0e8 25%, #eef1f5 50%, #dbe0e8 75%); background-size: 200% 100%; animation: narr-shimmer 1.4s ease-in-out infinite; }
-.copilot-narr-skel-bar--short { width: 62%; }
+/* The turn holding the placeholder stretches to the full text column (the AI bubble otherwise
+   shrinks to fit content, which collapsed the panel to a small square). */
+.copilot-turn--narrskel .copilot-turn-text { align-self: stretch; max-width: 90%; width: 90%; }
+
+/* Reserved narration panel — a visibly-loading card the composed commentary fills in place
+   (the table below never moves). Container + moving pattern, not bare lines in whitespace. */
+.copilot-narr-skel { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 9px; justify-content: center; min-height: 74px; padding: 14px 16px; border: 1px solid var(--line, #e4e8ee); border-radius: 10px; background: var(--bg-2, #eef1f5); }
+.copilot-narr-skel-bar { display: block; height: 11px; border-radius: 6px; background: linear-gradient(90deg, #ccd3dd 25%, #e6eaf0 50%, #ccd3dd 75%); background-size: 200% 100%; animation: narr-shimmer 1.4s ease-in-out infinite; }
+.copilot-narr-skel-bar--short { width: 58%; }
+/* Sheen sweeping across the whole panel — unmistakably "working". */
+.copilot-narr-skel::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.65) 50%, transparent 65%); animation: narr-sweep 1.8s ease-in-out infinite; pointer-events: none; }
 @keyframes narr-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { .copilot-narr-skel-bar { animation: none; } }
+@keyframes narr-sweep { 0% { transform: translateX(-100%); } 55% { transform: translateX(100%); } 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .copilot-narr-skel-bar, .copilot-narr-skel::after { animation: none; } }
