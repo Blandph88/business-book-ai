@@ -14,6 +14,7 @@ import {
   meetingsCount, exactRecordLookup, compareEntities, destructiveAskResponse,
   deicticWithoutEntity, contactBrief, rankOpportunities, capabilitiesResult, stageBreakdown,
   frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, scanEntities,
+  deicticRecordRef, resolveCompareDeixis,
 } from "./compute";
 import { normalizeRoute } from "./prompts";
 import type { BookData } from "./bookContext";
@@ -525,5 +526,39 @@ describe("Batch2-A: schema-tolerant router parsing (shapes from the LM Studio lo
     expect(normalizeRoute({})).toBeNull();
     expect(normalizeRoute({ route: "tool" })).toBeNull();
     expect(normalizeRoute(null)).toBeNull();
+  });
+});
+
+// ── BATCH 2 · Phase B: referent ledger primitives + compare ──────────────────────────────────────
+describe("Batch2-B: deictic-only record references (ledger-or-ask, never fuzzy)", () => {
+  const deictic = ["Bump that one up to £55k.", "Flag it as won.", "Mark this as lost", "move it to proposal build"];
+  for (const t of deictic) it(`deictic: ${t}`, () => expect(deicticRecordRef(t)).toBe(true));
+  const named = ["We lost the Google Operations deal — mark it", "Bump the JPMorgan proposal to £55k", "Update the Chevron Strategy deal"];
+  for (const t of named) it(`named: ${t}`, () => expect(deicticRecordRef(t)).toBe(false));
+});
+
+describe("Batch2-B: compare with thread referents", () => {
+  const ROBERT = contact({ first: "Robert", last: "Schmidt", organisation: "Salesforce", met: true, messaged: true, url: "https://l/rs" });
+  const OLIVIA = contact({ first: "Olivia", last: "Thomas", organisation: "HSBC", met: true, messaged: true, url: "https://l/ot" });
+  const BOOK = book({ contacts: [ROBERT, OLIVIA] });
+  it("'How does he compare to Olivia?' with he→Robert substituted → BOTH profiles, side by side", () => {
+    const t = resolveCompareDeixis("How does he compare to Olivia?", "Robert Schmidt");
+    const r = compareEntities(t, BOOK, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/Robert Schmidt/);
+    expect(r!.intro).toMatch(/Olivia Thomas/);
+    expect(r!.intro).toMatch(/Side by side/i);
+  });
+  it("'Robert Schmidt vs Olivia Thomas' → side by side", () => {
+    const r = compareEntities("Robert Schmidt vs Olivia Thomas", BOOK, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/Side by side/i);
+  });
+  it("unresolvable pronoun (no referent) → null, not a solo brief", () => {
+    expect(compareEntities("How does he compare to Olivia?", BOOK, TODAY)).toBeNull();
+  });
+  it("contactBrief carries its subject for the ledger", () => {
+    const r = contactBrief(BOOK, "Robert Schmidt", TODAY);
+    expect(r.subject).toEqual(expect.objectContaining({ kind: "contact", label: "Robert Schmidt" }));
   });
 });

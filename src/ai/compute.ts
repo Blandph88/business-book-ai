@@ -19,7 +19,7 @@ import { matchSector, matchFunction } from "../data/criteria";
 export type ComputeRecord = { tab: "meetings" | "contacts" | "opportunities" | "revenue"; id: string };
 export type ComputeRow = { cells: string[]; record?: ComputeRecord };
 // `more`: when a list is capped, a "view all N in <tab>" jump to the full filtered view (no silent truncation).
-export type ComputeResult = { intro: string; columns: string[]; rows: ComputeRow[]; more?: { count: number; tab: TabId; intent: TabIntent }; enrich?: { kind: "company"; name: string } };
+export type ComputeResult = { intro: string; columns: string[]; rows: ComputeRow[]; more?: { count: number; tab: TabId; intent: TabIntent }; subject?: { kind: "contact" | "org" | "opportunity"; id: string; label: string }; enrich?: { kind: "company"; name: string } };
 
 // ── shared helpers ──────────────────────────────────────────────────────────────────────────────
 function addDays(iso: string, n: number): string { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
@@ -759,6 +759,7 @@ export function contactBrief(d: BookData, ref: string, today: string): ComputeRe
   ].filter(Boolean);
   return {
     intro: lines.join("\n"),
+    subject: { kind: "contact", id: c.url, label: fullName(c) },
     columns: meetings.length ? ["Date", "Purpose", "Sentiment"] : [],
     rows: meetings.slice(0, 6).map((m) => ({ cells: [m.date_held || "—", m.purpose || "—", m.sentiment || "—"], record: { tab: "meetings", id: m.id } })),
   };
@@ -822,6 +823,7 @@ export function accountSummary(d: BookData, company: string): ComputeResult {
     latentHere ? `${latentHere} with a spotted opportunity` : "",
   ].filter(Boolean);
   const res: ComputeResult = {
+    subject: { kind: "org", id: org, label: org },
     intro: `${org}: ${people.length} contact${people.length === 1 ? "" : "s"}, ${meetings} meeting${meetings === 1 ? "" : "s"} held, ${opps.length} open opportunit${opps.length === 1 ? "y" : "ies"}${openVal ? ` (${money(openVal)})` : ""}${pastOpps ? ` + ${pastOpps} past (won/lost)` : ""}.${sigBits.length ? `\nRelationship read: ${sigBits.join(" · ")}.` : ""}`,
     columns: ["Name", "Role", "Stage"],
     rows: people.slice(0, 20).map((c) => ({ cells: [fullName(c), c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
@@ -1097,8 +1099,20 @@ export function exactRecordLookup(text: string, d: BookData): ComputeResult | nu
 
 // COMPARE two named entities (Gate-0 #31): both profiles delivered side by side, deterministically — the
 // narration layer can then compare over the delivered facts. Never resolves just one of the pair.
+// Substitute thread referents into a compare question BEFORE parsing — "how does HE compare to
+// Olivia?" resolves he/him→ the ledger's latest contact, it/that one→ the latest record (Batch 2,
+// retest #37b where the comparison silently collapsed into a solo brief).
+export function resolveCompareDeixis(text: string, personLabel?: string, recordLabel?: string): string {
+  let t = text;
+  if (personLabel) t = t.replace(/\b(?:he|him|she|her|they|them)\b/gi, personLabel);
+  if (recordLabel) t = t.replace(/\b(?:that one|that deal|it)\b/gi, recordLabel);
+  return t;
+}
+
 export function compareEntities(text: string, d: BookData, today: string): ComputeResult | null {
-  const m = text.match(/\bcompare\s+(.+?)\s+(?:to|with|vs\.?|versus|against|and)\s+(.+?)(?:\?|$)/i);
+  const m = text.match(/\bcompare\s+(.+?)\s+(?:to|with|vs\.?|versus|against|and)\s+(.+?)(?:\?|$)/i)
+    || text.match(/\bhow (?:do|does)\s+(.+?)\s+(?:compare|stack up|measure up)\s+(?:to|with|against)\s+(.+?)(?:\?|$)/i)
+    || text.match(/^\s*(.+?)\s+(?:vs\.?|versus)\s+(.+?)\s*\??\s*$/i);
   if (!m) return null;
   const clean = (s: string) => s.trim().replace(/^(?:my|the)\s+/i, "").replace(/[?.,!]+$/, "");
   const a = clean(m[1]), b = clean(m[2]);
@@ -1583,6 +1597,20 @@ export function bookShapedText(text: string, d: BookData): boolean {
   return scan.contacts.length > 0 || scan.orgs.length > 0;
 }
 
+// Does the text reference a record ONLY deictically ("bump that one up to £55k", "flag it as won")?
+// Deictic-only targets must resolve via the referent ledger or ASK — fuzzy record matching on them is
+// how retest #40 pointed "that one" at an unrelated lost deal.
+export function deicticRecordRef(text: string): boolean {
+  if (!/\b(?:that one|that|it|this)\b/i.test(text)) return false;
+  const stripped = text.toLowerCase()
+    .replace(/\b(?:that one|that|it|this|one)\b/g, " ")
+    .replace(/\b(?:bump|move|update|change|mark|flag|close|set|make|raise|lower|push|win|won|lost|lose|up|down|to|as|at|the|a|an|please|now|deal|opportunity|opp|value|price|worth|and|stage|status|meeting|qualify|pursuit|scoping|clearance|proposal|build|delivery|procurement|contracting|setup|revenue)\b/g, " ")
+    .replace(/[£$€]?[\d,.]+\s*[km]?\b/g, " ")
+    .replace(/[^a-z]+/g, " ")
+    .trim();
+  return stripped.length === 0;
+}
+
 // Tool-claim validation: the router may only dispatch revenueAggregate when the message actually
 // carries revenue vocabulary (retest #3/#5 — "combined value of everything open" and "total up my
 // meetings" both landed on the revenue answer).
@@ -1665,6 +1693,13 @@ export function runTool(call: ToolCall, d: BookData, today: string, sourceText =
     case "coldAtActiveAccounts": return coldAtActiveAccounts(d, today);
     case "contactsMetAtLeast": return contactsMetAtLeast(d, num(a.times) ?? 2);
     case "personalSnapshot": return personalSnapshot(d, today);
+    case "compareEntities": {
+      // The router names the pair in args, or we fall back to parsing the user's own text.
+      const left = str(a.a) || str(a.left) || "";
+      const right = str(a.b) || str(a.right) || "";
+      if (left && right) { const r = compareEntities(`compare ${left} to ${right}`, d, today); if (r) return r; }
+      return compareEntities(sourceText, d, today);
+    }
     case "weeklyFocus": return weeklyFocus(d, today);
     case "owedReplies": return owedReplies(d, today);
     case "latentOpportunities": return latentOpportunities(d);

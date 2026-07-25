@@ -563,6 +563,7 @@ export function routerPrompt(text: string, history: ChatTurn[] = []): PromptArgs
       "   - contactsMetAtLeast {times} — contacts met ≥N times. (\"who have I met more than once / three-plus times\")\n" +
       "   - pipelineStats {} — headline pipeline numbers table. (\"how's my pipeline looking\")\n" +
       "   - funnelBreakdown {dimension} — dimension ∈ sector|function|seniority|stage — COUNTS/concentration; stage = the funnel (messaged→responded→two-way→met). (\"my network by industry\", \"contacts by stage\", \"where's my bench deepest\")\n" +
+      "   - compareEntities {a, b} — a SIDE-BY-SIDE of two named people/companies. (\"compare Robert to Olivia\", \"how does HSBC stack up against Salesforce\")\n" +
       "   - contactBrief {name} — ONE person's summary + relationship. Use for \"brief me on Jane\", \"prime me on my strongest contact\", and any \"what's my HISTORY / relationship with <person>\" — even a bare first name (it disambiguates if shared). This is NOT chat.\n" +
       "   - accountSummary {company} — ONE company's footprint. Use whenever a company is scoped, even with a vague opener: \"lay of the land at HSBC\", \"how deep am I at Barclays\", \"what's my footprint at EY\".\n" +
       "   - weeklyFocus {} — priorities / agenda when NOT scoped to a company: \"what should I focus on\", \"three calls this week\", \"who should I chase\", \"catch me up\", \"state of play\", \"you decide\". (\"lay of the land at <company>\" is accountSummary, not this.)\n" +

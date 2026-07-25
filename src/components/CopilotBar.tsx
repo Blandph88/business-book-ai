@@ -20,7 +20,7 @@ import { useAiAvailable, aiAvailability, aiPromptStream, aiJson, searchAvailable
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, deicticRecordRef, resolveCompareDeixis, compareEntities, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -639,6 +639,20 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const chatIdRef = useRef<string | null>(null);
   // The opportunity touched most recently in THIS session — the referent for "update that/it" (Gate-0 #35).
   const lastOppIdRef = useRef<string | null>(null);
+  // REFERENT LEDGER (Batch 2): every entity a turn touches — computed briefs, account summaries,
+  // ACTION SAVES (the retest-#40 hole: created records weren't anchored, so "bump that one" fuzzy-
+  // matched an unrelated lost deal) — recorded per chat. Deixis binds through this or ASKS; it never
+  // guesses. Newest first, capped.
+  type Referent = { kind: "contact" | "org" | "opportunity" | "meeting" | "contract"; id: string; label: string; at: number };
+  const referentsRef = useRef<Map<string, Referent[]>>(new Map());
+  const pushReferent = (chatId: string | null, r: Omit<Referent, "at">) => {
+    if (!chatId) return;
+    const list = referentsRef.current.get(chatId) ?? [];
+    const next = [{ ...r, at: Date.now() }, ...list.filter((x) => !(x.kind === r.kind && x.id === r.id))].slice(0, 12);
+    referentsRef.current.set(chatId, next);
+  };
+  const latestReferent = (chatId: string | null, kind: Referent["kind"]): Referent | null =>
+    (chatId && referentsRef.current.get(chatId)?.find((x) => x.kind === kind)) || null;
   const latestChatRef = useRef<UITurn[]>([]); // newest chat turns, for distilling memory on leave/unmount
   const distilledRef = useRef<Map<string, number>>(new Map()); // chatId → turns already distilled (skip redundant)
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -1004,6 +1018,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     const avail = await aiAvailability();
     // Render a computed result directly (clickable rows via `compute`); markdown kept for persistence + chips.
     const renderCompute = async (computed: ComputeResult): Promise<void> => {
+      if (computed.subject) pushReferent(id, { kind: computed.subject.kind, id: computed.subject.id, label: computed.subject.label });
       const md = computeText(computed);
       // Only derive chips when there are REAL records — a "can't find / nothing matches" reply has no
       // entities worth anchoring to, and deriving them produces non-sequiturs (a stray "Smith" → "DS Smith").
@@ -1126,6 +1141,14 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // contactBrief — which disambiguates shared first names, falls to accountSummary for orgs, and
       // answers not-found honestly and FAST. The retest lost five turns (incl. a fabricated person and
       // a 507s stall) to brief synonyms riding the model path.
+      // COMPARE with thread referents ("how does he compare to Olivia?") — substitute the ledger's
+      // latest contact/record into the pronouns, then run the deterministic side-by-side (retest #37b:
+      // the comparison silently collapsed into a solo brief).
+      if (/\b(?:compare|vs\.?|versus|stack up|measure up)\b/i.test(text)) {
+        const cmpText = resolveCompareDeixis(text, latestReferent(id, "contact")?.label, latestReferent(id, "opportunity")?.label);
+        const cmp = compareEntities(cmpText, data, today);
+        if (cmp) { await renderCompute(cmp); return; }
+      }
       const brief = frontDoorBrief(text, data, today);
       if (brief) { await renderCompute(brief); return; }
       const preCapable = capabilityLevel(avail.backend, avail.model) !== "small";
@@ -1397,7 +1420,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // PRONOUN-led follow-up ("add a meeting with HIM tomorrow", "create an opportunity for THEM") — the
       // message names no one, so resolve the subject from the most recent prior turn that unambiguously did.
       if (!subjectUrl && (pronounOnly || /\b(him|her|hers|his|them|their|they|he|she|it|that|this|those|these)\b/i.test(target))) {
-        for (const t of [...prior].reverse().slice(0, 8)) {
+        const led = latestReferent(id, "contact");
+        if (led && contacts.some((c) => c.url === led.id)) subjectUrl = led.id;
+        if (!subjectUrl) for (const t of [...prior].reverse().slice(0, 8)) {
           if (t.role !== "you") continue;
           const m = matchContacts(extractSubjectSpan(t.text) || t.text, contacts);
           if (m.length >= 1) { if (m.length === 1) subjectUrl = m[0].url; break; }
@@ -1412,10 +1437,17 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     let targetId: string | undefined;
     let oppCandidates: Opportunity[] = [];
     if (op === "update" && kind === "opportunity") {
-      oppCandidates = matchOpportunity(`${target} ${extractText}`, opps);
-      if (oppCandidates.length === 1) targetId = oppCandidates[0].id;
-      if (!targetId && !oppCandidates.length && /\b(that|it|this)\b/i.test(target) && lastOppIdRef.current && opps.some((o) => o.id === lastOppIdRef.current)) {
-        targetId = lastOppIdRef.current;
+      // DEICTIC-ONLY target ("bump that one up to £55k", "flag it as won") → the referent ledger or
+      // ASK — NEVER fuzzy record matching, which is how retest #40 pointed "that one" at an unrelated
+      // lost deal and set its value. Named targets keep the fuzzy matcher (3-for-3 in the retest).
+      if (deicticRecordRef(`${target} ${extractText}`)) {
+        const ref = latestReferent(id, "opportunity");
+        if (ref && opps.some((o) => o.id === ref.id)) targetId = ref.id;
+        else if (lastOppIdRef.current && opps.some((o) => o.id === lastOppIdRef.current)) targetId = lastOppIdRef.current;
+        // unresolved deictic → falls to the clarification below (ask which), never an arbitrary pick
+      } else {
+        oppCandidates = matchOpportunity(`${target} ${extractText}`, opps);
+        if (oppCandidates.length === 1) targetId = oppCandidates[0].id;
       }
     }
     // For an UPDATE to a meeting, edit the resolved contact's MOST RECENT meeting in place (no duplicate).
@@ -1485,6 +1517,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const ctx = { op: card.op, text: "", subjectUrl, targetId: card.targetId, today, contacts, meetingRows, opps, sows };
       const res = SPECS[card.kind].write(values, ctx);
       if (card.kind === "opportunity") lastOppIdRef.current = res.id;
+      // Anchor the just-saved record so a follow-up "flag it as won" / "bump that one" binds HERE.
+      const savedLabel = (values.opportunity_name || values.engagement_name || res.summary || "").toString().slice(0, 60) || card.kind;
+      pushReferent(chatIdRef.current, { kind: card.kind, id: card.kind === "contact" ? (subjectUrl || res.id) : res.id, label: savedLabel });
+      if (subjectUrl) {
+        const sc = contacts.find((c) => c.url === subjectUrl);
+        if (sc) pushReferent(chatIdRef.current, { kind: "contact", id: sc.url, label: `${sc.first} ${sc.last}`.trim() });
+      }
       const subject = subjectUrl ? contacts.find((c) => c.url === subjectUrl) : undefined;
       const subjectName = subject ? `${subject.first} ${subject.last}`.trim() : "";
       const follow = actionFollowUp(card.kind, values, subjectName);
