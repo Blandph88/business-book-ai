@@ -204,13 +204,28 @@ function reanchorSeeds(seeds: SeedMinute[], today: string): SeedMinute[] {
     d.setUTCDate(d.getUTCDate() + delta);
     return d.toISOString().slice(0, 10);
   };
-  return seeds.map((s) => ({
-    ...s,
-    date_held: shift(s.date_held),
-    date_scheduled: shift(s.date_scheduled),
-    date_agreed: shift(s.date_agreed),
-    followup_date: shift(s.followup_date),
-  }));
+  // DEMO WRITE-UP HYGIENE (Batch 2, retest dashboard cluster): 49 of the seed's held meetings ship
+  // without a follow-up, so after the re-anchor the dashboard's first impression was a wall of 29
+  // overdue "Write-up due" chores. Complete them — every held meeting except the NEWEST TWO gets a
+  // closed-out follow-up ("None needed") so the demo reads as a well-kept book with a couple of
+  // realistic pending write-ups, not a backlog.
+  const heldSorted = seeds.filter((x) => x.date_held).sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
+  const keepPending = new Set(heldSorted.slice(0, 2).map((x) => x.date_held! + "|" + (x.contact_url || "")));
+  return seeds.map((s) => {
+    const shifted = {
+      ...s,
+      date_held: shift(s.date_held),
+      date_scheduled: shift(s.date_scheduled),
+      date_agreed: shift(s.date_agreed),
+      followup_date: shift(s.followup_date),
+    };
+    const pendingKey = (s.date_held || "") + "|" + (s.contact_url || "");
+    if (s.date_held && !keepPending.has(pendingKey) && !String(s.followup || "").trim()) {
+      shifted.followup = "None needed — next touch as planned";
+      shifted.followup_date = shifted.followup_date || shifted.date_held;
+    }
+    return shifted;
+  });
 }
 
 // Fetch + merge in one call, for the app bootstrap (./main.tsx). Best-effort: any

@@ -60,7 +60,7 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
     return [
       `Today: ${today}.`,
       agenda.length ? `This week (overdue + next 7 days):\n${agenda.slice(0, 10).map((a) => `- ${a.what}: ${a.who}${a.org ? ` (${a.org})` : ""} — ${a.statusLabel}, due ${a.date}`).join("\n")}` : "",
-      hotOpps.length ? `Deals near signature:\n${hotOpps.map(({ opp }) => `- ${opp.opportunity_name || opp.organisation || "(unnamed)"} ${formatMoney(weightedValue(opp))} [${opportunityPhase(opp)}]`).join("\n")}` : "",
+      hotOpps.length ? `Deals near signature (probability-weighted values):\n${hotOpps.map(({ opp }) => `- ${opp.opportunity_name || opp.organisation || "(unnamed)"} ${formatMoney(weightedValue(opp))} weighted [${opportunityPhase(opp)}]`).join("\n")}` : "",
       stale.length ? `Warm contacts gone quiet (reconnect):\n${stale.slice(0, 8).map(({ contact: c, daysSince }) => `- ${nm(c)}${daysSince != null ? ` — ${daysSince}d` : ""}`).join("\n")}` : "",
       aging.length ? `Open opportunities stalling:\n${aging.slice(0, 8).map(({ opp, daysSince }) => `- ${opp.opportunity_name || opp.organisation || "(unnamed)"} — ${daysSince}d no movement`).join("\n")}` : "",
       // Enrichment/thread signals — empty until a scan/import provides them, so this degrades gracefully.
@@ -112,7 +112,7 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
     const latent = contacts.filter((c) => c.latentOpp?.text).slice(0, 5);
     const secs: { key: string; label: string; lines: string[] }[] = [];
     if (agenda.length) secs.push({ key: "week", label: "This week", lines: agenda.slice(0, 6).map((a) => `${a.what}: ${a.who}${a.org ? ` (${a.org})` : ""} — ${a.statusLabel}, due ${a.date}`) });
-    if (hotOpps.length) secs.push({ key: "close", label: "Close these — near signature", lines: hotOpps.map(({ opp }) => `${oppName(opp)} — ${formatMoney(weightedValue(opp))} [${opportunityPhase(opp)}]`) });
+    if (hotOpps.length) secs.push({ key: "close", label: "Close these — near signature (probability-weighted values)", lines: hotOpps.map(({ opp }) => `${oppName(opp)} — ${formatMoney(weightedValue(opp))} weighted [${opportunityPhase(opp)}]`) });
     if (stale.length) secs.push({ key: "reconnect", label: "Reconnect — gone quiet", lines: stale.slice(0, 6).map(({ contact: c, daysSince }) => `${nm(c)}${daysSince != null ? ` — ${daysSince}d quiet` : ""}`) });
     if (aging.length) secs.push({ key: "cold", label: "Going cold — no movement", lines: aging.slice(0, 6).map(({ opp, daysSince }) => `${oppName(opp)} — ${daysSince}d no movement`) });
     if (owed.length) secs.push({ key: "owed", label: "You owe a reply", lines: owed.map((c) => `${nm(c)}${c.thread?.lastDate ? ` — since ${c.thread.lastDate}` : ""}`) });

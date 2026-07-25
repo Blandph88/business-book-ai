@@ -221,7 +221,7 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
                   <ClickRow
                     key={opp.id}
                     main={opp.opportunity_name || opp.organisation || "(unnamed)"}
-                    meta={`${stepShort(opp.current_step)} · ${formatMoney(opp.est_value)}${signBy ? ` · sign by ${signBy}` : ""}`}
+                    meta={`${stepShort(opp.current_step)} · ${formatMoney(opp.est_value)}${signBy ? (signBy < today ? ` · sign-by ${signBy} — overdue` : ` · sign by ${signBy}`) : ""}`}
                     onClick={() =>
                       onNavigate("opportunities", {
                         search: opp.opportunity_name || opp.organisation || "",

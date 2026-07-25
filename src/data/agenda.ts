@@ -109,7 +109,9 @@ export function buildAgenda(
     // A follow-up only counts as a MEETING action when the meeting didn't spawn an
     // opportunity. If it did, the commercial follow-up is the opportunity's next step
     // (surfaced below) — so we don't double-count it here as a "Meeting follow-up".
-    if (m.followup_date && !m.linked_opportunity_id) {
+    // A follow-up dated ON/BEFORE the meeting itself is a closed-out marker ("None needed"), not an
+    // obligation — the demo seed uses this to read as a well-kept book (Batch 2).
+    if (m.followup_date && !m.linked_opportunity_id && !(m.date_held && m.followup_date <= m.date_held)) {
       const daysUntil = daysBetween(today, m.followup_date);
       if (inWindow(daysUntil)) {
         items.push({

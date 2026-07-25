@@ -7,6 +7,7 @@
 // than calling saveSow/saveEdits per item, to avoid O(n²) re-reads on the ~700 owner-edit rows.
 
 import { normalizeUrl } from "../storage/ownerEdits";
+import { loadAllOpportunities } from "../storage/opportunities";
 
 const APPLIED_KEY = "bob.extrasSeedApplied.v4";
 const REVENUE_KEY = "bob.revenue.v1";
@@ -28,7 +29,21 @@ export async function bootstrapSeedExtras(): Promise<void> {
     // wins — a version bump refreshes stale demo rows. The real product ships no seed_extras.
     const revRaw = localStorage.getItem(REVENUE_KEY);
     const revMap: Record<string, unknown> = revRaw ? JSON.parse(revRaw) : {};
-    for (const s of sows) revMap[s.id] = s;
+    // AUTO-LINK unlinked seed SoWs to their obvious opportunity (Batch 2, retest dashboard cluster):
+    // 10 of the 30 seed engagements shipped standalone, filling Housekeeping with "SoW not linked"
+    // noise on first open. Match by organisation + the engagement's service word against the
+    // opportunities store (seeded just before this in the bootstrap); a unique match links, anything
+    // ambiguous stays for the Housekeeping card to teach with (a couple is realistic — 13 is noise).
+    let oppList: Array<{ id: string; organisation?: string; opportunity_name?: string }> = [];
+    try { oppList = Object.values(loadAllOpportunities()); } catch { /* linking is best-effort */ }
+    for (const s of sows) {
+      if (!s.linked_opportunity_id && typeof s.organisation === "string" && typeof s.engagement_name === "string") {
+        const svc = String(s.engagement_name).replace(/\s*engagement\s*$/i, "").toLowerCase();
+        const cand = oppList.filter((o) => (o.organisation || "").toLowerCase() === String(s.organisation).toLowerCase() && (o.opportunity_name || "").toLowerCase().includes(svc));
+        if (cand.length === 1) s.linked_opportunity_id = cand[0].id;
+      }
+      revMap[s.id] = s;
+    }
     localStorage.setItem(REVENUE_KEY, JSON.stringify(revMap));
 
     // Owner edits → bob.contactOwnerEdits.v1 (seed wins for the demo refresh).
