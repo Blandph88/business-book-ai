@@ -1,0 +1,48 @@
+import { describe, it, expect } from "vitest";
+import { checkNarration, numericClaims, isDisambiguation } from "./narrationCheck";
+
+// The evidence tables are drawn from the retest transcripts (abbreviated).
+const RISK_TABLE = `Open opportunities with NO next meeting booked (20 of 20 open) — the follow-up-debt list, biggest first:
+| Operations engagement | Google | Scoping | £800k | 2026-03-25 |
+| People & Change engagement | Johnson & Johnson | Scoping | £500k | 2026-06-24 |
+| Strategy engagement | KPMG | Proposal Delivery | £75k | 2026-02-11 |`;
+
+describe("Batch2-D: narration trust boundary", () => {
+  it("kills the invented 'Six of your £100k+ deals' (retest #17 verbatim)", () => {
+    const narration = "Six of your £100k+ deals have gone silent, with the largest being Google at £800k. These stalled engagements could release significant pipeline capacity if addressed promptly.";
+    const v = checkNarration(narration, RISK_TABLE);
+    expect(v.dropped.length).toBe(1);
+    expect(v.dropped[0]).toMatch(/Six of your/);
+    expect(v.cleaned).toMatch(/stalled engagements/);
+  });
+  it("passes a faithful narration (numbers all present)", () => {
+    const narration = "Google leads at £800k, with Johnson & Johnson close behind at £500k. Both are still in scoping, so momentum is yours to set.";
+    const v = checkNarration(narration, RISK_TABLE);
+    expect(v.ok).toBe(true);
+    expect(v.dropped.length).toBe(0);
+  });
+  it("kills a fabricated book statistic ('10 contacts, around 5 keen' — retest #38 shape)", () => {
+    const narration = "You currently have a total of 10 contacts in your pipeline. Out of those, around 5 are considered keen.";
+    const v = checkNarration(narration, "2,319 contacts in your book — 91 met.");
+    expect(v.ok).toBe(false);
+  });
+  it("date mentions don't count as numeric claims", () => {
+    const narration = "Your last meeting was on July 18, 2026 and it went well.";
+    const v = checkNarration(narration, "| 2026-07-18 | Olivia Thomas | HSBC | Positive |");
+    expect(v.dropped.length).toBe(0);
+  });
+  it("small counts covered by visible rows pass ('both deals')", () => {
+    const narration = "Both deals sit at the same stage, which is worth a look.";
+    const v = checkNarration(narration, "| a | b |\n| c | d |");
+    expect(v.dropped.length).toBe(0);
+  });
+  it("scale-tolerant matching: £800k narration vs 800000 evidence", () => {
+    expect(numericClaims("£800k")).toContain("800000");
+    const v = checkNarration("The Google deal at £800k stands out.", "Est. value 800000 at Google.");
+    expect(v.dropped.length).toBe(0);
+  });
+  it("disambiguation detection", () => {
+    expect(isDisambiguation("You know 45 people called Rachel — which one did you mean?")).toBe(true);
+    expect(isDisambiguation("Your biggest open opportunities by value:")).toBe(false);
+  });
+});

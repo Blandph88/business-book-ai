@@ -35,6 +35,7 @@ import { Markdown } from "./Markdown";
 import { listChats, getChat, saveChat, deleteChat, newChatId, titleFromTurns, type SavedChat, type StoredTurn } from "../storage/chats";
 import { relevantNotes, addNotes, listNotes, deleteNote, clearNotes, type Note } from "../storage/memory";
 import { markBusy, markDone, isBusy, subscribeInflight } from "../ai/inflight";
+import { checkNarration, isDisambiguation } from "../ai/narrationCheck";
 import type { Navigate, TabId, TabIntent } from "./TabNav";
 import "./CopilotBar.css";
 
@@ -861,7 +862,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     const NOTE = "_Couldn't add commentary this time — the model stalled. The numbers above are complete._";
     const deliverFallback = () => {
       if (chatIdRef.current !== id) return;
-      const salvage = acc.trim().length >= 120 ? `${acc.trim()}…` : "";
+      let salvage = acc.trim().length >= 120 ? `${acc.trim()}…` : "";
+      if (salvage) { const v = checkNarration(salvage, md); salvage = v.ok ? `${v.cleaned}…` : ""; }
       if (salvage) {
         setChat(compose(salvage));
         persistTo(id, position === "above" ? [...persisted, { role: "ai", text: salvage } as ChatTurn, tablePersist] : [...persisted, tablePersist, { role: "ai", text: salvage } as ChatTurn]);
@@ -892,7 +894,14 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
           bound,
         ]);
       } finally { if (timer) clearInterval(timer); }
-      const finalText = (streamed || acc).trim();
+      let finalText = (streamed || acc).trim();
+      // NARRATION TRUST BOUNDARY (Batch 2): numeric claims must exist in the computed evidence — the
+      // retest logged five narrations restating figures wrongly (an invented "six deals" among them).
+      // Violating sentences are dropped; a gutted narration means the table stands alone.
+      if (finalText) {
+        const verdict = checkNarration(finalText, md);
+        finalText = verdict.ok ? verdict.cleaned : "";
+      }
       if (chatIdRef.current !== id) return;
       if (!finalText) { setChat([...base, tableTurn]); persistTo(id, [...persisted, tablePersist]); return; }
       setChat(compose(finalText));
@@ -1035,7 +1044,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         && !/\b(how deep|lay of the land|footprint|presence|coverage|penetration|what do i (?:know|have)|my (?:relationship|history|contacts?|footprint|presence))\b/i.test(text);
       const willEnrich = computed.enrich?.kind === "company" && wantsCompanyFacts;
       const cap = isCapableBackend(avail.backend);
-      const willInterpret = !willEnrich && (cap || avail.backend === "webllm") && shouldInterpretResult(text, computed);
+      const willInterpret = !willEnrich && (cap || avail.backend === "webllm") && shouldInterpretResult(text, computed) && !isDisambiguation(computed.intro);
       // COMPOSED DELIVERY (decided during Gate-0): hold the table until the narration is ready and deliver
       // them together as ONE complete answer — two-stage delivery read as "partial answer, then more than
       // the answer". The wait shows the STAGED indicator ("Reading your book… → Computing… → Writing…");
