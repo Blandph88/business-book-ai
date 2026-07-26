@@ -156,3 +156,17 @@ export function checkNarration(narration: string, evidence: string): NarrationVe
 export function isDisambiguation(intro: string): boolean {
   return /which one did you mean/i.test(intro);
 }
+
+// LANGUAGE GUARD: Qwen-family local models occasionally code-switch into Chinese mid-sentence and
+// "restart" their answer (observed live on the money-decision turn). An English-product reply never
+// legitimately contains CJK — drop the affected sentences, keep the rest.
+const CJK = /[\u3000-\u303f\u3040-\u30ff\u4e00-\u9fff\uff00-\uffef]/;
+export function stripForeignGlitch(text: string): string {
+  if (!CJK.test(text)) return text;
+  return text
+    .split(/(?<=[.!?\n])\s+/)
+    .filter((sent) => !CJK.test(sent))
+    .join(" ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}

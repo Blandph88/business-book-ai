@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkNarration, numericClaims, isDisambiguation } from "./narrationCheck";
+import { checkNarration, stripForeignGlitch, numericClaims, isDisambiguation } from "./narrationCheck";
 
 // The evidence tables are drawn from the retest transcripts (abbreviated).
 const RISK_TABLE = `Open opportunities with NO next meeting booked (20 of 20 open) — the follow-up-debt list, biggest first:
@@ -112,5 +112,18 @@ describe("header rows are chrome, not evidence (re-verify item 4 live run)", () 
     );
     expect(v.dropped.some((x) => /HSBC/.test(x))).toBe(true);
     expect(v.cleaned).toMatch(/busy fortnight/);
+  });
+});
+
+describe("stripForeignGlitch: Qwen code-switch sentences drop, clean text unchanged", () => {
+  it("drops the CJK-contaminated sentence and keeps the rest", () => {
+    const out = stripForeignGlitch("Index funds can be a good option. Are you looking for something\u7a33\u5065\u7684\u56de\u7b54\uff0c\u8ba9\u6211\u4eec\u91cd\u65b0\u5f00\u59cb: Let me restart. What matters is your risk tolerance.");
+    expect(out).toMatch(/Index funds can be a good option/);
+    expect(out).toMatch(/risk tolerance/);
+    expect(out).not.toMatch(/[\u4e00-\u9fff]/);
+  });
+  it("clean English text passes through untouched", () => {
+    const t = "A perfectly ordinary reply. Nothing to strip here.";
+    expect(stripForeignGlitch(t)).toBe(t);
   });
 });

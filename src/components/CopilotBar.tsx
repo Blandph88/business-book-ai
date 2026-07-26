@@ -35,7 +35,7 @@ import { Markdown } from "./Markdown";
 import { listChats, getChat, saveChat, deleteChat, newChatId, titleFromTurns, type SavedChat, type StoredTurn } from "../storage/chats";
 import { relevantNotes, addNotes, listNotes, deleteNote, clearNotes, type Note } from "../storage/memory";
 import { markBusy, markDone, isBusy, subscribeInflight } from "../ai/inflight";
-import { checkNarration, isDisambiguation } from "../ai/narrationCheck";
+import { checkNarration, isDisambiguation, stripForeignGlitch } from "../ai/narrationCheck";
 import { explainFailure, startKeepalive } from "../ai/health";
 import type { Navigate, TabId, TabIntent } from "./TabNav";
 import "./CopilotBar.css";
@@ -914,7 +914,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // retest logged five narrations restating figures wrongly (an invented "six deals" among them).
       // Violating sentences are dropped; a gutted narration means the table stands alone.
       if (finalText) {
-        const verdict = checkNarration(finalText, md);
+        const verdict = checkNarration(stripForeignGlitch(finalText), md);
         finalText = verdict.ok ? verdict.cleaned : "";
       }
       if (chatIdRef.current !== id) return;
@@ -948,7 +948,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         turnBudget,
         firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
       ]);
-      let aiText = reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, "") || "(no response)";
+      let aiText = stripForeignGlitch(reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, "")) || "(no response)";
       // NOT-AN-ADVISOR floor (re-verify item 30): a money-decision turn gets the caveat DETERMINISTICALLY —
       // the prompt asks for it, but a 14B skips it often enough that trust can't ride on the ask.
       if (MONEY_DECISION.test(text) && !/\b(?:not (?:a|your) (?:financial |licensed )?advi[sc]|regulated advi[sc]|financial advi[sc]er|IFA\b)/i.test(aiText) && aiText !== "(no response)") {
