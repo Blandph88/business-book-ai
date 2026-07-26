@@ -125,7 +125,9 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
     return secs;
   }
 
-  const reconnectPeople = stale.slice(0, 6).map((s) => s.contact);
+  // Chips mirror EXACTLY the names the Reconnect section shows (both capped at 4) — the live run
+  // had two chip-only names that appeared nowhere above them.
+  const reconnectPeople = stale.slice(0, 4).map((s) => s.contact);
   const sections = deterministicSections();
   const hasSignal = sections.length > 0;
 
