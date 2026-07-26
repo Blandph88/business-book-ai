@@ -13,7 +13,7 @@ import { opportunityPhase, weightedValue } from "../data/opportunities";
 import type { HotOpp, StaleContact, AgingOpp } from "../data/dashboard";
 import type { AgendaItem } from "../data/agenda";
 import { formatMoney } from "../data/format";
-import { useAiAvailable, aiPrompt } from "../ai/ai";
+import { useAiAvailable, aiPrompt, aiAvailability } from "../ai/ai";
 import { yourDayPrompt, draftMessagePrompt } from "../ai/prompts";
 import { contactSignalsText } from "../ai/compute";
 import { AiSuggest } from "./AiSuggest";
@@ -98,8 +98,17 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
 
   // Auto-generate on mount (uses cache so it won't re-call on every Dashboard visit). The dashboard only
   // renders YourDay once its data is ready, so the props are already populated here.
+  // LOCAL-TIER CALL DIET (Batch 2 S4, deferred item now done): on a local backend (LM Studio/Ollama)
+  // the auto-narration contends with the copilot's foreground calls in the server's queue — and the
+  // deterministic sections below already carry the full brief. So local tiers don't auto-generate;
+  // Refresh still narrates on demand.
   useEffect(() => {
-    if (aiReady && !text && !busy) generate();
+    if (!aiReady || text || busy) return;
+    let cancelled = false;
+    aiAvailability()
+      .then((a) => { if (!cancelled && !(a.local || a.backend === "ollama")) generate(); })
+      .catch(() => { /* availability probe failed — keep the deterministic brief */ });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiReady]);
 

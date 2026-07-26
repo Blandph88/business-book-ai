@@ -784,3 +784,17 @@ describe("Audit: 'change X to Y' with a draft open is a card edit, never a new a
     expect(changeCardIntent("Move the Google deal to Proposal Build")).toBe(false);
   });
 });
+
+describe("Audit-2: the formerly-deferred items", () => {
+  it("scanEntities finds exactly the named contact and no org for a person-only message", () => {
+    // The entity-type dispatch guard's precondition: one contact, zero orgs → accountSummary is a misdial.
+    const scan = scanEntities("Look at Karen OConnor", D);
+    expect(scan.contacts.length).toBe(1);
+    expect(scan.contacts[0].last).toBe("OConnor");
+    expect(scan.orgs.length).toBe(0);
+  });
+  it("scanEntities keeps the org when the message names a company", () => {
+    const scan = scanEntities("What's my footprint at ExxonMobil?", D);
+    expect(scan.orgs).toContain("ExxonMobil");
+  });
+});

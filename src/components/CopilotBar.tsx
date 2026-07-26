@@ -20,7 +20,7 @@ import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searc
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -532,7 +532,7 @@ const THINK_VERBS = [
   "Thinking", "Crunching", "Proofing", "Connecting", "Digging", "Scanning", "Weighing",
   "Sharpening", "Mapping", "Synthesising", "Strategising", "Consulting",
 ];
-function ThinkingIndicator({ label, startMs, staged, tokens }: { label?: string; startMs?: number; staged?: boolean; tokens?: number }) {
+function ThinkingIndicator({ label, startMs, staged, tokens, localTier }: { label?: string; startMs?: number; staged?: boolean; tokens?: number; localTier?: boolean }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 420);
@@ -544,7 +544,13 @@ function ThinkingIndicator({ label, startMs, staged, tokens }: { label?: string;
   const stagedWord = secs >= 30 ? "Still writing" : "Writing";
   // A fixed label (model download / "Working…") shows verbatim; otherwise rotate a quirky verb every ~3s,
   // and settle into "Almost there…" on long waits so it never feels stuck.
-  const word = label ?? `${staged ? stagedWord : secs >= 22 ? "Almost there" : THINK_VERBS[Math.floor(tick / 7) % THINK_VERBS.length]}…`;
+  // HONEST PROMPT-PROCESSING STATUS (S5, deferred → now done): on a LOCAL backend, zero tokens after
+  // several seconds means the model is still READING the context (prompt processing — the slow phase on
+  // modest hardware), not stuck. Say that, instead of a vague "Almost there".
+  const reading = localTier && !staged && !label && !tokens && secs >= 8;
+  const word = label ?? (reading
+    ? "Reading your book's context — can take a minute on local hardware…"
+    : `${staged ? stagedWord : secs >= 22 ? "Almost there" : THINK_VERBS[Math.floor(tick / 7) % THINK_VERBS.length]}…`);
   return (
     <span className="thinking">
       <span className="thinking-glyph" key={tick % THINK_GLYPHS.length}>{THINK_GLYPHS[tick % THINK_GLYPHS.length]}</span>
@@ -632,6 +638,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   // Composed compute answers hold table+narration and show the staged pipeline indicator meanwhile.
   const [stagedThinking, setStagedThinking] = useState(false);
   const [genTokens, setGenTokens] = useState(0); // live token estimate shown while a reply streams
+  const [localTier, setLocalTier] = useState(false); // local backend (LM Studio/Ollama) → honest prompt-processing status
   const genStartRef = useRef(0); // ms when the current generation began (for the live secs + "Thought for XXs")
   const mountedAtRef = useRef(Date.now()); // for the pre-hydration gate (empty store in the first seconds ≠ empty book)
   const wasGenRef = useRef(false); // tracks generating→idle transitions to stamp the finished turn
@@ -1042,6 +1049,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // LIST table — that wants the model to write something, not a roster. Only list/show/find queries.
     const isGenerate = /^\s*(draft|write|compose|prepare|prep|send|email|message|reply|respond)\b/i.test(text);
     const avail = await aiAvailability();
+    setLocalTier(!!(avail.local || avail.backend === "ollama"));
     // Render a computed result directly (clickable rows via `compute`); markdown kept for persistence + chips.
     const renderCompute = async (computed: ComputeResult): Promise<void> => {
       if (computed.subject) pushReferent(id, { kind: computed.subject.kind, id: computed.subject.id, label: computed.subject.label });
@@ -1186,6 +1194,29 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // contactBrief — which disambiguates shared first names, falls to accountSummary for orgs, and
       // answers not-found honestly and FAST. The retest lost five turns (incl. a fabricated person and
       // a 507s stall) to brief synonyms riding the model path.
+      // DISAMBIGUATION PICK (deferred Batch-2 item, now done): after a which-one list, a pick-shaped
+      // reply ("the second one", "the one at HSBC") resolves the ROW deterministically, briefs them,
+      // and — via renderCompute's subject — writes the referent ledger so following deixis binds.
+      {
+        const prevAi = [...prior].reverse().find((tn) => tn.role === "ai");
+        const wasWhich = prevAi && /which one did you mean/i.test(prevAi.compute?.intro || prevAi.text || "");
+        const pickShaped = text.length < 60 && /^\s*(?:the|that|no,?\s+the|it'?s\s+the)\b|^\s*(?:first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)\b/i.test(text.trim());
+        if (wasWhich && pickShaped && prevAi?.compute?.rows.length) {
+          const rows = prevAi.compute.rows;
+          const ORD: Record<string, number> = { first: 0, "1st": 0, second: 1, "2nd": 1, third: 2, "3rd": 2, fourth: 3, "4th": 3, fifth: 4, "5th": 4 };
+          const om = text.toLowerCase().match(/\b(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)\b/);
+          let pick = om ? rows[ORD[om[1]]] : undefined;
+          if (!pick) {
+            const atOrg = text.match(/\b(?:at|from)\s+([A-Za-z0-9&'’.\- ]{2,40}?)\s*[.?!]?\s*$/i)?.[1]?.trim().toLowerCase();
+            if (atOrg) pick = rows.find((r) => r.cells.some((c) => String(c).toLowerCase() === atOrg));
+          }
+          const pc = pick?.record?.tab === "contacts" ? data.contacts.find((x) => x.url === pick!.record!.id) : undefined;
+          if (pc) {
+            const cb = runTool({ tool: "contactBrief", args: { name: `${pc.first} ${pc.last}`.trim() } }, data, today, text);
+            if (cb) { await renderCompute(cb); return; }
+          }
+        }
+      }
       // MEETING-CONTENT ("what was our last meeting about?") — the notes ARE the answer; the thread
       // referent scopes it, else the most recent held meeting overall (re-verify item 4).
       {
@@ -1250,6 +1281,15 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         // local router defaulted to it for any aggregate-sounding ask (retest #3/#5). Re-route through the
         // deterministic layer instead of trusting the claim.
         let toolCall = { tool: routed.tool, args: routed.args };
+        // ENTITY-TYPE GUARD (S1.7, deferred → now done): a message that names exactly ONE known
+        // CONTACT (and no org) must never land on the company tool — the local router confuses the
+        // two on shared surnames. The reverse direction is already handled inside contactBrief.
+        if (toolCall.tool === "accountSummary") {
+          const scan = scanEntities(text, data);
+          if (scan.contacts.length === 1 && !scan.orgs.length) {
+            toolCall = { tool: "contactBrief", args: { name: `${scan.contacts[0].first} ${scan.contacts[0].last}`.trim() } };
+          }
+        }
         if (routed.tool === "revenueAggregate" && !revenueVocabOk(text)) {
           const det = computeForQuery(text, data, today, prevUserText);
           if (det) { await renderCompute(det); return; }
@@ -1905,7 +1945,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                   </div>
                 ),
               )}
-              {!streaming && (asking || actionBusy || isBusy(chatIdRef.current)) && <div className="copilot-turn copilot-turn--ai"><div className="copilot-turn-text copilot-turn-text--thinking"><ThinkingIndicator key={genStartRef.current} label={aiLoad?.active ? `${aiLoad.firstRun ? "Downloading the assistant (one-time)" : "Starting the assistant"}… ${Math.round((aiLoad.progress || 0) * 100)}%` : actionBusy ? "Working…" : undefined} staged={stagedThinking} startMs={genStartRef.current} tokens={genTokens} /></div></div>}
+              {!streaming && (asking || actionBusy || isBusy(chatIdRef.current)) && <div className="copilot-turn copilot-turn--ai"><div className="copilot-turn-text copilot-turn-text--thinking"><ThinkingIndicator key={genStartRef.current} label={aiLoad?.active ? `${aiLoad.firstRun ? "Downloading the assistant (one-time)" : "Starting the assistant"}… ${Math.round((aiLoad.progress || 0) * 100)}%` : actionBusy ? "Working…" : undefined} staged={stagedThinking} startMs={genStartRef.current} tokens={genTokens} localTier={localTier} /></div></div>}
               {streaming && <div className="copilot-genmeta copilot-genmeta--live">~{formatTokens(genTokens)} tokens · {Math.max(0, Math.round((Date.now() - genStartRef.current) / 1000))}s</div>}
             </div>
             {(doc || docNote) && (
