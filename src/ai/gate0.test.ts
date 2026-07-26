@@ -878,6 +878,18 @@ describe("Re-verify item 28: reminders resolve their subject to a meeting-holder
     const c = reminderSubject("Remind me to chase the JPMorgan proposal next Friday.", DJ, TODAY);
     expect(c?.last).toBe("Taylor");
   });
+  it("'next Friday' must NOT make the retailer Next a candidate (live-run miss)", () => {
+    const NEXTC = contact({ first: "Poppy", last: "Hale", organisation: "Next", url: "u-next" });
+    const DN = book({ ...DJ, contacts: [...DJ.contacts, NEXTC] });
+    const c = reminderSubject("Remind me to chase the JPMorgan proposal next Friday.", DN, TODAY);
+    expect(c?.last).toBe("Taylor");
+  });
+  it("all-lowercase typing still resolves via deal-context narrowing", () => {
+    const NEXTC = contact({ first: "Poppy", last: "Hale", organisation: "Next", url: "u-next" });
+    const DN = book({ ...DJ, contacts: [...DJ.contacts, NEXTC] });
+    const c = reminderSubject("remind me to chase the jpmorgan proposal next friday", DN, TODAY);
+    expect(c?.last).toBe("Taylor");
+  });
   it("a named contact resolves directly", () => {
     const c = reminderSubject("Remind me to call Karen OConnor tomorrow", DJ, TODAY);
     expect(c?.last).toBe("OConnor");

@@ -1886,17 +1886,27 @@ export function reminderSubject(text: string, d: BookData, today: string): Conta
   if (scan.contacts.length === 1) return scan.contacts[0];
   if (scan.contacts.length > 1) return null;
   // Org reference, tolerant of partial names ("JPMorgan" for "JPMorgan Chase"): match on the org's
-  // first distinctive token (≥4 chars). Exactly one org may match, else it's ambiguous.
-  const tl = " " + foldAccents(text) + " ";
-  const orgs = new Set<string>();
+  // first distinctive token (≥4 chars). Ordinary-word org names are the trap — "next Friday" matched
+  // the retailer "Next" and made the real JPMorgan reference look ambiguous (live run). Two
+  // discriminators: the token must appear CAPITALISED in the text (org names are proper nouns) when
+  // any capitalised candidate exists, and deal-context narrows to orgs that actually have a deal.
+  const cand = new Map<string, boolean>(); // org → appeared capitalised
   for (const c of d.contacts) {
     const o = (c.organisation || "").trim();
-    if (!o) continue;
+    if (!o || cand.has(o)) continue;
     const tok = foldAccents(o).split(/[^a-z0-9]+/).filter(Boolean)[0];
-    if (tok && tok.length >= 4 && tl.includes(` ${tok}`)) orgs.add(o);
+    if (!tok || tok.length < 4) continue;
+    const hit = new RegExp(`\\b${tok}\\b`, "i").exec(foldAccents(text)) ? new RegExp(`\\b${tok}`, "i").exec(text) : null;
+    if (hit) cand.set(o, /[A-Z]/.test(hit[0][0]));
   }
-  if (orgs.size !== 1) return null;
-  const org = [...orgs][0];
+  let orgs = [...cand.keys()];
+  if (orgs.length > 1 && orgs.some((o) => cand.get(o))) orgs = orgs.filter((o) => cand.get(o));
+  if (orgs.length > 1) {
+    const withDeal = orgs.filter((o) => d.opps.some((x) => orgMatches(x.organisation, o)));
+    if (withDeal.length) orgs = withDeal;
+  }
+  if (orgs.length !== 1) return null;
+  const org = orgs[0];
   const opp = d.opps.find((o) => orgMatches(o.organisation, org) && oppStatus(o) === "Open")
     || d.opps.find((o) => orgMatches(o.organisation, org));
   if (!opp) return null;
