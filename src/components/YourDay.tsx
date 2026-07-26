@@ -54,7 +54,8 @@ function BriefIndicator({ startMs, tokens }: { startMs: number; tokens: number }
   return (
     <p className="yourday-loading">
       <span className="thinking-glyph" key={tick % BRIEF_GLYPHS.length}>{BRIEF_GLYPHS[tick % BRIEF_GLYPHS.length]}</span>
-      {" "}{word}… {secs > 0 && <>· {secs}s{tokens > 0 ? ` · ~${tokens} tok` : ""}</>}
+      <span>{word}…</span>
+      {secs > 0 && <span className="yourday-loading-meta">· {secs}s{tokens > 0 ? ` · ~${tokens} tok` : ""}</span>}
     </p>
   );
 }

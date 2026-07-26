@@ -212,11 +212,60 @@ async function byokPrompt(cfg: Byok, input: string, opts?: PromptArgs): Promise<
   const res = await fetch(base + "/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: "Bearer " + cfg.apiKey },
-    body: JSON.stringify({ model: cfg.model, messages: msgs }),
+    // max_tokens caps a rambling local generation (an uncapped brief ran minutes in the live sweep).
+    body: JSON.stringify({ model: cfg.model, messages: msgs, max_tokens: 1024 }),
   });
   if (!res.ok) throw new Error("AI endpoint error " + res.status);
   const j = await res.json();
   return j.choices?.[0]?.message?.content ?? "";
+}
+
+// TRUE token streaming for an OpenAI-compatible endpoint (LM Studio / Ollama / cloud BYOK). The old
+// requestStream fell back to ONE-SHOT here — so on the most common local rig no token ever arrived
+// until completion: stall detection couldn't tell healthy-slow from wedged, "Writing…" never ticked,
+// and an abandoned request kept the single-slot server busy (the queue pile-up Phil diagnosed live).
+// Streams via SSE, aborts the fetch if the stream goes silent 30s (frees the server slot), and caps
+// generation the same as the one-shot path.
+async function byokPromptStream(cfg: Byok, input: string, opts: PromptArgs | undefined, onToken: (full: string) => void): Promise<string> {
+  if (cfg.wire === "anthropic") { const full = await byokPrompt(cfg, input, opts); onToken(full); return full; }
+  const base = cfg.endpoint.replace(/\/$/, "");
+  const msgs: { role: string; content: string }[] = [];
+  if (opts?.system) msgs.push({ role: "system", content: opts.system });
+  msgs.push({ role: "user", content: input });
+  const ctrl = new AbortController();
+  let lastChunk = Date.now();
+  const watchdog = setInterval(() => { if (Date.now() - lastChunk > 30_000) ctrl.abort(); }, 2_000);
+  try {
+    const res = await fetch(base + "/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer " + cfg.apiKey },
+      body: JSON.stringify({ model: cfg.model, messages: msgs, max_tokens: 1024, stream: true }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok || !res.body) throw new Error("AI endpoint error " + res.status);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", full = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      lastChunk = Date.now();
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        const m = line.match(/^data:\s*(.+)$/);
+        if (!m || m[1] === "[DONE]") continue;
+        try {
+          const delta = JSON.parse(m[1])?.choices?.[0]?.delta?.content;
+          if (typeof delta === "string" && delta) { full += delta; onToken(full); }
+        } catch { /* partial frame — accumulates in buf */ }
+      }
+    }
+    return full;
+  } finally {
+    clearInterval(watchdog);
+  }
 }
 
 function stubPrompt(input: string, opts?: PromptArgs): string {
@@ -390,6 +439,13 @@ export function installDevBroker(): void {
         if (wantWebllm) {
           try { return await webllmPromptStream(text, args, onToken); }
           catch (e) { console.warn("[Business Book dev · WebLLM stream] failed, falling back:", e); }
+        }
+        if (activeBackend() === "byok") {
+          const cfg = byokConfig();
+          if (cfg) {
+            try { return await byokPromptStream(cfg, text, args, onToken); }
+            catch (e) { console.warn("[Business Book dev · BYOK stream] failed, falling back:", e); }
+          }
         }
         const full = String(await aiHandler("prompt", args));
         onToken(full);

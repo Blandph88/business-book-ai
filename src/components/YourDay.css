@@ -29,7 +29,16 @@
 .yourday-chip:hover { background: var(--primary-tint); border-color: var(--primary-tint-2); }
 .yourday-note { margin: 10px 0 0; font-size: 11px; color: var(--ink-3); }
 
-/* Miniature copilot thinking glyph for the brief indicator (same pop animation as the chat). */
+/* The copilot's thinking treatment, verbatim: bold, drifting through the brand navies, glyph pops. */
+.yourday-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-style: normal;
+  animation: yourday-hue 4.2s ease-in-out infinite;
+}
 .yourday-loading .thinking-glyph {
   display: inline-block;
   width: 1em;
@@ -40,10 +49,19 @@
   transform-origin: center;
   animation: yourday-pop 0.5s cubic-bezier(0.25, 1.1, 0.4, 1);
 }
+.yourday-loading .yourday-loading-meta { color: var(--ink-3); font-weight: 400; font-variant-numeric: tabular-nums; font-size: 0.92em; }
+@keyframes yourday-hue {
+  0%   { color: #4a6fa0; }
+  30%  { color: #2b4f80; }
+  55%  { color: #1f3b63; }
+  80%  { color: #34588a; }
+  100% { color: #4a6fa0; }
+}
 @keyframes yourday-pop {
-  0% { transform: scale(0.4); opacity: 0.3; }
-  100% { transform: scale(1); opacity: 1; }
+  0%   { transform: scale(0.62) rotate(-32deg); opacity: 0.35; }
+  60%  { transform: scale(1.1) rotate(5deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .yourday-loading .thinking-glyph { animation: none; }
+  .yourday-loading, .yourday-loading .thinking-glyph { animation: none; }
 }
