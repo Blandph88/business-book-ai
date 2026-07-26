@@ -1554,7 +1554,17 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     {
       const span = extractSubjectSpan(target) || (extractText !== target ? extractSubjectSpan(extractText) : "");
       const pronounOnly = /^(?:them|him|her|they|he|she|it|that|this)$/i.test(span);
-      let matches = span && !pronounOnly ? matchContacts(span, contacts) : [];
+      // Re-attach the "at <Org>" qualifier the span extractor strips — it's the ONLY disambiguator
+      // when two contacts share a full name (live-run picker loop: two Sarah Evanses).
+      let spanQ = span;
+      if (span) {
+        const rawSrc = `${target} ${extractText}`;
+        const idx = rawSrc.toLowerCase().indexOf(span.toLowerCase());
+        const after = idx >= 0 ? rawSrc.slice(idx + span.length) : "";
+        const atQ = after.match(/^\s+at\s+([A-Za-z0-9&.'’\- ]{2,40}?)\s*(?:[—–,]|\s-\s|worth\b|valued\b|$)/i);
+        if (atQ) spanQ = `${span} at ${atQ[1].trim()}`;
+      }
+      let matches = span && !pronounOnly ? matchContacts(spanQ, contacts) : [];
       if (matches.length !== 1 && needsContact) {
         const withName = target.match(/\b(?:with|for|to|re|about)\s+([A-Za-z][A-Za-z'’.-]+(?:\s+[A-Za-z][A-Za-z'’.-]+){0,2})/)?.[1];
         if (!matches.length && withName) matches = matchContacts(withName, contacts);
