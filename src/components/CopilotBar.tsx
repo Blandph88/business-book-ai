@@ -654,15 +654,28 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   // matched an unrelated lost deal) — recorded per chat. Deixis binds through this or ASKS; it never
   // guesses. Newest first, capped.
   type Referent = { kind: "contact" | "org" | "opportunity" | "meeting" | "contract"; id: string; label: string; at: number };
-  const referentsRef = useRef<Map<string, Referent[]>>(new Map());
+  // Session-persisted (re-verify item 4 live run: a page reload wiped the in-memory ledger, so "our
+  // last meeting" after a brief lost its subject and fell back to the latest meeting overall). The
+  // ledger now survives reloads within the tab; a fresh session starts clean, which is correct.
+  const REFS_KEY = "bob.referents.v1";
+  const referentsRef = useRef<Map<string, Referent[]> | null>(null);
+  const refsMap = (): Map<string, Referent[]> => {
+    if (!referentsRef.current) {
+      try { referentsRef.current = new Map(Object.entries(JSON.parse(sessionStorage.getItem(REFS_KEY) || "{}"))); }
+      catch { referentsRef.current = new Map(); }
+    }
+    return referentsRef.current;
+  };
   const pushReferent = (chatId: string | null, r: Omit<Referent, "at">) => {
     if (!chatId) return;
-    const list = referentsRef.current.get(chatId) ?? [];
+    const m = refsMap();
+    const list = m.get(chatId) ?? [];
     const next = [{ ...r, at: Date.now() }, ...list.filter((x) => !(x.kind === r.kind && x.id === r.id))].slice(0, 12);
-    referentsRef.current.set(chatId, next);
+    m.set(chatId, next);
+    try { sessionStorage.setItem(REFS_KEY, JSON.stringify(Object.fromEntries(m))); } catch { /* best-effort */ }
   };
   const latestReferent = (chatId: string | null, kind: Referent["kind"]): Referent | null =>
-    (chatId && referentsRef.current.get(chatId)?.find((x) => x.kind === kind)) || null;
+    (chatId && refsMap().get(chatId)?.find((x) => x.kind === kind)) || null;
   const latestChatRef = useRef<UITurn[]>([]); // newest chat turns, for distilling memory on leave/unmount
   const distilledRef = useRef<Map<string, number>>(new Map()); // chatId → turns already distilled (skip redundant)
   const threadRef = useRef<HTMLDivElement | null>(null);

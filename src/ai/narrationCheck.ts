@@ -51,8 +51,14 @@ export type NarrationVerdict = { ok: boolean; cleaned: string; dropped: string[]
 
 // Parse a markdown evidence table into row cells (loose — any |-delimited line).
 function evidenceRows(evidence: string): string[][] {
-  return evidence.split("\n").filter((l) => l.trim().startsWith("|"))
+  const parsed = evidence.split("\n").filter((l) => l.trim().startsWith("|"))
     .map((l) => l.split("|").map((c) => c.trim()).filter(Boolean));
+  // The HEADER and separator rows are table chrome, not evidence: header cells like "Sentiment"/
+  // "Contact" matched ordinary words in healthy sentences ("…to shift sentiment") and flagged false
+  // pairing violations, gutting narrations that were perfectly faithful (re-verify item 4 live run).
+  const sepIdx = parsed.findIndex((r) => r.length > 0 && r.every((c) => /^:?-{2,}:?$/.test(c)));
+  if (sepIdx >= 0) return parsed.filter((_, i) => i !== sepIdx && i !== sepIdx - 1);
+  return parsed;
 }
 
 const SENTIMENTS = ["very positive", "positive", "neutral", "cautious", "negative"];

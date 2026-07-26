@@ -87,3 +87,30 @@ describe("org-pairing check: person-at-company claims must match a real row", ()
     expect(v.dropped.length).toBe(0);
   });
 });
+
+describe("header rows are chrome, not evidence (re-verify item 4 live run)", () => {
+  const EV = [
+    "Meetings you held in the last two weeks (4):",
+    "| Date | Contact | Company | Sentiment |",
+    "| --- | --- | --- | --- |",
+    "| 2026-07-22 | Hannah Singh | General Electric | Very Positive |",
+    "| 2026-07-19 | Olivia Thomas | HSBC | Positive |",
+    "| 2026-07-18 | Camille Singh | HSBC | Cautious |",
+    "| 2026-07-24 | Daniel Garcia | Confluent | Neutral |",
+  ].join("\n");
+  it("healthy sentences containing 'sentiment'/'contacts' are NOT flagged via header cells", () => {
+    const v = checkNarration(
+      "A few neutral interactions might indicate areas needing follow-up to shift sentiment. Want me to review the neutral contacts for potential next steps?",
+      EV,
+    );
+    expect(v.dropped.length).toBe(0);
+  });
+  it("the real garble still drops: Very Positive paired with HSBC whose rows are Positive/Cautious", () => {
+    const v = checkNarration(
+      "Notably, there's an encouraging number of Very Positive engagements, especially with General Electric and HSBC. A busy fortnight overall with plenty to build on.",
+      EV,
+    );
+    expect(v.dropped.some((x) => /HSBC/.test(x))).toBe(true);
+    expect(v.cleaned).toMatch(/busy fortnight/);
+  });
+});
