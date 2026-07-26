@@ -44,8 +44,9 @@ function agendaItem(over: Partial<AgendaItem> = {}): AgendaItem {
 
 const TODAY = "2026-06-27";
 const baseProps = {
-  today: TODAY, contacts: [] as Contact[], edits: {}, meetingRows: [],
+  today: TODAY, contacts: [] as Contact[],
   agenda: [] as AgendaItem[], hotOpps: [], stale: [] as StaleContact[], aging: [],
+  onDraft: () => {},
 };
 
 describe("YourDay deterministic brief (AI off)", () => {

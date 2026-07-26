@@ -7,17 +7,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Contact } from "../data/contacts";
-import type { OwnerEdits } from "../storage/ownerEdits";
-import type { MeetingRow } from "../data/meetings";
 import { opportunityPhase, weightedValue } from "../data/opportunities";
 import type { HotOpp, StaleContact, AgingOpp } from "../data/dashboard";
 import type { AgendaItem } from "../data/agenda";
 import { formatMoney } from "../data/format";
 import { useAiAvailable, aiPrompt, aiAvailability } from "../ai/ai";
-import { yourDayPrompt, draftMessagePrompt } from "../ai/prompts";
-import { contactSignalsText } from "../ai/compute";
-import { AiSuggest } from "./AiSuggest";
-import type { ContactRow } from "../tabs/ContactForm";
+import { yourDayPrompt } from "../ai/prompts";
 import "./YourDay.css";
 
 const CACHE_KEY = "bob.yourday.v1"; // {day, sig, text} — once per (day + context signature) so tab-switching doesn't re-call, but an import/scan/log that changes the day's signals busts it
@@ -33,21 +28,21 @@ function ctxSignature(s: string): string {
 type YourDayProps = {
   today: string;
   contacts: Contact[];
-  edits: Record<string, OwnerEdits>;
-  meetingRows: MeetingRow[];
   agenda: AgendaItem[]; // "This week" — dated commitments (same list the dashboard shows)
   hotOpps: HotOpp[]; // "Close these" — biggest deals near signature
   stale: StaleContact[]; // "Reconnect" — warm contacts gone quiet (45d+, unified with the card)
   aging: AgingOpp[]; // "Going cold" — open opps with no movement (30d+)
+  // Deep-link a draft request into the COPILOT (Phil's call, 2026-07-26): one AI pipeline — the
+  // hardened chat surface — instead of a second modal duplicating budgets/indicators/failure states.
+  onDraft: (prompt: string) => void;
 };
 
-export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, stale, aging }: YourDayProps) {
+export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraft }: YourDayProps) {
   const aiReady = useAiAvailable();
 
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draftContact, setDraftContact] = useState<Contact | null>(null);
   // Ignore an in-flight generation that resolves after the Dashboard unmounts (no setState-after-unmount).
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
@@ -130,8 +125,6 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
     return secs;
   }
 
-  const rowFor = (c: Contact): ContactRow => ({ ...c, ...(edits[c.url] || {}) });
-  const meetingsFor = (c: Contact) => meetingRows.filter((m) => m.contact_url === c.url);
   const reconnectPeople = stale.slice(0, 6).map((s) => s.contact);
   const sections = deterministicSections();
   const hasSignal = sections.length > 0;
@@ -170,7 +163,7 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
         <div className="yourday-actions">
           <span className="yourday-actions-label">Reconnect:</span>
           {reconnectPeople.map((c) => (
-            <button key={c.url} type="button" className="yourday-chip" onClick={() => setDraftContact(c)}>
+            <button key={c.url} type="button" className="yourday-chip" onClick={() => onDraft(`Draft a reconnect message to ${`${c.first} ${c.last}`.trim()}`)}>
               Draft → {`${c.first} ${c.last}`.trim()}
             </button>
           ))}
@@ -183,15 +176,6 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
           : "Turn on the assistant in your Freehold AI settings for a narrated brief + one-tap reconnect drafts. Everything here already works without it."}
       </p>
 
-      {draftContact && (
-        <AiSuggest
-          title="Draft a reconnect message"
-          subtitle={`To ${`${draftContact.first} ${draftContact.last}`.trim()}`}
-          generate={(tweak) => aiPrompt(draftMessagePrompt(rowFor(draftContact), meetingsFor(draftContact), "reconnect", tweak, undefined, contactSignalsText(draftContact)))}
-          tweaks={[{ label: "Shorter", instruction: "Make it shorter." }, { label: "Warmer", instruction: "Make it warmer." }]}
-          onClose={() => setDraftContact(null)}
-        />
-      )}
     </section>
   );
 }

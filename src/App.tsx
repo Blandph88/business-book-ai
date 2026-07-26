@@ -351,7 +351,7 @@ export default function App() {
         )}
 
         <main className="app-main" key={dataNonce}>
-          {activeTab === "dashboard" && <DashboardTab onNavigate={navigate} />}
+          {activeTab === "dashboard" && <DashboardTab onNavigate={navigate} onDraft={askInChat} />}
           {activeTab === "metrics" && <MetricsTab onNavigate={navigate} onOpenAccount={openAccount} />}
           {activeTab === "contacts" && <ContactsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} onImport={openImport} />}
           {activeTab === "meetings" && <MeetingsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onReturn={returnToOrigin} />}

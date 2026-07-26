@@ -37,9 +37,10 @@ import { YourDay } from "../components/YourDay";
 
 type DashboardTabProps = {
   onNavigate: Navigate; // switch tab, optionally with a deep-link intent
+  onDraft: (prompt: string) => void; // send a draft request into the copilot chat
 };
 
-export function DashboardTab({ onNavigate }: DashboardTabProps) {
+export function DashboardTab({ onNavigate, onDraft }: DashboardTabProps) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [edits, setEdits] = useState<Record<string, OwnerEdits>>({});
   const [meetingRows, setMeetingRows] = useState<MeetingRow[]>([]);
@@ -160,12 +161,11 @@ export function DashboardTab({ onNavigate }: DashboardTabProps) {
       <YourDay
         today={today}
         contacts={contacts}
-        edits={edits}
-        meetingRows={meetingRows}
         agenda={agenda}
         hotOpps={hotOpps}
         stale={stale}
         aging={aging}
+        onDraft={onDraft}
       />
 
       {/* ── Headline numbers ──────────────────────────────────────────── */}
