@@ -606,6 +606,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     try { localStorage.setItem("bb.chatPauseNotice.seen", "1"); } catch { /* ignore */ }
   };
   const [view, setView] = useState<View>(initialView);
+  const OPEN_CHAT_KEY = "bob.chat.open.v1"; // session-scoped: refresh stays on the thread, new session starts fresh
+  const saveOpenChat = (cid: string | null) => {
+    try { cid ? sessionStorage.setItem(OPEN_CHAT_KEY, cid) : sessionStorage.removeItem(OPEN_CHAT_KEY); } catch { /* ignore */ }
+  };
   const [histQuery, setHistQuery] = useState("");
   const [, setInflightTick] = useState(0);
   // First-use model download progress (broadcast by the broker), so "Thinking…" becomes "Setting up the
@@ -699,9 +703,21 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   useEffect(() => {
     if (!openChatId) return;
     const c = getChat(openChatId);
-    if (c) { setChat(c.turns); chatIdRef.current = c.id; setView("chat"); }
+    if (c) { setChat(c.turns); chatIdRef.current = c.id; setView("chat"); saveOpenChat(c.id); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openChatId]);
+
+  // A hard refresh must land back on the SAME thread, not the chat list (Phil, re-verify session).
+  // The open chat id is session-persisted; restore it when nothing more specific was requested.
+  useEffect(() => {
+    if (openChatId || seedPrompt) return;
+    let last: string | null = null;
+    try { last = sessionStorage.getItem(OPEN_CHAT_KEY); } catch { /* ignore */ }
+    if (!last) return;
+    const c = getChat(last);
+    if (c) { setChat(c.turns); chatIdRef.current = c.id; setView("chat"); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Seed a brand-new conversation from a prompt handed in by the top-bar search box (Enter escalates the
   // draft into the full Chat surface). Fire once, only when AI is actually ready.
@@ -1018,6 +1034,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     offerUpgradeIfOnNano(); // one-time: on Nano but a better on-device model is possible → encourage it
     const freshChat = !chatIdRef.current;
     if (freshChat) chatIdRef.current = newChatId();
+    saveOpenChat(chatIdRef.current);
     const id = chatIdRef.current as string; // set above (fresh) or already present
     // Demo analytics (no-op in the owned/sealed copy; content-free — category + counts only, never the text).
     // A cheap regex prior labels the intent for analytics only — the REAL routing is the unified LLM router
@@ -1771,9 +1788,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     if (chatIdRef.current) persistTo(chatIdRef.current, serializeForPersist(next));
   }
 
-  function startNew() { void maybeDistil(chat, chatIdRef.current); setChat([]); chatIdRef.current = null; setQ(""); setView("search"); }
+  function startNew() { void maybeDistil(chat, chatIdRef.current); setChat([]); chatIdRef.current = null; setQ(""); setView("search"); saveOpenChat(null); }
   function openHistory() { setSaved(listChats()); setView("history"); }
-  function openChat(c: SavedChat) { void maybeDistil(chat, chatIdRef.current); setChat(c.turns); chatIdRef.current = c.id; setQ(""); setView("chat"); }
+  function openChat(c: SavedChat) { void maybeDistil(chat, chatIdRef.current); setChat(c.turns); chatIdRef.current = c.id; setQ(""); setView("chat"); saveOpenChat(c.id); }
   function removeChat(id: string) { deleteChat(id); setSaved(listChats()); onChatsChanged?.(); }
   function openMemory() { setNotes(listNotes()); setView("memory"); }
   function removeNote(id: string) { deleteNote(id); setNotes(listNotes()); }
