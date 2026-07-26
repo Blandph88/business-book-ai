@@ -1217,11 +1217,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // reply ("the second one", "the one at HSBC") resolves the ROW deterministically, briefs them,
       // and — via renderCompute's subject — writes the referent ledger so following deixis binds.
       {
-        const prevAi = [...prior].reverse().find((tn) => tn.role === "ai");
-        const wasWhich = prevAi && /which one did you mean/i.test(prevAi.compute?.intro || prevAi.text || "");
+        // The which-one list may not be the LAST turn — a second pick ("actually the third one")
+        // arrives after the first pick's brief. Search the recent turns for the newest disambiguation.
+        const whichTurn = [...prior].reverse().slice(0, 8).find((tn) => tn.role === "ai" && tn.compute?.rows.length && /which one did you mean/i.test(tn.compute?.intro || tn.text || ""));
         const pickShaped = text.length < 60 && /^\s*(?:the|that|no,?\s+the|it'?s\s+the)\b|^\s*(?:first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)\b/i.test(text.trim());
-        if (wasWhich && pickShaped && prevAi?.compute?.rows.length) {
-          const rows = prevAi.compute.rows;
+        if (whichTurn && pickShaped && whichTurn.compute?.rows.length) {
+          const rows = whichTurn.compute.rows;
           const ORD: Record<string, number> = { first: 0, "1st": 0, second: 1, "2nd": 1, third: 2, "3rd": 2, fourth: 3, "4th": 3, fifth: 4, "5th": 4 };
           const om = text.toLowerCase().match(/\b(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th)\b/);
           let pick = om ? rows[ORD[om[1]]] : undefined;
