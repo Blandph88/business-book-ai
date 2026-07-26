@@ -21,7 +21,7 @@ import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
 import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, newsShaped, reminderSubject, type ComputeResult } from "../ai/compute";
-import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
+import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, MONEY_DECISION, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
 import { ComputeTable } from "./ComputeTable";
@@ -948,7 +948,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         turnBudget,
         firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
       ]);
-      const aiText = reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, "") || "(no response)";
+      let aiText = reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, "") || "(no response)";
+      // NOT-AN-ADVISOR floor (re-verify item 30): a money-decision turn gets the caveat DETERMINISTICALLY —
+      // the prompt asks for it, but a 14B skips it often enough that trust can't ride on the ask.
+      if (MONEY_DECISION.test(text) && !/\b(?:not (?:a|your) (?:financial |licensed )?advi[sc]|regulated advi[sc]|financial advi[sc]er|IFA\b)/i.test(aiText) && aiText !== "(no response)") {
+        aiText += "\n\nOne thing to say plainly: I'm not a financial adviser, and this isn't advice — for a real decision about your savings, a regulated adviser is worth the fee.";
+      }
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
       if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
     } catch {

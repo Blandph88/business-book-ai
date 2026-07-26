@@ -93,7 +93,7 @@ export function conversationPath(text: string, d: BookData, prevCompanion = fals
 // Personal MONEY decisions ("should I put my savings into index funds?") belong to the companion —
 // which answers warmly WITH the not-a-financial-advisor caveat (Phil's ratified behaviour). The retest
 // (#49) showed this phrasing slipping past the floor to a capabilities-list decline.
-const MONEY_DECISION = /\b(?:my (?:savings|money|pension|mortgage|finances|investments?)|index funds?|etfs?|stock market|crypto(?:currency)?|financial advi[cs]e|(?:should|shall) i (?:put|invest|save|buy (?:a house|property|stocks|shares|crypto)))\b/i;
+export const MONEY_DECISION = /\b(?:my (?:savings|money|pension|mortgage|finances|investments?)|index funds?|etfs?|stock market|crypto(?:currency)?|financial advi[cs]e|(?:should|shall) i (?:put|invest|save|buy (?:a house|property|stocks|shares|crypto)))\b/i;
 
 export function clearlyPersonal(text: string): boolean {
   if (BOOK_INTENT.test(text) || BD_EXTRA.test(text)) return false;
