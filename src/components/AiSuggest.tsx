@@ -3,6 +3,7 @@
 // or Use it. Nothing is ever written or sent automatically — the model proposes, the user decides.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { explainFailure } from "../ai/health";
 import "./AiSuggest.css";
 
 export type AiTweak = { label: string; instruction: string };
@@ -40,9 +41,19 @@ export function AiSuggest({
     (tweak?: string) => {
       setLoading(true);
       setError(null);
-      generate(tweak)
+      // TURN BUDGET (same contract as the copilot): a local model's queue can stall indefinitely —
+      // the dashboard Draft button sat on "Thinking…" forever in the re-verify. Cap the wait and
+      // explain honestly from live backend state instead.
+      const budget = new Promise<never>((_, rej) => setTimeout(() => rej(new Error("turn-budget")), 90_000));
+      Promise.race([generate(tweak), budget])
         .then((t) => { if (alive.current) setText(t.trim()); })
-        .catch((e) => { if (alive.current) setError(e instanceof Error ? e.message : "Couldn't generate that."); })
+        .catch(async (e) => {
+          if (!alive.current) return;
+          const msg = e instanceof Error && e.message === "turn-budget"
+            ? await explainFailure("turn-budget")
+            : await explainFailure("error");
+          if (alive.current) setError(msg);
+        })
         .finally(() => { if (alive.current) setLoading(false); });
     },
     [generate],
