@@ -15,7 +15,7 @@ import {
   deicticWithoutEntity, contactBrief, rankOpportunities, capabilitiesResult, stageBreakdown,
   frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, scanEntities,
   deicticRecordRef, resolveCompareDeixis, windowMonth, calendarMeetings, compoundContactsWarm,
-  isReasoningRequest as reasonRq, warmNoDeal,
+  isReasoningRequest as reasonRq, warmNoDeal, meetingContent,
 } from "./compute";
 import { normalizeRoute } from "./prompts";
 import type { BookData } from "./bookContext";
@@ -667,5 +667,31 @@ describe("Batch2-C: owner-edit warmth precedence (retest #19)", () => {
     (c as unknown as Record<string, unknown>).warmthSentiment = { score: 4 };
     const r = contactBrief(book({ contacts: [c] }), "Priya OConnor", TODAY);
     expect(r.intro).toMatch(/Relationship: Warm \(your rating; the message tone reads/);
+  });
+});
+
+describe("Re-verify: meeting-content route (items 4/#32/#36)", () => {
+  const RS = contact({ first: "Robert", last: "Schmidt", organisation: "Salesforce", met: true, messaged: true, url: "https://l/rs2" });
+  const M = meeting({ id: "rsm1", contact_url: RS.url, date_held: "2026-07-16", sentiment: "Very Positive", contactInfo: { name: "Robert Schmidt", organisation: "Salesforce", seniority: "", function: "", sector_group: "", phone: "" } });
+  (M as unknown as Record<string, unknown>).notes = "Good conversation with Robert Schmidt. Discussed cost pressure on the operating model.";
+  const D = book({ contacts: [RS], meetingRows: [M] });
+  it("'What did Robert Schmidt and I talk about?' → the notes, deterministically", () => {
+    const r = meetingContent("What did Robert Schmidt and I talk about?", D, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/cost pressure on the operating model/);
+  });
+  it("'What was our last meeting about?' + thread referent → scoped to Robert", () => {
+    const r = meetingContent("What was our last meeting about?", D, TODAY, "Robert Schmidt");
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/Robert Schmidt/);
+    expect(r!.intro).toMatch(/cost pressure/);
+  });
+  it("subjectless in a fresh thread → the most recent held meeting overall", () => {
+    const r = meetingContent("What was my last meeting about?", D, TODAY);
+    expect(r).toBeTruthy();
+    expect(r!.intro).toMatch(/cost pressure/);
+  });
+  it("does not hijack plain meeting lists", () => {
+    expect(meetingContent("Any meetings held in the past 10 days?", D, TODAY)).toBeNull();
   });
 });

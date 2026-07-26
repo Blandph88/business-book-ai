@@ -46,3 +46,23 @@ describe("Batch2-D: narration trust boundary", () => {
     expect(isDisambiguation("Your biggest open opportunities by value:")).toBe(false);
   });
 });
+
+describe("Re-verify additions: sentiment-pairing check", () => {
+  const MEETINGS_TABLE = `| 2026-07-22 | Hannah Singh | General Electric | Very Positive |
+| 2026-07-21 | Anders Stewart | General Electric | Positive |
+| 2026-07-19 | Olivia Thomas | HSBC | Positive |
+| 2026-07-18 | Camille Singh | HSBC | Cautious |
+| 2026-07-17 | Sophie Miller | Amazon | Neutral |`;
+  it("kills the GE-neutral garble (re-verify item 2, verbatim shape)", () => {
+    const v = checkNarration("A few companies like General Electric and Amazon have multiple neutral sentiments, suggesting mixed reactions.", MEETINGS_TABLE);
+    expect(v.dropped.length).toBe(1);
+  });
+  it("kills the HSBC-Very-Positive garble (item 4 shape)", () => {
+    const v = checkNarration("There's an encouraging number of Very Positive engagements, especially with General Electric and HSBC.", MEETINGS_TABLE);
+    expect(v.dropped.length).toBe(1);
+  });
+  it("passes faithful pairings", () => {
+    const v = checkNarration("Hannah Singh at General Electric came away Very Positive, while Camille Singh at HSBC read Cautious.", MEETINGS_TABLE);
+    expect(v.dropped.length).toBe(0);
+  });
+});

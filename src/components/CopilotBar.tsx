@@ -20,7 +20,7 @@ import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searc
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, deicticRecordRef, resolveCompareDeixis, compareEntities, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -1177,6 +1177,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // contactBrief — which disambiguates shared first names, falls to accountSummary for orgs, and
       // answers not-found honestly and FAST. The retest lost five turns (incl. a fabricated person and
       // a 507s stall) to brief synonyms riding the model path.
+      // MEETING-CONTENT ("what was our last meeting about?") — the notes ARE the answer; the thread
+      // referent scopes it, else the most recent held meeting overall (re-verify item 4).
+      {
+        const mc = meetingContent(text, data, today, latestReferent(id, "contact")?.label);
+        if (mc) { await renderCompute(mc); return; }
+      }
       // COMPARE with thread referents ("how does he compare to Olivia?") — substitute the ledger's
       // latest contact/record into the pronouns, then run the deterministic side-by-side (retest #37b:
       // the comparison silently collapsed into a solo brief).

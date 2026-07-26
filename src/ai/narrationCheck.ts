@@ -49,13 +49,51 @@ function evidenceSet(evidence: string): Set<string> {
 
 export type NarrationVerdict = { ok: boolean; cleaned: string; dropped: string[] };
 
+// Parse a markdown evidence table into row cells (loose — any |-delimited line).
+function evidenceRows(evidence: string): string[][] {
+  return evidence.split("\n").filter((l) => l.trim().startsWith("|"))
+    .map((l) => l.split("|").map((c) => c.trim()).filter(Boolean));
+}
+
+const SENTIMENTS = ["very positive", "positive", "neutral", "cautious", "negative"];
+
+// ATTRIBUTE-PAIRING check (re-verify addition): a sentence that pairs an entity from the table with a
+// SENTIMENT value must match a real row — "General Electric… multiple neutral sentiments" when GE's
+// rows are Positive/Very Positive is the recurring garble the numeric check can't see.
+function sentimentPairingViolation(sentence: string, rows: string[][]): boolean {
+  const sl = sentence.toLowerCase();
+  const mentioned = SENTIMENTS.filter((x) => sl.includes(x));
+  if (!mentioned.length) return false;
+  // "very positive" implies "positive" appears as a substring — keep only the most specific claims.
+  const claims = mentioned.filter((x) => !(x === "positive" && sl.includes("very positive") && !/[^y] positive/.test(sl)));
+  // Entities = table cells that look like names/companies (non-numeric, length ≥ 4) present in the sentence.
+  const entities = new Set<string>();
+  for (const r of rows) for (const cell of r) {
+    // Sentiment values and date-ish cells are attributes, not entities.
+    if (SENTIMENTS.includes(cell.toLowerCase())) continue;
+    if (cell.length >= 4 && !/\d/.test(cell) && sl.includes(cell.toLowerCase())) entities.add(cell);
+  }
+  if (!entities.size) return false; // no table entity named → nothing to validate against
+  for (const ent of entities) {
+    const entRows = rows.filter((r) => r.some((c) => c === ent));
+    if (!entRows.length) continue;
+    const entSentiments = new Set(entRows.flatMap((r) => r.map((c) => c.toLowerCase())).filter((c) => SENTIMENTS.includes(c)));
+    // AT-LEAST-ONE rule: a multi-entity sentence pairs different sentiments with different entities
+    // ("Hannah was Very Positive, Camille read Cautious") — an entity is only a violation when NONE of
+    // the sentence's claimed sentiments appear in its rows.
+    if (claims.length && !claims.some((claim) => entSentiments.has(claim))) return true;
+  }
+  return false;
+}
+
 // Sentence-level check: a sentence whose numeric claims aren't all present in the evidence is dropped.
 // Dates (2026-07-18 / "July 18") and years are exempt — they're framing, not figures, and the formats
 // rarely match textually. Small counts 1–3 are exempt when the evidence's ROW COUNT covers them ("both",
 // "the two deals" style references to visible rows).
 export function checkNarration(narration: string, evidence: string): NarrationVerdict {
   const ev = evidenceSet(evidence);
-  const rowCount = (evidence.match(/^\|/gm) || []).length; // markdown table rows ≈ visible entities
+  const rowsParsed = evidenceRows(evidence);
+  const rowCount = rowsParsed.length; // visible entities
   const sentences = narration.split(/(?<=[.!?])\s+/);
   const kept: string[] = [];
   const dropped: string[] = [];
@@ -66,6 +104,7 @@ export function checkNarration(narration: string, evidence: string): NarrationVe
       .replace(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b/gi, " ")
       .replace(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/gi, " ")
       .replace(/\b(?:19|20)\d{2}\b/g, " ");
+    if (sentimentPairingViolation(sent, rowsParsed)) { dropped.push(sent); continue; }
     const claims = numericClaims(noDates);
     const bad = claims.filter((c) => {
       if (ev.has(c)) return false;

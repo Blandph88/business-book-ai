@@ -1765,6 +1765,40 @@ export function frontDoorBrief(text: string, d: BookData, today: string): Comput
   return contactBrief(d, ref, today);
 }
 
+// MEETING-CONTENT retrieval ("what did X and I talk about?", "what was our last meeting about?") —
+// the NOTES are the answer, fetched deterministically; planned in Batch 2 and caught missing in the
+// re-verify (retest #32/#36 both wanted this). Subject = a named contact, the thread referent (passed
+// by the caller), or — subjectless — the user's most recent held meeting overall.
+export function meetingContent(text: string, d: BookData, today: string, referentName?: string): ComputeResult | null {
+  const asksContent = /\bwhat\s+(?:was|were)\b[^?]*\b(?:meeting|call|catch[- ]?up)s?\b[^?]*\babout\b/i.test(text)
+    || /\bwhat did\b[^?]*\b(?:we|and i)\b[^?]*\b(?:talk|discuss|cover|chat|speak)\b/i.test(text)
+    || /\bwhat did (?:i|we) (?:talk|discuss|chat|speak) (?:about )?with\b/i.test(text);
+  if (!asksContent) return null;
+  const scan = scanEntities(text, d);
+  let c: Contact | null = scan.contacts[0] ?? null;
+  if (!c && referentName) c = resolveContact(d, referentName, today);
+  const held = d.meetingRows
+    .filter((m) => m.meeting_stage === "Held" && m.date_held && (!c || m.contact_url === c.url))
+    .sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
+  if (!held.length) return { intro: c ? `No meetings logged with ${fullName(c)} yet — nothing to recap.` : "No held meetings logged yet — nothing to recap.", columns: [], rows: [] };
+  const m = held[0];
+  const who = m.contactInfo?.name || (c ? fullName(c) : "—");
+  const org = m.contactInfo?.organisation || c?.organisation || "";
+  const bits = [
+    `Your last meeting${who !== "—" ? ` with ${who}` : ""}${org ? ` (${org})` : ""} was on ${m.date_held}${m.sentiment ? ` — ${m.sentiment}` : ""}.`,
+    m.notes ? `What you discussed: ${m.notes}` : "",
+    m.pain_points ? `Pain points raised: ${m.pain_points}.` : "",
+    m.org_insights ? `Org insight: ${m.org_insights}.` : "",
+    m.actions_mine ? `You took away: ${m.actions_mine}.` : "",
+    m.followup && !/^none needed/i.test(m.followup) ? `Agreed follow-up: ${m.followup}${m.followup_date ? ` (by ${m.followup_date})` : ""}.` : "",
+  ].filter(Boolean);
+  return {
+    intro: bits.join("\n"),
+    subject: c ? { kind: "contact", id: c.url, label: fullName(c) } : undefined,
+    columns: [], rows: [{ cells: [m.date_held || "—", who, org || "—", m.sentiment || "—"], record: { tab: "meetings", id: m.id } }],
+  };
+}
+
 // Meta-commands aimed at an OPEN draft card ("Cancel that.") — routed to the card, never the router
 // (retest #30: cancelling a card spawned a second card with "Cancel that." as its notes).
 export function cancelIntent(text: string): boolean {
