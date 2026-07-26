@@ -1863,6 +1863,14 @@ export function changeCardIntent(text: string): boolean {
   return true;
 }
 
+// News-shaped questions ("anything in the news about JPMorgan?") want CURRENT external coverage —
+// which an encyclopedic (Wikipedia) lookup can't honestly provide. Deal-status phrasings ("any news
+// on the JPMorgan deal?") are book questions and are excluded.
+export function newsShaped(text: string): boolean {
+  if (/\b(?:deal|opportunit|proposal|pipeline|meeting|engagement)\b/i.test(text)) return false;
+  return /\b(?:in the news|news (?:about|on|for|from|at)|any news|latest news|recent news|headlines?|press coverage|media coverage|been in the press)\b/i.test(text);
+}
+
 export function cancelIntent(text: string): boolean {
   return /^\s*(?:cancel|discard|scrap|drop|forget|never\s?mind|close)\s*(?:that|it|this|the\s+(?:card|draft|form))?\s*[.!]?\s*$/i.test(text);
 }

@@ -16,11 +16,11 @@ import { loadAllOpportunities, type Opportunity } from "../storage/opportunities
 import { loadAllSows, type Sow } from "../storage/revenue";
 import { todayISO } from "../data/agenda";
 import { isCommonOrgToken } from "../data/orgTokens";
-import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searchAvailable, searchWeb, searchEntity, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
+import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searchAvailable, searchEntity, searchProvider, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, newsShaped, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -69,12 +69,6 @@ type UITurn = { role: "you" | "ai" | "action"; text: string; related?: RelatedHi
 // Rough token estimate for the live/after "N tokens" readout (we don't get exact counts mid-stream).
 const approxTokens = (s: string) => Math.max(1, Math.round((s || "").length / 4));
 // Web snippets arrive with raw HTML entities (&#039; &amp;) — decode without touching the DOM (no innerHTML).
-function decodeEntities(s: string): string {
-  return (s || "")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&nbsp;/g, " ");
-}
 
 // First-token stall watchdog. Rejects only if the model produces NO first token within `baseMs` — but
 // while a model DOWNLOAD is actively in progress (first-time WebLLM fetch can take minutes), it keeps
@@ -468,10 +462,6 @@ function actionFollowUp(kind: "contact" | "meeting" | "opportunity" | "contract"
   return { text: `Saved — ${eng}${org ? ` with ${org}` : ""}. Want me to set up the kickoff?`, chips: chips.slice(0, 3) };
 }
 
-// Heuristic: does the question call for EXTERNAL/current info a private book can't hold? Cheap and
-// instant (no extra inference) — keeps the on-device demo snappy. Only consulted when web is allowed.
-const WEB_HINTS = /\b(news|latest|recent|today|current|currently|happening|update|updates|announce|announced|stock|share price|market|markets|industry|trend|trends|who is|what is|tell me about|look up|search|google|website|headquarters|revenue of|ceo of|founder|founded|acquisition|competitor|competitors)\b/i;
-function needsWeb(text: string): boolean { return WEB_HINTS.test(text); }
 
 // Starter prompts shown on an empty copilot — one per capability, so users discover they can ask,
 // act, run a workflow and draft. `submit` chips fire immediately; the open-ended ones seed the box.
@@ -1189,6 +1179,22 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       await streamCompanion(text, prior, id, history, capabilityLevel(avail.backend, avail.model));
       return;
     }
+    // NEWS HONESTY (re-verify item 5): "anything in the news about X?" wants CURRENT coverage. When
+    // the only search capability is encyclopedic (Wikipedia) — or none — say so plainly instead of
+    // letting stale snippets be narrated as headlines. A real news-capable provider (a buyer's own
+    // search key) keeps the normal grounded path.
+    if (!docText && newsShaped(text)) {
+      const provider = await searchProvider().catch(() => null);
+      if (!provider || provider === "wikipedia" || provider === "unknown") {
+        const orgHit = entityHits(text, data).find((h) => h.kind === "company") as { org?: string } | undefined;
+        const door = orgHit?.org ? ` What I can give you is your own ${orgHit.org} picture — ask for the ${orgHit.org} account summary.` : "";
+        const msg = `I can't check live news from here — this setup${provider ? "'s web lookups only cover encyclopedic background, which isn't current" : " has no web lookups configured"}. I'd rather say that straight than dress stale text up as headlines.${door}`;
+        persistTo(id, [...history, { role: "you", text }, { role: "ai", text: msg }]);
+        if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: msg }]);
+        setAsking(false); markDone(id);
+        return;
+      }
+    }
     if (!docText && !isGenerate) {
       // DETERMINISTIC BD PRE-PASS (before the LLM router, every tier): unambiguous book questions — the agenda,
       // meetings by date, rankings, pipeline stats, sector filters, account/contact briefs, exact maths — are
@@ -1360,16 +1366,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         key(r as Record<string, unknown>) === key(h as Record<string, unknown>));
       if (!dup) related.push(h);
     }
-    let webContext = "";
-    if (!docText && (routeIntent(text).kind === "web" || needsWeb(text))) {
-      try {
-        if (await searchAvailable()) {
-          const results = await searchWeb(text, 3);
-          webContext = results.map((r) => `- ${decodeEntities(r.title)}: ${decodeEntities(r.snippet || "").slice(0, 160)} (${r.url})`).join("\n");
-          for (const r of results.slice(0, 3)) related.push({ kind: "web", url: r.url, main: decodeEntities(r.title), meta: decodeEntities(r.snippet || "").slice(0, 100) });
-        }
-      } catch { /* best-effort */ }
-    }
+    // Web/Wikipedia snippet cards REMOVED (Phil's call, re-verify item 5): stale encyclopedic
+    // snippets were being narrated as "recent developments" and the cards surfaced irrelevant
+    // matches. External background stays only in the labelled enrichCompany path.
+    const webContext = "";
     try {
       const budget = await contextBudget();
       // The full DATA grounding: book context + the records the message NAMES (apostrophe-robust) + any

@@ -92,6 +92,20 @@ export async function searchAvailable(): Promise<boolean> {
   }
 }
 
+// WHICH search capability this rig actually has — "wikipedia" (encyclopedic background, NOT current
+// news), a real search provider, or null. Lets news-shaped questions be answered honestly instead of
+// narrating stale snippets as headlines (re-verify item 5).
+export async function searchProvider(): Promise<string | null> {
+  const f = broker();
+  if (!f) return null;
+  try {
+    const a = (await f.request("search", "availability")) as { ok?: boolean; provider?: string } | null;
+    return a?.ok ? (a.provider || "unknown") : null;
+  } catch {
+    return null;
+  }
+}
+
 // Grounded facts about an organisation/thing (Wikipedia). Used to classify companies accurately.
 export async function searchEntity(name: string): Promise<EntityFacts> {
   const f = broker();

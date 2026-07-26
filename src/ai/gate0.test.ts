@@ -16,7 +16,7 @@ import {
   frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, scanEntities,
   deicticRecordRef, resolveCompareDeixis, windowMonth, calendarMeetings, compoundContactsWarm,
   isReasoningRequest as reasonRq, warmNoDeal, meetingContent, namesakeSuperlative, companyZeroLine,
-  changeCardIntent, contactsMetAtLeast, findOpportunities,
+  changeCardIntent, contactsMetAtLeast, findOpportunities, newsShaped,
 } from "./compute";
 import { searchBook } from "./grounding";
 import { normalizeRoute } from "./prompts";
@@ -796,5 +796,18 @@ describe("Audit-2: the formerly-deferred items", () => {
   it("scanEntities keeps the org when the message names a company", () => {
     const scan = scanEntities("What's my footprint at ExxonMobil?", D);
     expect(scan.orgs).toContain("ExxonMobil");
+  });
+});
+
+describe("Re-verify item 5: news-shaped questions", () => {
+  it("recognises news asks", () => {
+    expect(newsShaped("Anything in the news about JPMorgan lately?")).toBe(true);
+    expect(newsShaped("Any headlines on Salesforce?")).toBe(true);
+    expect(newsShaped("Has HSBC been in the press this month?")).toBe(true);
+  });
+  it("deal-status phrasings stay book questions", () => {
+    expect(newsShaped("Any news on the JPMorgan deal?")).toBe(false);
+    expect(newsShaped("News on my pipeline?")).toBe(false);
+    expect(newsShaped("Any news from the Google meeting?")).toBe(false);
   });
 });
