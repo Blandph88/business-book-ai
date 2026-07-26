@@ -186,6 +186,15 @@ function nextMeetingNo(ctx: ActionCtx, url: string): number {
 // Find contacts a free-text subject refers to (name first, org as a booster). Returns best matches.
 export function matchContacts(query: string, contacts: Contact[]): Contact[] {
   const STOP = new Set(["the", "from", "at", "with", "and", "mr", "ms", "dr", "a", "an"]);
+  // An "at <org>" qualifier splits off first — "Sarah Evans at Walmart" must beat the OTHER Sarah
+  // Evans (two contacts can share a full name; the org is the only disambiguator a chip can carry).
+  const qual = query.trim().match(/^(.+?)\s+(?:at|from|of)\s+(.+)$/i);
+  if (qual) {
+    const byName = matchContacts(qual[1], contacts);
+    const orgLow = qual[2].trim().toLowerCase();
+    const byOrg = byName.filter((c) => (c.organisation || "").toLowerCase().startsWith(orgLow));
+    if (byOrg.length) return byOrg;
+  }
   // Exact full-name match wins outright (so "Adam Brown" prefills Adam Brown, not every "…Brown").
   const ql = query.trim().toLowerCase();
   const exact = contacts.filter((c) => `${c.first} ${c.last}`.trim().toLowerCase() === ql);

@@ -67,7 +67,7 @@ const RULES: Rule[] = [
   // ── CREATE OPPORTUNITY ──
   { kind: "create", entity: "opportunity", patterns: [
     /\b(?:there'?s|i (?:found|spotted|see)|we have)\s+(?:a |an )?(?:new )?opportunit(?:y|ies)\s+(?:at|with|for)\s+(.+)/i,
-    /\b(?:raise|create|add|log|start)\s+(?:a |an )?(?:new )?(?:opportunit(?:y|ies)|deal|pipeline item)\s+(?:at|with|for)?\s*(.+)?/i,
+    /\b(?:raise|create|add|log|start|set\s?up)\s+(?:a |an )?(?:new )?(?:opportunit(?:y|ies)|deal|pipeline item)\s+(?:at|with|for)?\s*(.+)?/i,
     // "open" only with an article ("open a new deal") — never bare "open deal" (that's an ADJECTIVE: "my open deals").
     /\bopen\s+(?:a |an )(?:new )?(?:opportunit(?:y|ies)|deal|pipeline item)\b\s*(?:at|with|for)?\s*(.+)?/i,
     /\b(.+?)\s+(?:is|are|might be|could be|seems?)\s+(?:interested|keen|looking)\s+(?:in|for)\b/i,

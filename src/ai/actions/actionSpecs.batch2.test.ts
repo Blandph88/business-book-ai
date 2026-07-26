@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SPECS } from "./actionSpecs";
+import { SPECS, matchContacts } from "./actionSpecs";
 import type { ActionCtx } from "./actionSpecs";
 
 const TODAY = "2026-07-25";
@@ -70,5 +70,18 @@ describe("Audit: in-text contact pre-fill + org autofill (re-verify item 23)", (
     const K2 = { ...KAREN, url: "u2", last: "OConnor" } as typeof KAREN;
     const v = await SPECS.opportunity.extract(baseCtx("New opportunity — Karen OConnor, worth £40k.", { contacts: [KAREN, K2] }));
     expect(v.primary_contact || "").toBe("");
+  });
+});
+
+describe("Re-verify item 29 follow-on: identical full names disambiguate by org", () => {
+  const SE1 = { first: "Sarah", last: "Evans", organisation: "Walmart", url: "se1" } as unknown as Parameters<typeof matchContacts>[1][number];
+  const SE2 = { first: "Sarah", last: "Evans", organisation: "Salesforce", url: "se2" } as unknown as Parameters<typeof matchContacts>[1][number];
+  it("'Sarah Evans at Walmart' resolves to exactly one", () => {
+    const m = matchContacts("Sarah Evans at Walmart", [SE1, SE2]);
+    expect(m.length).toBe(1);
+    expect(m[0].url).toBe("se1");
+  });
+  it("bare 'Sarah Evans' still returns both (ambiguous)", () => {
+    expect(matchContacts("Sarah Evans", [SE1, SE2]).length).toBe(2);
   });
 });

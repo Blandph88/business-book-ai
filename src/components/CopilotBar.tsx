@@ -1569,10 +1569,19 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // open a bare card instead of the picker (re-verify item 29).
       if (!subjectUrl && op === "create" && matches.length > 1 && matches.length <= 60 && span && !pronounOnly) {
         const CAPC = 6;
-        const chips: Chip[] = matches.slice(0, CAPC).map((c) => ({
-          label: `${c.first} ${c.last}`.trim() + (c.organisation ? ` · ${c.organisation}` : ""),
-          prompt: extractText.replace(new RegExp(`\\b${span.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), `${c.first} ${c.last}`.trim()),
-        }));
+        // Two contacts can share the FULL name (live run: two Sarah Evanses) — a chip that re-issues
+        // just the name loops forever. Append "at <org>" whenever the full name isn't unique.
+        const nameCount = new Map<string, number>();
+        for (const c of matches) { const k = `${c.first} ${c.last}`.trim().toLowerCase(); nameCount.set(k, (nameCount.get(k) || 0) + 1); }
+        const chips: Chip[] = matches.slice(0, CAPC).map((c) => {
+          const full = `${c.first} ${c.last}`.trim();
+          const dupName = (nameCount.get(full.toLowerCase()) || 0) > 1 && c.organisation;
+          const ref = dupName ? `${full} at ${c.organisation}` : full;
+          return {
+            label: full + (c.organisation ? ` · ${c.organisation}` : ""),
+            prompt: extractText.replace(new RegExp(`\\b${span.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), ref),
+          };
+        });
         // matchContacts caps its list at 6 — count the REAL namesakes so the message never claims
         // "6 people called Sarah" when the book holds 37 (honesty nit from the live run).
         const spanLow = span.toLowerCase();
