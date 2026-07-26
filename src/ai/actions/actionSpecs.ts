@@ -550,6 +550,19 @@ const opportunitySpec: EntitySpec = {
         v.primary_contact = `${subject.first} ${subject.last}`.trim();
         if (subject.organisation) v.organisation = subject.organisation;
       }
+      // No resolved subject: an UNAMBIGUOUS full contact name typed in the text pre-fills the same way
+      // (Batch 2 plan: "unambiguous in-text contact pre-fills; org auto-fills from the chosen contact").
+      if (!v.primary_contact) {
+        const low = ` ${ctx.text.toLowerCase().replace(/['’]/g, "")} `;
+        const named = ctx.contacts.filter((c) => {
+          const full = `${c.first} ${c.last}`.trim().toLowerCase().replace(/['’]/g, "");
+          return full.includes(" ") && low.includes(` ${full}`);
+        });
+        if (named.length === 1) {
+          v.primary_contact = `${named[0].first} ${named[0].last}`.trim();
+          if (!v.organisation && named[0].organisation) v.organisation = named[0].organisation;
+        }
+      }
       if (!v.organisation) { const org = extractOrg(ctx.text, ctx); if (org) v.organisation = org; }
     }
     // Won/Lost intent → set the VISIBLE Outcome (update only) so the user sees + can change it before saving.
@@ -585,7 +598,13 @@ const opportunitySpec: EntitySpec = {
         v.description = v.description ? `${v.description}\n${noteTxt}` : noteTxt;
       }
     }
-    // (b) the conventional name pre-suggests so the required field never opens empty (retest #35/#39).
+    // (b) a named primary contact yields the organisation on every tier (re-verify audit: #23's card
+    //     had Karen in the contact field but Organisation empty — the default only fired off subjectUrl).
+    if (v.primary_contact && !v.organisation) {
+      const pcMatch = ctx.contacts.find((c) => `${c.first} ${c.last}`.trim().toLowerCase() === String(v.primary_contact).toLowerCase());
+      if (pcMatch?.organisation) v.organisation = pcMatch.organisation;
+    }
+    // (c) the conventional name pre-suggests so the required field never opens empty (retest #35/#39).
     if (!existing && !v.opportunity_name && v.organisation) v.opportunity_name = `${v.organisation} — ${v.service_line || "Strategy"} engagement`;
     if (ctx.skipModel) return v; // deterministic-only (on-device): the form opens pre-filled, fast
     try {
@@ -595,6 +614,13 @@ const opportunitySpec: EntitySpec = {
       // GROUNDING extended (Gate-0 audit): a model-invented primary contact or value must never prefill —
       // the contact must appear in the text, and the number must equal what the text actually says.
       { const pc = groundedIn(ex.primary_contact, ctx.text); if (pc && !v.primary_contact) v.primary_contact = pc; }
+      // A primary contact resolved as a STRING still yields the org (re-verify audit: #39's card had
+      // Karen in the contact field but Organisation empty — the default only fired off subjectUrl).
+      if (v.primary_contact && !v.organisation) {
+        const pcMatch = ctx.contacts.find((c) => `${c.first} ${c.last}`.trim().toLowerCase() === String(v.primary_contact).toLowerCase());
+        if (pcMatch?.organisation) v.organisation = pcMatch.organisation;
+      }
+      if (!existing && !v.opportunity_name && v.organisation) v.opportunity_name = `${v.organisation} — ${v.service_line || "Strategy"} engagement`;
       if (!existing) { const sl = norm(ex.service_line, SERVICE_LINE); if (sl) v.service_line = sl; }
       if (!v.est_value && ex.est_value && Number(ex.est_value) === parseMoney(ctx.text)) v.est_value = String(ex.est_value);
       const desc = notACommand(ex.description); if (desc && !v.description) v.description = desc;

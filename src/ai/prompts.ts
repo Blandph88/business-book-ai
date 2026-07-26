@@ -533,46 +533,43 @@ export function routerPrompt(text: string, history: ChatTurn[] = []): PromptArgs
     system:
       "You route a consultant's message to ONE destination for their book-of-business assistant. " +
       'Output ONLY JSON with real keys. Shape: {"route": one of tool|chat|book|action|help, plus "tool"/"args" ' +
-      'for a tool, or "entity"/"op" for an action}. Examples: {"route":"tool","tool":"rankContacts","args":{"by":"warmth"}} · ' +
-      '{"route":"help"} · {"route":"chat"} · {"route":"action","entity":"meeting","op":"create"}.\n\n' +
+      'for a tool, or "entity"/"op" for an action}. E.g. {"route":"tool","tool":"rankContacts","args":{"by":"warmth"}} · ' +
+      '{"route":"action","entity":"meeting","op":"create"}.\n\n' +
       "ROUTES:\n" +
-      "- \"help\" — a CAPABILITY / meta question about what YOU (the assistant) can do: \"what can you do\", " +
-      "\"what can you do for me\", \"how can you help\", \"what can you help me with\", \"what can you do work-wise\", " +
-      "\"what are you for\". NOT a request to actually do a thing — just asking about your capabilities.\n" +
-      "0. \"action\" — the user is RECORDING/LOGGING data RIGHT NOW: they're stating details of a thing to save " +
-      "or change. Set entity ∈ contact|meeting|opportunity|contract and op ∈ create|update. (\"I met Jane at " +
-      "Acme yesterday, went well\"→meeting/create; \"add Bank of America as a contact\"→contact/create; \"log a " +
-      "call with Tom\"→meeting/create; \"new opportunity with EY worth 200k\"→opportunity/create; \"update the " +
-      "JPMorgan deal to 2m\"→opportunity/update; \"mark my meeting with Sam as positive\"→meeting/update). " +
-      "ONLY when they're actually giving the details to save. NOT for a QUESTION or capability ask.\n" +
-      "1. \"tool\" — the message is a lookup / list / ranking / stat / calculation over their OWN data. Pick the " +
-      "single best tool and fill its args. Phrasing is often INDIRECT — map the INTENT, not the keywords:\n" +
-      "   - findContacts {company?, stage?, decisionRole?, sector?, function?} — list people. stage ∈ messaged|responded|two_way|agreed_to_meet|met|agreed_not_met|not_responded|not_met (not_met = people I've NEVER met — use it for \"who haven't I met\"). sector (e.g. \"energy\",\"banking\",\"financial services\",\"oil and gas\") lists that sector's people by seniority; function (e.g. \"finance\",\"technology\",\"operations\") lists that job-family. (\"who do I know at EY\"→company; \"if a bank rang who could I put in the room\"→sector:\"financial services\"; \"who runs finance functions\"→function:\"finance\")\n" +
-      "   - findMeetings {direction?, windowDays?, range?} — direction ∈ past|upcoming; windowDays = number when a window is stated. (\"who've I broken bread with lately\"→past; \"what's landing over the next couple of weeks\"→upcoming,windowDays:14; \"anything on the horizon\"→upcoming)\n" +
-      "   - findOpportunities {status?, company?, minValue?, sector?} — list deals. status ∈ Open|Won|Lost. sector filters open deals by the company's sector. (\"open deals over 100000\"; \"any live deals in oil, gas or utilities\"→sector:\"energy\")\n" +
-      "   - findContracts {status?, company?, byValue?} — engagements/SoWs; byValue:true ranks by recognised value.\n" +
-      "   - pipelineAggregate {metric} — ONE pipeline figure. metric ∈ total|weighted|average|gap. (\"what am I banking / at the odds / realistically\"→weighted; \"typically worth / per deal / on average\"→average; \"my pipeline in one number / total pipeline\"→total; \"how much is wishful thinking / raw vs weighted\"→gap)\n" +
-      "   - revenueAggregate {metric} — recognised-revenue maths. metric ∈ total|average|largest. (\"have I actually made money / earned / brought in\"→total; \"per engagement\"→average; \"fattest / biggest engagement\"→largest)\n" +
-      "   - rankOpportunities {by} — by ∈ value|probability|risk. (\"biggest deals\"→value; \"most likely to close\"→probability; \"which am I kidding myself about / at risk / stalling\"→risk)\n" +
-      "   - rankContacts {by} — by ∈ warmth|cold. (\"warmest leads / who likes me most\"→warmth; \"who's gone quiet / gone cold / who should I rescue\"→cold)\n" +
-      "   - owedReplies {} — people I OWE a reply to. (\"who've I left on read\", \"am I ghosting anyone\", \"who's waiting on me\", \"haven't got back to\")\n" +
-      "   - oppsWithoutMeeting {} — open deals with NO NEXT meeting booked — the follow-up-debt list (anti-join). (\"deals with no meeting booked\", \"which opportunities have nothing in the diary\", \"what's sitting unattended\")\n" +
-      "   - oppsWithRecentMeeting {window?} — open deals whose client HAS met me inside the window (join). (\"clients with an open opp AND a meeting last month\")\n" +
-      "   - meetingsWithoutOpp {} — met contacts with NO opportunity (anti-join). (\"meetings that went nowhere / never turned into anything\")\n" +
-      "   - accountsWithOppAndContacts {minContacts?} — orgs with BOTH an open deal AND several contacts (join). (\"accounts where I have both a deal and real relationships / genuine presence\")\n" +
-      "   - coldAtActiveAccounts {} — cold contacts at orgs where I ALSO have live work (cross-join). (\"cold contacts at companies I'm already working with\")\n" +
-      "   - contactsMetAtLeast {times} — contacts met ≥N times. (\"who have I met more than once / three-plus times\")\n" +
-      "   - pipelineStats {} — headline pipeline numbers table. (\"how's my pipeline looking\")\n" +
-      "   - funnelBreakdown {dimension} — dimension ∈ sector|function|seniority|stage — COUNTS/concentration; stage = the funnel (messaged→responded→two-way→met). (\"my network by industry\", \"contacts by stage\", \"where's my bench deepest\")\n" +
-      "   - compareEntities {a, b} — a SIDE-BY-SIDE of two named people/companies. (\"compare Robert to Olivia\", \"how does HSBC stack up against Salesforce\")\n" +
-      "   - contactBrief {name} — ONE person's summary + relationship. Use for \"brief me on Jane\", \"prime me on my strongest contact\", and any \"what's my HISTORY / relationship with <person>\" — even a bare first name (it disambiguates if shared). This is NOT chat.\n" +
-      "   - accountSummary {company} — ONE company's footprint. Use whenever a company is scoped, even with a vague opener: \"lay of the land at HSBC\", \"how deep am I at Barclays\", \"what's my footprint at EY\".\n" +
-      "   - weeklyFocus {} — priorities / agenda when NOT scoped to a company: \"what should I focus on\", \"three calls this week\", \"who should I chase\", \"catch me up\", \"state of play\", \"you decide\". (\"lay of the land at <company>\" is accountSummary, not this.)\n" +
-      "   - personalSnapshot {} — a snapshot of ME / my whole book. (\"what do you know about me\", \"summarise my book/network\")\n" +
-      "   - latentOpportunities {} — needs/openings spotted in my messages. (\"any opportunities in my messages\")\n" +
-      "2. \"chat\" — a genuinely PERSONAL or social turn: greetings/small talk, how they're feeling, life/career reflections, a career or life DECISION, opinions. NOT a question about their records. NB \"my history/relationship with <a person in my book>\" is contactBrief, NOT chat.\n" +
-      "3. \"book\" — ONLY genuinely open-ended ADVICE or DRAFTING that no single tool answers (\"how should I approach re-engaging lapsed clients\", \"draft a note to my warmest lead\", broad strategy). NOT a fallback for a data question.\n\n" +
-      "CRITICAL: PREFER a specific tool. Almost every question about their contacts, deals, meetings, revenue, or network maps to exactly ONE tool above — pick it and fill the args even when the phrasing is oblique or indirect. Do NOT retreat to \"book\" because you're unsure how to route a data question — choose the closest tool. Reserve \"book\" for open advice/drafting and \"chat\" for genuinely personal/social turns. A capability / how-to question (\"can I add a contact?\", \"how do I log a meeting?\") is \"help\".",
+      "- \"help\" — a capability/meta question about what YOU can do (\"what can you do\", \"how can you help\", " +
+      "\"how do I log a meeting?\"). Not a request to actually do a thing.\n" +
+      "0. \"action\" — the user is RECORDING/LOGGING data right now: stating details of a thing to save or change. " +
+      "entity ∈ contact|meeting|opportunity|contract, op ∈ create|update. (\"I met Jane at Acme yesterday\"→meeting/create; " +
+      "\"new opportunity with EY worth 200k\"→opportunity/create; \"update the JPMorgan deal to 2m\"→opportunity/update). " +
+      "ONLY when they're giving details to save — never for a question.\n" +
+      "1. \"tool\" — a lookup / list / ranking / stat over their OWN data. Pick the single best tool + args; map the " +
+      "INTENT, not the keywords:\n" +
+      "   - findContacts {company?, stage?, decisionRole?, sector?, function?} — list people. stage ∈ messaged|responded|two_way|agreed_to_meet|met|agreed_not_met|not_responded|not_met (not_met = never met). (\"if a bank rang who could I put in the room\"→sector:\"financial services\")\n" +
+      "   - findMeetings {direction?, windowDays?} — direction ∈ past|upcoming. (\"what's landing over the next couple of weeks\"→upcoming,windowDays:14)\n" +
+      "   - findOpportunities {status?, company?, minValue?, sector?} — list deals. status ∈ Open|Won|Lost.\n" +
+      "   - findContracts {status?, company?, byValue?} — engagements/SoWs.\n" +
+      "   - pipelineAggregate {metric} — ONE pipeline figure. metric ∈ total|weighted|average|gap. (\"what am I realistically banking\"→weighted)\n" +
+      "   - revenueAggregate {metric} — recognised-revenue maths ONLY (money actually earned/banked). metric ∈ total|average|largest.\n" +
+      "   - rankOpportunities {by} — by ∈ value|probability|risk. (\"which am I kidding myself about\"→risk)\n" +
+      "   - rankContacts {by} — by ∈ warmth|cold. (\"who's gone quiet\"→cold)\n" +
+      "   - owedReplies {} — people I owe a reply to (\"am I ghosting anyone\").\n" +
+      "   - oppsWithoutMeeting {} — open deals with NO next meeting booked (anti-join).\n" +
+      "   - oppsWithRecentMeeting {window?} — open deals whose client HAS met me inside the window (join).\n" +
+      "   - meetingsWithoutOpp {} — met contacts with NO opportunity (\"meetings that went nowhere\").\n" +
+      "   - accountsWithOppAndContacts {minContacts?} — orgs with both an open deal AND several contacts.\n" +
+      "   - coldAtActiveAccounts {} — cold contacts at orgs where I also have live work.\n" +
+      "   - contactsMetAtLeast {times} — contacts met ≥N times.\n" +
+      "   - pipelineStats {} — headline pipeline numbers table.\n" +
+      "   - funnelBreakdown {dimension} — dimension ∈ sector|function|seniority|stage — counts/concentration (\"my network by industry\").\n" +
+      "   - compareEntities {a, b} — side-by-side of two named people/companies.\n" +
+      "   - contactBrief {name} — ONE person's summary/relationship/history — even a bare first name. NOT chat.\n" +
+      "   - accountSummary {company} — ONE company's footprint, whenever a company is scoped (\"lay of the land at HSBC\").\n" +
+      "   - weeklyFocus {} — priorities/agenda NOT scoped to a company (\"what should I focus on\", \"catch me up\").\n" +
+      "   - personalSnapshot {} — a snapshot of ME / my whole book.\n" +
+      "   - latentOpportunities {} — needs/openings spotted in my messages.\n" +
+      "2. \"chat\" — genuinely PERSONAL/social: greetings, feelings, life/career decisions, opinions. NOT a question about records (\"my relationship with <person>\" is contactBrief).\n" +
+      "3. \"book\" — ONLY open-ended ADVICE or DRAFTING no single tool answers (\"draft a note to my warmest lead\"). NOT a fallback for a data question.\n\n" +
+      "CRITICAL: PREFER a specific tool — almost every question about contacts, deals, meetings, revenue or network maps to exactly ONE tool; pick it even when phrasing is oblique. Never retreat to \"book\" for a data question.",
     prompt: `Message: ${text}${convo}\n\nReturn the routing JSON now.`,
   };
 }

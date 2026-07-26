@@ -66,3 +66,24 @@ describe("Re-verify additions: sentiment-pairing check", () => {
     expect(v.dropped.length).toBe(0);
   });
 });
+
+// ── AUDIT SWEEP (2026-07-25): the planned org-pairing half of the trust boundary ──────────────────
+describe("org-pairing check: person-at-company claims must match a real row", () => {
+  const EV = [
+    "Your open deals:",
+    "| Karen OConnor | ExxonMobil | 40000 |",
+    "| Marcus Webb | Google | 800000 |",
+  ].join("\n");
+  it("drops a sentence binding a person to the WRONG company", () => {
+    const v = checkNarration("Karen OConnor at Google leads the list. Worth chasing this week.", EV);
+    expect(v.dropped.some((s) => /Karen OConnor at Google/.test(s))).toBe(true);
+  });
+  it("keeps the faithful pairing", () => {
+    const v = checkNarration("Karen OConnor at ExxonMobil leads the list. Worth chasing this week.", EV);
+    expect(v.dropped.length).toBe(0);
+  });
+  it("two entities merely co-mentioned (no binding preposition) survive", () => {
+    const v = checkNarration("Karen OConnor and Marcus Webb both look live. Worth chasing this week.", EV);
+    expect(v.dropped.length).toBe(0);
+  });
+});

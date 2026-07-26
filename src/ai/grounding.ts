@@ -129,11 +129,17 @@ export function searchBook(q: string, d: BookData): Groups | null {
   const allIn = (s: string) => { const t = tokenize(s); return t.length > 0 && t.every((x) => qSet.has(x)); };
   const nameHit = (first: string, last: string) => { const f = tokenize(first)[0], l = tokenize(last)[0]; return !!f && !!l && qSet.has(f) && qSet.has(l); };
 
-  const people: Hit[] = [];
+  // EXACT-MATCH-FIRST (retest #34): rank people whose FULL name appears contiguously in the message
+  // ahead of token-set matches. "Olivia Thomas" also satisfies nameHit for "Thomas Thomas" (one token
+  // fills both slots), and book order put the wrong record on top. Contiguity breaks the tie correctly.
+  const qNorm = " " + tokenize(q).join(" ") + " ";
+  const contiguous = (first: string, last: string) => qNorm.includes(` ${tokenize(`${first} ${last}`).join(" ")} `);
+  const peopleAll: (Hit & { exact: boolean })[] = [];
   for (const c of d.contacts) {
-    if (people.length >= 6) break;
-    if (nameHit(c.first, c.last)) people.push({ id: c.url, main: `${c.first} ${c.last}`.trim(), meta: [c.position, c.organisation].filter(Boolean).join(" · ") });
+    if (peopleAll.length >= 24) break;
+    if (nameHit(c.first, c.last)) peopleAll.push({ id: c.url, main: `${c.first} ${c.last}`.trim(), meta: [c.position, c.organisation].filter(Boolean).join(" · "), exact: contiguous(c.first, c.last) });
   }
+  const people: Hit[] = peopleAll.sort((a, b) => Number(b.exact) - Number(a.exact)).slice(0, 6).map(({ id, main, meta }) => ({ id, main, meta }));
   const orgCount = new Map<string, number>();
   for (const c of d.contacts) { const o = c.organisation?.trim(); if (o && allIn(o)) orgCount.set(o, (orgCount.get(o) || 0) + 1); }
   const companies: Company[] = [...orgCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([org, count]) => ({ org, count }));

@@ -86,6 +86,29 @@ function sentimentPairingViolation(sentence: string, rows: string[][]): boolean 
   return false;
 }
 
+// ORG-PAIRING check (Batch 2 S3, the remaining planned half): a narration that binds two table
+// entities together with at/from/'s ("Amelia Wright at JPMorgan") must have a ROW where they
+// co-occur — misattributed person↔company pairings were a recorded restate-class failure. Only the
+// explicit binding shapes are checked; merely mentioning two entities in one sentence is fine.
+function orgPairingViolation(sentence: string, rows: string[][]): boolean {
+  const sl = sentence.toLowerCase();
+  const cells = new Set<string>();
+  for (const r of rows) for (const cell of r) {
+    if (SENTIMENTS.includes(cell.toLowerCase())) continue;
+    if (cell.length >= 4 && !/\d/.test(cell) && sl.includes(cell.toLowerCase())) cells.add(cell);
+  }
+  if (cells.size < 2) return false;
+  for (const a of cells) for (const b of cells) {
+    if (a === b) continue;
+    const bound = new RegExp(`${escapeRe(a.toLowerCase())}(?:'s)?\\s+(?:at|from|of)\\s+(?:the\\s+)?${escapeRe(b.toLowerCase())}`);
+    if (!bound.test(sl)) continue;
+    const together = rows.some((r) => r.some((c) => c === a) && r.some((c) => c === b));
+    if (!together) return true;
+  }
+  return false;
+}
+function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
 // Sentence-level check: a sentence whose numeric claims aren't all present in the evidence is dropped.
 // Dates (2026-07-18 / "July 18") and years are exempt — they're framing, not figures, and the formats
 // rarely match textually. Small counts 1–3 are exempt when the evidence's ROW COUNT covers them ("both",
@@ -105,6 +128,7 @@ export function checkNarration(narration: string, evidence: string): NarrationVe
       .replace(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/gi, " ")
       .replace(/\b(?:19|20)\d{2}\b/g, " ");
     if (sentimentPairingViolation(sent, rowsParsed)) { dropped.push(sent); continue; }
+    if (orgPairingViolation(sent, rowsParsed)) { dropped.push(sent); continue; }
     const claims = numericClaims(noDates);
     const bad = claims.filter((c) => {
       if (ev.has(c)) return false;

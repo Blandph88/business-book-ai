@@ -57,3 +57,20 @@ describe("Batch2-E: contact update — reminders + moves (retest #33/#44)", () =
     expect(v.notes).toMatch(/Madrid/);
   });
 });
+
+// ── AUDIT SWEEP (2026-07-25) ──────────────────────────────────────────────────────────────────────
+describe("Audit: in-text contact pre-fill + org autofill (re-verify item 23)", () => {
+  const KAREN = { first: "Karen", last: "OConnor", organisation: "ExxonMobil", url: "u1" } as unknown as ActionCtx["contacts"][number];
+  it("'New opportunity — Karen OConnor, data migration project, worth £40k' fills contact AND org deterministically", async () => {
+    const v = await SPECS.opportunity.extract(baseCtx("New opportunity — Karen O'Connor, data migration project, worth £40k.", { contacts: [KAREN] }));
+    expect(v.primary_contact).toBe("Karen OConnor");
+    expect(v.organisation).toBe("ExxonMobil");
+    expect(v.est_value).toBe("40000");
+    expect(v.opportunity_name).toMatch(/ExxonMobil — .* engagement/);
+  });
+  it("an ambiguous first name never pre-fills", async () => {
+    const K2 = { ...KAREN, url: "u2", last: "OConnor" } as typeof KAREN;
+    const v = await SPECS.opportunity.extract(baseCtx("New opportunity — Karen OConnor, worth £40k.", { contacts: [KAREN, K2] }));
+    expect(v.primary_contact || "").toBe("");
+  });
+});

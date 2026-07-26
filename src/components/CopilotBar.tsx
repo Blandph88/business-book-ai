@@ -20,7 +20,7 @@ import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searc
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -1133,6 +1133,15 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const next: UITurn[] = [...prior.filter((t) => !(t.role === "action" && t.action && t.action.status !== "saved")), { role: "you", text }, { role: "ai", text: reply }];
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: reply }]);
       if (chatIdRef.current === id) setChat(next);
+      setAsking(false); markDone(id);
+      return;
+    }
+    // "Change X to Y" with a draft OPEN is a card edit, not a new action — the card is directly
+    // editable, so say so instead of routing (which spawned a second card in the retest).
+    if (!docText && changeCardIntent(text) && prior.some((t) => t.role === "action" && t.action && t.action.status !== "saved")) {
+      const reply = "The draft card is editable in place — click the field you want to change, fix it there, then Save. Or say \"cancel that\" and re-dictate the whole thing.";
+      persistTo(id, [...history, { role: "you", text }, { role: "ai", text: reply }]);
+      if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: reply }]);
       setAsking(false); markDone(id);
       return;
     }

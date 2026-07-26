@@ -15,8 +15,10 @@ import {
   deicticWithoutEntity, contactBrief, rankOpportunities, capabilitiesResult, stageBreakdown,
   frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, scanEntities,
   deicticRecordRef, resolveCompareDeixis, windowMonth, calendarMeetings, compoundContactsWarm,
-  isReasoningRequest as reasonRq, warmNoDeal, meetingContent,
+  isReasoningRequest as reasonRq, warmNoDeal, meetingContent, namesakeSuperlative, companyZeroLine,
+  changeCardIntent, contactsMetAtLeast, findOpportunities,
 } from "./compute";
+import { searchBook } from "./grounding";
 import { normalizeRoute } from "./prompts";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
@@ -693,5 +695,92 @@ describe("Re-verify: meeting-content route (items 4/#32/#36)", () => {
   });
   it("does not hijack plain meeting lists", () => {
     expect(meetingContent("Any meetings held in the past 10 days?", D, TODAY)).toBeNull();
+  });
+});
+
+// ── AUDIT SWEEP (2026-07-25): planned-but-unimplemented items from the two fix plans ──────────────
+describe("Audit: count/aggregate vocab (re-verify items 1–2)", () => {
+  it("'Total up every meeting I've ever logged' is the all-time meetings count", () => {
+    const r = computeForQuery("Total up every meeting I've ever logged.", D, TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/held 2 meetings all time/i);
+  });
+  it("'combined value of everything open' is the open-pipeline total, not revenue", () => {
+    const r = computeForQuery("What's the combined value of everything open right now?", D, TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/[£$]875k|875,000/);
+    expect(r!.intro).not.toMatch(/revenue|recognised/i);
+  });
+});
+
+describe("Audit: namesake superlative (Batch2 vocab row 'which <Name> did I meet most recently')", () => {
+  const SARAH1 = contact({ first: "Sarah", last: "Lee", organisation: "HSBC", met: true, url: "https://www.linkedin.com/in/sarah-lee" });
+  const SARAH2 = contact({ first: "Sarah", last: "Kim", organisation: "Google", met: true, url: "https://www.linkedin.com/in/sarah-kim" });
+  const DS = book({
+    contacts: [SARAH1, SARAH2],
+    meetingRows: [
+      meeting({ contact_url: SARAH1.url, contactInfo: { name: "Sarah Lee", organisation: "HSBC", seniority: "", function: "", sector_group: "", phone: "" }, date_held: "2026-06-01" }),
+      meeting({ contact_url: SARAH2.url, contactInfo: { name: "Sarah Kim", organisation: "Google", seniority: "", function: "", sector_group: "", phone: "" }, date_held: "2026-07-10" }),
+    ],
+  });
+  it("ranks namesakes by most recent held meeting", () => {
+    const r = namesakeSuperlative("Which Sarah did I meet most recently?", DS, TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/Sarah Kim/);
+    expect(r!.intro).toMatch(/2026-07-10/);
+  });
+  it("honest when no namesake has been met", () => {
+    const DN = book({ contacts: [SARAH1] });
+    const r = namesakeSuperlative("Which Sarah did I see last?", DN, TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/haven't met any/i);
+  });
+  it("does not fire without the superlative", () => {
+    expect(namesakeSuperlative("Which Sarah works at HSBC?", DS, TODAY)).toBeNull();
+  });
+});
+
+describe("Audit: company zero-answers get canonical casing + the warm door (Batch2 plan)", () => {
+  it("zero opps at a company you HAVE met someone at names the door", () => {
+    const r = findOpportunities(D, { company: "exxonmobil", status: "Open" });
+    expect(r.rows.length).toBe(0);
+    expect(r.intro).toMatch(/ExxonMobil/);          // canonical casing, not the user's echo
+    expect(r.intro).toMatch(/Karen OConnor/);        // the relationship you DO have
+    expect(r.intro).toMatch(/warm door/i);
+  });
+  it("companyZeroLine is honest when no one there has been met", () => {
+    const z = companyZeroLine(book({ contacts: [contact({ organisation: "Rolls-Royce", url: "u9" })] }), "rolls-royce", TODAY);
+    expect(z.org).toBe("Rolls-Royce");
+    expect(z.door).toMatch(/1 person there, though none met/i);
+  });
+});
+
+describe("Audit: met-twice VACUOUS-TRUTH guard (re-verify item 3)", () => {
+  it("empty base says nobody has been met twice — not a filtered-empty message", () => {
+    const r = contactsMetAtLeast(D, 2);
+    expect(r.rows.length).toBe(0);
+    expect(r.intro).toMatch(/haven't met anyone twice/i);
+  });
+});
+
+describe("Audit: exact-match-first in the related ranker (retest #34, the Thomas Thomas bug)", () => {
+  const TT = contact({ first: "Thomas", last: "Thomas", organisation: "Barclays", url: "u-tt" });
+  const OT = contact({ first: "Olivia", last: "Thomas", organisation: "Verizon", url: "u-ot" });
+  it("the contiguous full-name match ranks above the token-set namesake", () => {
+    const g = searchBook("Pull up everything on Olivia Thomas", book({ contacts: [TT, OT] }));
+    expect(g).not.toBeNull();
+    expect(g!.people[0].main).toBe("Olivia Thomas");
+  });
+});
+
+describe("Audit: 'change X to Y' with a draft open is a card edit, never a new action", () => {
+  it("recognises card-edit phrasings", () => {
+    expect(changeCardIntent("Change the value to £55k")).toBe(true);
+    expect(changeCardIntent("fix the date, it was yesterday")).toBe(true);
+  });
+  it("never hijacks real action starters", () => {
+    expect(changeCardIntent("Note on Daniel Garcia: he moved to Madrid")).toBe(false);
+    expect(changeCardIntent("Log that I met Karen this morning")).toBe(false);
+    expect(changeCardIntent("Move the Google deal to Proposal Build")).toBe(false);
   });
 });
