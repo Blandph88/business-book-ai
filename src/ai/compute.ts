@@ -1872,7 +1872,10 @@ export function newsShaped(text: string): boolean {
 }
 
 export function cancelIntent(text: string): boolean {
-  return /^\s*(?:cancel|discard|scrap|drop|forget|never\s?mind|close)\s*(?:that|it|this|the\s+(?:card|draft|form))?\s*[.!]?\s*$/i.test(text);
+  // Wrapping quotes / stray trailing punctuation must not defeat the matcher — a live 'Cancel that."'
+  // (one stray quote) slipped past this and spawned a meeting card with the command as its notes.
+  const t = text.trim().replace(/^["'\u201C\u201D\u2018\u2019`]+/, "").replace(/["'\u201C\u201D\u2018\u2019`.!?,;: ]+$/, "");
+  return /^(?:cancel|discard|scrap|drop|forget|never\s?mind|close)\s*(?:that|it|this|the\s+(?:card|draft|form))?$/i.test(t);
 }
 
 // Is the message about the BOOK (data vocab or a named book entity)? Used to gate the companion

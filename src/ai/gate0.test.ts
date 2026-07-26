@@ -811,3 +811,16 @@ describe("Re-verify item 5: news-shaped questions", () => {
     expect(newsShaped("Any news from the Google meeting?")).toBe(false);
   });
 });
+
+describe("Re-verify item 7: cancel survives stray punctuation", () => {
+  it("wrapping quotes and trailing junk don't defeat the matcher", () => {
+    expect(cancelIntent('Cancel that."')).toBe(true);
+    expect(cancelIntent('"Cancel that"')).toBe(true);
+    expect(cancelIntent("Cancel that.\u201D")).toBe(true);
+    expect(cancelIntent("never mind!!")).toBe(true);
+  });
+  it("real sentences still aren't cancels", () => {
+    expect(cancelIntent("Cancel the JPMorgan meeting on Friday")).toBe(false);
+    expect(cancelIntent("Close the Chevron deal as won")).toBe(false);
+  });
+});
