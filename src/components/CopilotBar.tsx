@@ -1573,7 +1573,11 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
           label: `${c.first} ${c.last}`.trim() + (c.organisation ? ` · ${c.organisation}` : ""),
           prompt: extractText.replace(new RegExp(`\\b${span.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), `${c.first} ${c.last}`.trim()),
         }));
-        const turn: UITurn = { role: "ai", text: `${matches.length} people called ${span} — which one did you mean?`, chips };
+        // matchContacts caps its list at 6 — count the REAL namesakes so the message never claims
+        // "6 people called Sarah" when the book holds 37 (honesty nit from the live run).
+        const spanLow = span.toLowerCase();
+        const realCount = /\s/.test(span) ? matches.length : Math.max(matches.length, contacts.filter((c) => (c.first || "").toLowerCase() === spanLow).length);
+        const turn: UITurn = { role: "ai", text: `${realCount} people called ${span} — here ${matches.length === 1 ? "is the closest match" : `are the ${matches.length} closest`}; which one did you mean? (Type the full name if yours isn't here.)`, chips };
         setActionBusy(false);
         if (chatIdRef.current === id) setChat([...prior, { role: "you", text: display }, turn]);
         persistTo(id, [...prior.filter((tt) => tt.role !== "action").map((tt) => ({ role: tt.role as "you" | "ai", text: tt.text })), { role: "you", text: display }, { role: "ai", text: turn.text, chips }]);
