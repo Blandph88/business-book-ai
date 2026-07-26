@@ -117,13 +117,14 @@ export function YourDay({ today, contacts, edits, meetingRows, agenda, hotOpps, 
   // job was only ever narration/prioritisation, and every input here is already computed deterministically.
   const oppName = (o: { opportunity_name?: string; organisation?: string }) => o.opportunity_name || o.organisation || "(unnamed)";
   function deterministicSections(): { key: string; label: string; lines: string[] }[] {
-    const owed = contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).slice(0, 6);
+    const owed = contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).slice(0, 4);
     const latent = contacts.filter((c) => c.latentOpp?.text).slice(0, 5);
     const secs: { key: string; label: string; lines: string[] }[] = [];
-    if (agenda.length) secs.push({ key: "week", label: "This week", lines: agenda.slice(0, 6).map((a) => `${a.what}: ${a.who}${a.org ? ` (${a.org})` : ""} — ${a.statusLabel}, due ${a.date}`) });
-    if (hotOpps.length) secs.push({ key: "close", label: "Close these — near signature (probability-weighted values)", lines: hotOpps.map(({ opp }) => `${oppName(opp)} — ${formatMoney(weightedValue(opp))} weighted [${opportunityPhase(opp)}]`) });
-    if (stale.length) secs.push({ key: "reconnect", label: "Reconnect — gone quiet", lines: stale.slice(0, 6).map(({ contact: c, daysSince }) => `${nm(c)}${daysSince != null ? ` — ${daysSince}d quiet` : ""}`) });
-    if (aging.length) secs.push({ key: "cold", label: "Going cold — no movement", lines: aging.slice(0, 6).map(({ opp, daysSince }) => `${oppName(opp)} — ${daysSince}d no movement`) });
+    // NO "This week" section here — the full agenda table renders directly below on the same page,
+    // and duplicating it made the brief long and strange (Phil, re-verify item 32).
+    if (hotOpps.length) secs.push({ key: "close", label: "Close these — near signature (probability-weighted values)", lines: hotOpps.slice(0, 4).map(({ opp }) => `${oppName(opp)} — ${formatMoney(weightedValue(opp))} weighted [${opportunityPhase(opp)}]`) });
+    if (stale.length) secs.push({ key: "reconnect", label: "Reconnect — gone quiet", lines: stale.slice(0, 4).map(({ contact: c, daysSince }) => `${nm(c)}${daysSince != null ? ` — ${daysSince}d quiet` : ""}`) });
+    if (aging.length) secs.push({ key: "cold", label: "Going cold — no movement", lines: aging.slice(0, 4).map(({ opp, daysSince }) => `${oppName(opp)} — ${daysSince}d no movement`) });
     if (owed.length) secs.push({ key: "owed", label: "You owe a reply", lines: owed.map((c) => `${nm(c)}${c.thread?.lastDate ? ` — since ${c.thread.lastDate}` : ""}`) });
     if (latent.length) secs.push({ key: "latent", label: "Spotted in your messages", lines: latent.map((c) => `${nm(c)}: ${c.latentOpp!.text}`) });
     return secs;

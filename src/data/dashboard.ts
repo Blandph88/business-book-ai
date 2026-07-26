@@ -265,9 +265,13 @@ export function looseEnds(
     });
   }
 
-  // SoWs entered standalone (no opportunity) — break the pipeline→revenue trail.
+  // SoWs entered standalone (no opportunity) — break the pipeline→revenue trail. Only flagged when a
+  // SAME-ORG opportunity actually exists to link to: a nag with no possible action is noise, and it
+  // was filling Housekeeping with 9 unactionable items on the demo seed (and would flood any real
+  // import of historic engagements the same way).
+  const orgHasOpp = new Set(opps.map((o) => (o.organisation || "").trim().toLowerCase()).filter(Boolean));
   const sowNoOpp: LooseEnd[] = sows
-    .filter((s) => !s.linked_opportunity_id)
+    .filter((s) => !s.linked_opportunity_id && orgHasOpp.has((s.organisation || "").trim().toLowerCase()))
     .map((s) => ({
       label: s.engagement_name || s.organisation || "(SoW)",
       meta: "SoW · not linked to an opportunity",

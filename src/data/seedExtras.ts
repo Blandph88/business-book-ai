@@ -36,6 +36,26 @@ export async function bootstrapSeedExtras(): Promise<void> {
     // ambiguous stays for the Housekeeping card to teach with (a couple is realistic — 13 is noise).
     let oppList: Array<{ id: string; organisation?: string; opportunity_name?: string }> = [];
     try { oppList = Object.values(loadAllOpportunities()); } catch { /* linking is best-effort */ }
+    // RE-ANCHOR engagement next-action dates to TODAY (re-verify item 32): the JSON's dates were
+    // authored around SOW_DATE_ANCHOR and rot as real time passes — in a month the demo would open
+    // on a wall of overdue engagement steps. Shift keeps the authored cadence; the THIN pass then
+    // caps the coming week at 3 engagement items (the This-week list read as a wall of seed noise).
+    const SOW_DATE_ANCHOR = "2026-07-24";
+    const today = new Date().toISOString().slice(0, 10);
+    const shiftDays = Math.round((Date.parse(today) - Date.parse(SOW_DATE_ANCHOR)) / 86_400_000);
+    const shift = (iso: string): string => new Date(Date.parse(iso) + shiftDays * 86_400_000).toISOString().slice(0, 10);
+    const inWeek: Array<Record<string, unknown>> = [];
+    for (const s of sows) {
+      if (typeof s.next_action_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s.next_action_date)) {
+        s.next_action_date = shift(s.next_action_date);
+        const d = Date.parse(String(s.next_action_date));
+        if (d >= Date.parse(today) - 7 * 86_400_000 && d <= Date.parse(today) + 7 * 86_400_000) inWeek.push(s);
+      }
+    }
+    inWeek.sort((a, b) => String(a.next_action_date).localeCompare(String(b.next_action_date)));
+    for (const s of inWeek.slice(3)) {
+      s.next_action_date = new Date(Date.parse(String(s.next_action_date)) + 14 * 86_400_000).toISOString().slice(0, 10);
+    }
     for (const s of sows) {
       if (!s.linked_opportunity_id && typeof s.organisation === "string" && typeof s.engagement_name === "string") {
         const svc = String(s.engagement_name).replace(/\s*engagement\s*$/i, "").toLowerCase();

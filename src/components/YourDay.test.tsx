@@ -61,8 +61,9 @@ describe("YourDay deterministic brief (AI off)", () => {
     const text = container.textContent || "";
     // The card is present (previously it returned null with AI off) and shows the computed items.
     expect(text).toContain("Your day");
-    expect(text).toContain("This week");
-    expect(text).toContain("Send the proposal");
+    // "This week" is deliberately ABSENT from the brief — the full agenda table renders directly
+    // below on the same page, and duplicating it made the card long (re-verify item 32).
+    expect(text).not.toContain("This week");
     expect(text).toContain("Reconnect");
     expect(text).toContain("Jane Doe");
     expect(text).toContain("61d");

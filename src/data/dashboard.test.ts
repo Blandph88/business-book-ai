@@ -383,13 +383,17 @@ describe("looseEnds", () => {
     expect(groups.find((g) => g.key === "noDecisionMaker")).toBeUndefined();
   });
 
-  it("flags a standalone SoW not linked to an opportunity", () => {
-    const s = sow({ id: "s1", linked_opportunity_id: undefined, engagement_name: "Lone SoW" });
-    const groups = looseEnds([], [], {}, [s]);
-    const g = groups.find((g) => g.key === "sowNoOpp");
-    expect(g).toBeDefined();
-    expect(g!.items[0].label).toBe("Lone SoW");
-    expect(g!.items[0].tab).toBe("revenue");
+  it("flags a standalone SoW only when a same-org opportunity exists to link", () => {
+    const s = { id: "s1", engagement_name: "Lone SoW", organisation: "Acme" } as unknown as Parameters<typeof looseEnds>[3][number];
+    const oppAcme = { id: "o1", organisation: "Acme", opportunity_name: "Acme — Strategy engagement", current_step: "scoping", lost: false, contact_url: "u-x" } as unknown as Parameters<typeof looseEnds>[0][number];
+    // A same-org opp exists → actionable → flagged.
+    const flagged = looseEnds([oppAcme], [], {}, [s]).find((g) => g.key === "sowNoOpp");
+    expect(flagged).toBeDefined();
+    expect(flagged!.items[0].label).toBe("Lone SoW");
+    expect(flagged!.items[0].tab).toBe("revenue");
+    // NO opp anywhere for that org → nothing to link to → the nag is noise and is not raised.
+    const unflagged = looseEnds([], [], {}, [s]).find((g) => g.key === "sowNoOpp");
+    expect(unflagged).toBeUndefined();
   });
 
   it("returns no groups when there are no loose ends", () => {
