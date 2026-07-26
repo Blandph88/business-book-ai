@@ -92,8 +92,6 @@ const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
     { key: "relationship", label: "Relationship", get: (c) => RELATIONSHIP_STRENGTH.indexOf(c.relationship_strength as (typeof RELATIONSHIP_STRENGTH)[number]) },
     { key: "warmth", label: "Warmth", get: (c) => c.warmthSentiment?.score ?? -1 }, // LLM message-tone score; unscored sort last
     { key: "priority", label: "Priority", get: (c) => PRIORITY.indexOf(c.priority as (typeof PRIORITY)[number]) },
-    { key: "next_action", label: "Next action", get: (c) => c.next_action ?? "" },
-    { key: "next_action_date", label: "Next action date", get: (c) => c.next_action_date ?? "" },
     { key: "messaged", label: "Messaged", get: (c) => (c.messaged ? 1 : 0) },
     { key: "responded", label: "Responded", get: (c) => (c.two_way ? 1 : 0) },
     { key: "agreed", label: "Agreed", get: (c) => (c.agreed_to_meet ? 1 : 0) },
@@ -396,8 +394,6 @@ export function ContactsTab({
               <ColumnHeader label="Relationship" controls={controlsProps} sortKey="relationship" />
               <ColumnHeader label="Warmth" controls={controlsProps} sortKey="warmth" />
               <ColumnHeader label="Priority" controls={controlsProps} sortKey="priority" />
-              <ColumnHeader label="Next action" controls={controlsProps} sortKey="next_action" />
-              <ColumnHeader label="Next action date" controls={controlsProps} sortKey="next_action_date" />
               <ColumnHeader label="Messaged" controls={controlsProps} sortKey="messaged" />
               <ColumnHeader label="Responded" controls={controlsProps} sortKey="responded" />
               <ColumnHeader label="Agreed?" controls={controlsProps} sortKey="agreed" />
@@ -444,8 +440,6 @@ export function ContactsTab({
                 <td>{c.relationship_strength || "—"}</td>
                 <td>{warmthCell(c)}</td>
                 <td>{c.priority || "—"}</td>
-                <td>{c.next_action || "—"}</td>
-                <td>{c.next_action_date || "—"}</td>
                 <td className="cell-bool">{c.messaged ? "Yes" : "—"}</td>
                 <td className="cell-bool">{c.two_way ? "Yes" : "—"}</td>
                 <td className="cell-bool">{c.agreed_to_meet ? "Yes" : "—"}</td>

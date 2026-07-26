@@ -99,13 +99,12 @@ const RULES: Rule[] = [
   { kind: "update", entity: "contact", patterns: [
     /\b(.+?)\s+is (?:now )?(?:a )?(?:champion|warm|strong|cold|high priority|low priority|the decision[- ]maker|a decision maker|an influencer|a gatekeeper)\b/i,
     /\bmark\s+(.+?)\s+as\s+(?:a )?(?:champion|warm|strong|cold|high|low|priority|decision[- ]?maker|influencer|gatekeeper)\b/i,
-    /\bset (?:the )?(?:relationship|priority|decision role|next action|next step|reminder)\s+(?:for|on|with)\s+(.+)/i,
+    /\bset (?:the )?(?:relationship|priority|decision role)\s+(?:for|on|with)\s+(.+)/i,
     /\b(.+?)\s+is based in\b/i,
     /\badd (?:a )?note\s+(?:to|on|for|about)\s+(.+)/i,
     // Owner must be a NAME, not a pronoun/article — so "update — my priority has shifted" (a goal statement)
     // isn't read as editing a contact's priority field.
     /\b(?:update|edit|change)\s+(?!(?:my|the|your|his|her|their|our|a|an|this|that)\b)([A-Za-z][\w'’-]*(?:\s+[A-Za-z][\w'’-]*){0,2})'?s?\s+(?:relationship|priority|role|phone|notes?|details?)\b/i,
-    /\bremind me to\s+(.+)/i,
   ] },
 
   // ── CREATE / UPDATE CONTRACT (SoW) ──

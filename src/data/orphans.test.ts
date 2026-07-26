@@ -72,7 +72,7 @@ describe("detectOrphans — owner edits", () => {
 
   it('does NOT flag an edit whose fields are all "" or undefined', () => {
     const edits: Record<string, OwnerEdits> = {
-      [MISSING]: { notes: "", next_action: undefined },
+      [MISSING]: { notes: "" },
     };
     expect(detectOrphans([], edits, [], [])).toEqual([]);
   });

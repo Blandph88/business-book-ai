@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SPECS, relativeDate } from "./actionSpecs";
+import { SPECS } from "./actionSpecs";
 import type { ActionCtx } from "./actionSpecs";
 
 const TODAY = "2026-07-25";
@@ -44,12 +44,10 @@ describe("Batch2-E: opportunity update payload (retest #31/#43)", () => {
 });
 
 describe("Batch2-E: contact update — reminders + moves (retest #33/#44)", () => {
-  it("'Remind me to chase the JPMorgan proposal next Friday' → parsed date + cleaned action", async () => {
+  it("contact-level reminders are GONE (Phil 2026-07-26): the contact spec no longer extracts next_action", async () => {
     const v = await SPECS.contact.extract(baseCtx("Remind me to chase the JPMorgan proposal next Friday.", { op: "update", subjectUrl: "u1" }));
-    expect(v.next_action).toMatch(/chase the JPMorgan proposal/i);
-    expect(v.next_action).not.toMatch(/next friday/i);
-    expect(v.next_action_date).toBe(relativeDate(TODAY, "next Friday"));
-    expect(v.next_action_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(v.next_action).toBeUndefined();
+    expect(v.next_action_date).toBeUndefined();
   });
   it("'switching to the Madrid office in October' → based_in Madrid", async () => {
     const v = await SPECS.contact.extract(baseCtx("Note on Daniel Garcia — he's switching to the Madrid office in October.", { op: "update", subjectUrl: "u1" }));

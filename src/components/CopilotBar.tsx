@@ -49,7 +49,6 @@ const COMMON_LOCATIONS = [
   "United Kingdom", "United States", "Canada", "Ireland", "France", "Germany", "Netherlands", "Switzerland",
   "Spain", "Italy", "Sweden", "UAE", "Singapore", "Australia", "India", "Japan",
 ];
-const NEXT_ACTIONS = ["Call", "Email", "Send a proposal", "Schedule a meeting", "Follow up", "Make an introduction", "Send information", "Check in", "Reconnect"];
 
 type View = "search" | "chat" | "history" | "memory";
 
@@ -758,7 +757,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const orgOptions = useMemo(() => [...new Set(contacts.map((c) => c.organisation?.trim()).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b)), [contacts]);
   // Typeahead suggestion lists for the action-card fields (org from the book; locations + next-actions are
   // sensible defaults — all still free-text, so the user can type anything).
-  const actionSuggestions = useMemo(() => ({ organisation: orgOptions, based_in: COMMON_LOCATIONS, next_action: NEXT_ACTIONS }), [orgOptions]);
+  const actionSuggestions = useMemo(() => ({ organisation: orgOptions, based_in: COMMON_LOCATIONS }), [orgOptions]);
 
   useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }); }, [chat, asking, view]);
 
@@ -1272,6 +1271,15 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
           await startAction("meeting", "update", `${rs.first} ${rs.last}`.trim(), text, prior, id, text);
           return;
         }
+        // Contact-level reminders were removed (actions live on meetings) — no meeting to pin it to
+        // gets an honest explanation, never a card with nowhere to put the reminder.
+        const msg = rs
+          ? `Reminders live on meeting follow-ups, and you haven't logged a meeting with ${rs.first} ${rs.last} yet — log one ("log a meeting with ${rs.first} ${rs.last}") and I'll set the follow-up on it.`
+          : `Reminders live on meeting follow-ups, so I need to know who this is about — name the person or deal ("remind me to chase the JPMorgan proposal next Friday") and I'll set it on your latest meeting with them.`;
+        persistTo(id, [...history, { role: "you", text }, { role: "ai", text: msg }]);
+        if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: msg }]);
+        setAsking(false); markDone(id);
+        return;
       }
       const actIntent = routeIntent(text, { hasDoc: false });
       if (isActionIntent(actIntent) && actIntent.entity && actIntent.source === "dictionary" && !questionBlocksAction(text)) {

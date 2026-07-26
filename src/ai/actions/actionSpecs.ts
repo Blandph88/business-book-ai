@@ -415,8 +415,6 @@ const CONTACT_UPDATE_FIELDS: FieldSpec[] = [
   { key: "priority", label: "Priority", type: "enum", options: PRIORITY },
   { key: "decision_role", label: "Decision role", type: "enum", options: DECISION_ROLE },
   { key: "based_in", label: "Based in", type: "text" },
-  { key: "next_action", label: "Next action", type: "text" },
-  { key: "next_action_date", label: "Next action date", type: "date" },
   { key: "notes", label: "Add note", type: "textarea" },
 ];
 
@@ -462,19 +460,6 @@ const contactSpec: EntitySpec = {
     // A location MOVE ("switching to the Madrid office in October") → based_in, with the note kept.
     const moving = t.match(/\b(?:switch(?:ing)?|mov(?:e|ing)|relocat(?:e|ing)|transferr?(?:ing)?)\s+to\s+(?:the\s+)?([A-Z][\w .'-]+?)\s+office\b/i);
     if (moving && !v.based_in) v.based_in = moving[1].trim();
-    // Reminders: the DATE parses into the date field (retest #33 left "next Friday" inside the text where
-    // nothing could surface it), and the action text drops the command wrapper.
-    const remind = t.match(/\b(?:remind me to|next action[:]?|next step[:]?)\s+(.+)/i);
-    if (remind) {
-      let act = remind[1].trim().replace(/[.,!]+$/, "");
-      const when = relativeDate(ctx.today, t) || namedMonthDate(ctx.today, t);
-      if (when) {
-        v.next_action_date = when;
-        act = act.replace(/\s*(?:on|by|before)?\s*(?:next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month)\s*$/i, "").trim();
-        act = act.replace(/\s*(?:tomorrow|today)\s*$/i, "").trim();
-      }
-      v.next_action = act;
-    }
     const note = t.match(/\bnote(?:\s+(?:to|on|for|about)\s+[\w ]+?)?[:]\s*(.+)/i); if (note) v.notes = note[1].trim();
     // "Note on X: <substance>" without a colon variant — keep the substance as the note, never the command.
     if (!v.notes) { const n2 = t.match(/^\s*note\s+(?:on|about|for)\s+[A-Za-z .'-]+?\s*[—–-]\s*(.+)$/i); if (n2) v.notes = n2[1].trim(); }
@@ -502,8 +487,6 @@ const contactSpec: EntitySpec = {
     if (values.decision_role) next.decision_role = values.decision_role as DecisionRole;
     if (values.based_in) next.based_in = values.based_in;
     if (values.position) next.position = values.position;
-    if (values.next_action) next.next_action = values.next_action;
-    if (values.next_action_date) next.next_action_date = values.next_action_date;
     if (values.notes) next.notes = prior.notes ? `${prior.notes}\n${values.notes}` : values.notes;
     saveEdits(url, next);
     return { id: url, summary: `Updated ${contactName(ctx, url)}.`, undo: () => saveEdits(url, prior) };

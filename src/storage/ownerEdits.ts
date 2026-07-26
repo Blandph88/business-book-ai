@@ -27,8 +27,6 @@ export type OwnerEdits = {
   priority?: Priority;
   decision_role?: DecisionRole;
   last_contact_date?: string;
-  next_action?: string;
-  next_action_date?: string;
   notes?: string;
   // A manually-entered phone/WhatsApp number. Overrides the pipeline's `phone` (which
   // is auto-extracted from messages) so the owner can add a number for any contact.

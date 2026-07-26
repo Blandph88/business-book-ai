@@ -44,8 +44,6 @@ function draftFromRow(row: ContactRow): OwnerEdits {
     priority: row.priority,
     decision_role: row.decision_role,
     last_contact_date: row.last_contact_date,
-    next_action: row.next_action,
-    next_action_date: row.next_action_date,
     notes: row.notes,
   };
 }
@@ -118,23 +116,20 @@ export function ContactForm({
   const [crmBusy, setCrmBusy] = useState(false);
   const [crmNote, setCrmNote] = useState<string | null>(null);
 
-  // Auto-suggest CRM fields from what's known (relationship, priority, decision role, next action).
-  // Fills the form's own fields so the owner reviews and Saves (A2). next_action/date persist and
-  // surface in the table even though they have no input here, so we echo them in the note.
+  // Auto-suggest CRM fields from what's known (relationship, priority, decision role). The suggested
+  // next step is ADVISORY only (shown in the note) — contact-level next_action was removed (Phil's
+  // call, 2026-07-26): actions live on meetings/opportunities, where the agenda reads them.
   async function suggestCrm() {
     if (crmBusy) return;
     setCrmBusy(true);
     setCrmNote(null);
     try {
       const j = await aiJson<CrmSuggest>(suggestCrmPrompt(contact, meetings, RELATIONSHIP_STRENGTH, PRIORITY, DECISION_ROLE, contactSignalsText(contact)));
-      const nextDate = j.next_action_days > 0 ? new Date(Date.now() + j.next_action_days * 86_400_000).toISOString().slice(0, 10) : undefined;
       setDraft((d) => ({
         ...d,
         relationship_strength: (RELATIONSHIP_STRENGTH as readonly string[]).includes(j.relationship_strength) ? (j.relationship_strength as OwnerEdits["relationship_strength"]) : d.relationship_strength,
         priority: (PRIORITY as readonly string[]).includes(j.priority) ? (j.priority as OwnerEdits["priority"]) : d.priority,
         decision_role: (DECISION_ROLE as readonly string[]).includes(j.decision_role) ? (j.decision_role as OwnerEdits["decision_role"]) : d.decision_role,
-        next_action: j.next_action?.trim() || d.next_action,
-        next_action_date: nextDate ?? d.next_action_date,
       }));
       setCrmNote(j.next_action?.trim() ? `Suggested next action: ${j.next_action.trim()} — review & Save.` : "Filled the fields below — review & Save.");
     } catch {
