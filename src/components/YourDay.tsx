@@ -12,6 +12,7 @@ import type { HotOpp, StaleContact, AgingOpp } from "../data/dashboard";
 import type { AgendaItem } from "../data/agenda";
 import { formatMoney } from "../data/format";
 import { useAiAvailable, aiPrompt, aiAvailability } from "../ai/ai";
+import { explainFailure } from "../ai/health";
 import { yourDayPrompt } from "../ai/prompts";
 import "./YourDay.css";
 
@@ -36,6 +37,17 @@ type YourDayProps = {
   // hardened chat surface — instead of a second modal duplicating budgets/indicators/failure states.
   onDraft: (prompt: string) => void;
 };
+
+// A busy line with a live seconds counter, so a long local-model wait visibly IS still working
+// (a static "Sharpening…" is indistinguishable from a hang — the exact live-sweep complaint).
+function BusyLine() {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSecs((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return <p className="yourday-loading">Sharpening your brief… {secs}s{secs >= 10 ? " — local models read the context slowly; I'll give up at 90s and say so" : ""}</p>;
+}
 
 export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraft }: YourDayProps) {
   const aiReady = useAiAvailable();
@@ -81,13 +93,21 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
     }
     setBusy(true);
     setError(null);
-    aiPrompt(yourDayPrompt(ctx))
+    // TURN BUDGET + honest failure (same contract as the copilot / AiSuggest): an untimed aiPrompt on
+    // a local backend hung "Sharpening your brief…" forever in the live sweep. 90s cap, then a
+    // diagnosed message from live backend state.
+    const budget = new Promise<never>((_, rej) => setTimeout(() => rej(new Error("turn-budget")), 90_000));
+    Promise.race([aiPrompt(yourDayPrompt(ctx)), budget])
       .then((t) => {
         if (!alive.current) return;
         setText(t.trim());
         try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ day: today, sig, text: t.trim() })); } catch { /* ignore */ }
       })
-      .catch((e) => { if (alive.current) setError(e instanceof Error ? e.message : "Couldn't build your brief."); })
+      .catch(async (e) => {
+        if (!alive.current) return;
+        const msg = await explainFailure(e instanceof Error && e.message === "turn-budget" ? "turn-budget" : "error");
+        if (alive.current) setError(msg);
+      })
       .finally(() => { if (alive.current) setBusy(false); });
   }
 
@@ -150,8 +170,8 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
               <ul className="yourday-sec-list">{s.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
             </div>
           ))}
-          {busy && <p className="yourday-loading">Sharpening your brief…</p>}
-          {error && <p className="yourday-error">Couldn't add the narrated brief — showing your computed brief above.</p>}
+          {busy && <BusyLine />}
+          {error && <p className="yourday-error">{error}</p>}
         </div>
       ) : error ? (
         <p className="yourday-error">{error}</p>
