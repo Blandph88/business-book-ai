@@ -1564,7 +1564,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // AMBIGUOUS NAMED SUBJECT on a create ("set up an opportunity for Sarah" — 37 Sarahs): ask WHICH
       // person via chips that re-issue the command with the full name, instead of a card carrying an
       // unresolved literal (retest #45). Same resolver philosophy as the query side.
-      if (!subjectUrl && needsContact && op === "create" && matches.length > 1 && matches.length <= 60 && span && !pronounOnly) {
+      // ANY create with an ambiguously-named person asks — not just contact-requiring kinds: the
+      // opportunity spec has needsContact=false, which let "an opportunity for Sarah" (37 Sarahs)
+      // open a bare card instead of the picker (re-verify item 29).
+      if (!subjectUrl && op === "create" && matches.length > 1 && matches.length <= 60 && span && !pronounOnly) {
         const CAPC = 6;
         const chips: Chip[] = matches.slice(0, CAPC).map((c) => ({
           label: `${c.first} ${c.last}`.trim() + (c.organisation ? ` · ${c.organisation}` : ""),
