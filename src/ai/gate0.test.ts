@@ -844,3 +844,26 @@ describe("Re-verify item 14: compare binds bare first names through the ledger",
     expect(r!.intro).toMatch(/which one did you mean/i);
   });
 });
+
+describe("Re-verify item 15: work-at phrasings reach the deterministic brief", () => {
+  it("'Which company does Karen work at?' resolves the unique contact", () => {
+    const r = frontDoorBrief("Which company does Karen work at?", D, TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/Karen OConnor/);
+    expect(r!.intro).toMatch(/ExxonMobil/);
+  });
+  it("a SHARED bare first name gets the complete which-one list, not a model composition", () => {
+    const S1 = contact({ first: "Rachel", last: "Schmidt", organisation: "Pfizer", url: "r1" });
+    const S2 = contact({ first: "Rachel", last: "Lee", organisation: "UBS", url: "r2" });
+    const S3 = contact({ first: "Rachel", last: "Novak", organisation: "Citi", url: "r3" });
+    const r = frontDoorBrief("Which company does Rachel work at?", book({ contacts: [S1, S2, S3] }), TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/3 people called Rachel/);
+    expect(r!.rows.length).toBe(3);
+  });
+  it("'where does Daniel Garcia work' briefs him", () => {
+    const r = frontDoorBrief("Where does Daniel Garcia work?", D, TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/Daniel Garcia/);
+  });
+});

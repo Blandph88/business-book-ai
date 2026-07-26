@@ -1783,7 +1783,13 @@ export function noteOnContact(text: string, d: BookData, today: string): { name:
 // (#27 "give me the picture", #28, #34 "pull up", #37a "look at" → stalls/deflections/fabrication).
 const BRIEF_CAPTURE = /\b(?:pull up(?: everything)?(?: on| about)?|look at|show me|give me the (?:picture|rundown|lowdown)(?: on)?|run me through(?: my dealings with)?|what do i have on|what have i got on|tell me about|brief me on|who is|who'?s|background on|profile of|my dealings with)\s+([A-Za-z\u00C0-\u017F''.\- ]{2,60})/i;
 export function frontDoorBrief(text: string, d: BookData, today: string): ComputeResult | null {
-  const m = text.match(BRIEF_CAPTURE);
+  // "Which company does Rachel work at?" / "where does Rachel work?" are PERSON lookups — they must
+  // reach the deterministic brief (and its complete which-one list), never the router: the live run
+  // misdialed the first to compareEntities and the second to a model-composed 2-of-45 "clarification".
+  const workAt = text.match(/\b(?:which|what)\s+(?:company|organisation|org|firm|employer)\s+does\s+([A-Za-z\u00C0-\u017F'’.\- ]{2,50}?)\s+work\s+(?:at|for)\b/i)
+    || text.match(/\bwhere\s+does\s+([A-Za-z\u00C0-\u017F'’.\- ]{2,50}?)\s+work\b/i)
+    || text.match(/\bwho\s+does\s+([A-Za-z\u00C0-\u017F'’.\- ]{2,50}?)\s+work\s+for\b/i);
+  const m = workAt || text.match(BRIEF_CAPTURE);
   if (!m) return null;
   let ref = m[1].trim().replace(/[.?!,;:]+$/, "").replace(/\s+again$/i, "").trim();
   if (!ref) return null;

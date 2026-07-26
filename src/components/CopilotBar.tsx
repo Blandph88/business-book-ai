@@ -1312,6 +1312,14 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
             toolCall = { tool: "contactBrief", args: { name: `${scan.contacts[0].first} ${scan.contacts[0].last}`.trim() } };
           }
         }
+        // Same guard family for compareEntities: no compare vocabulary in the message → the claim is
+        // a misdial (the live run sent "Which company does Rachel work at?" here, dragging "Olivia"
+        // in from history). Deterministic layer decides instead; else the grounded path.
+        if (toolCall.tool === "compareEntities" && !/\b(?:compare[sd]?|comparison|vs\.?|versus|stack(?:s)? up|measure(?:s)? up|side by side|against)\b/i.test(text)) {
+          const det = computeForQuery(text, data, today, prevUserText);
+          if (det) { await renderCompute(det); return; }
+          toolCall = { tool: "", args: {} }; // reject the claim → falls through to the grounded book answer
+        }
         if (routed.tool === "revenueAggregate" && !revenueVocabOk(text)) {
           const det = computeForQuery(text, data, today, prevUserText);
           if (det) { await renderCompute(det); return; }
