@@ -28,3 +28,22 @@
 }
 .yourday-chip:hover { background: var(--primary-tint); border-color: var(--primary-tint-2); }
 .yourday-note { margin: 10px 0 0; font-size: 11px; color: var(--ink-3); }
+
+/* Miniature copilot thinking glyph for the brief indicator (same pop animation as the chat). */
+.yourday-loading .thinking-glyph {
+  display: inline-block;
+  width: 1em;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1;
+  font-style: normal;
+  transform-origin: center;
+  animation: yourday-pop 0.5s cubic-bezier(0.25, 1.1, 0.4, 1);
+}
+@keyframes yourday-pop {
+  0% { transform: scale(0.4); opacity: 0.3; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .yourday-loading .thinking-glyph { animation: none; }
+}

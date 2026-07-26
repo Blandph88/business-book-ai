@@ -11,7 +11,7 @@ import { opportunityPhase, weightedValue } from "../data/opportunities";
 import type { HotOpp, StaleContact, AgingOpp } from "../data/dashboard";
 import type { AgendaItem } from "../data/agenda";
 import { formatMoney } from "../data/format";
-import { useAiAvailable, aiPrompt, aiAvailability } from "../ai/ai";
+import { useAiAvailable, aiPromptStream, aiAvailability } from "../ai/ai";
 import { explainFailure } from "../ai/health";
 import { yourDayPrompt } from "../ai/prompts";
 import "./YourDay.css";
@@ -38,15 +38,25 @@ type YourDayProps = {
   onDraft: (prompt: string) => void;
 };
 
-// A busy line with a live seconds counter, so a long local-model wait visibly IS still working
-// (a static "Sharpening…" is indistinguishable from a hang — the exact live-sweep complaint).
-function BusyLine() {
-  const [secs, setSecs] = useState(0);
+const approxTokens = (s: string) => Math.max(1, Math.round((s || "").length / 4));
+
+// The copilot's delivery indicator, miniaturised: a cycling glyph (visibly alive), a staged label,
+// live seconds and a ~token count once the narration starts streaming.
+const BRIEF_GLYPHS = ["+", "\u2726", "\u2736", "\u2737", "\u2738", "\u2739", "\u273A", "\u2733", "\u2217"];
+function BriefIndicator({ startMs, tokens }: { startMs: number; tokens: number }) {
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setSecs((n) => n + 1), 1000);
+    const t = setInterval(() => setTick((n) => n + 1), 420);
     return () => clearInterval(t);
   }, []);
-  return <p className="yourday-loading">Sharpening your brief… {secs}s{secs >= 10 ? " — local models read the context slowly; I'll give up at 90s and say so" : ""}</p>;
+  const secs = startMs ? Math.max(0, Math.floor((Date.now() - startMs) / 1000)) : 0;
+  const word = tokens > 0 ? "Writing your brief" : secs >= 8 ? "Reading your book's context — slow on local hardware" : "Sharpening your brief";
+  return (
+    <p className="yourday-loading">
+      <span className="thinking-glyph" key={tick % BRIEF_GLYPHS.length}>{BRIEF_GLYPHS[tick % BRIEF_GLYPHS.length]}</span>
+      {" "}{word}… {secs > 0 && <>· {secs}s{tokens > 0 ? ` · ~${tokens} tok` : ""}</>}
+    </p>
+  );
 }
 
 export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraft }: YourDayProps) {
@@ -54,6 +64,8 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
 
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [genStart, setGenStart] = useState(0);
+  const [genTok, setGenTok] = useState(0);
   const [error, setError] = useState<string | null>(null);
   // Ignore an in-flight generation that resolves after the Dashboard unmounts (no setState-after-unmount).
   const alive = useRef(true);
@@ -93,11 +105,30 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
     }
     setBusy(true);
     setError(null);
-    // TURN BUDGET + honest failure (same contract as the copilot / AiSuggest): an untimed aiPrompt on
-    // a local backend hung "Sharpening your brief…" forever in the live sweep. 90s cap, then a
-    // diagnosed message from live backend state.
-    const budget = new Promise<never>((_, rej) => setTimeout(() => rej(new Error("turn-budget")), 90_000));
-    Promise.race([aiPrompt(yourDayPrompt(ctx)), budget])
+    setGenStart(Date.now());
+    setGenTok(0);
+    // STREAMED, stall-bounded, honestly-failing (the copilot's delivery contract, applied here after
+    // the live sweep found this surface hanging): the narration STREAMS into the card as it writes
+    // (tokens visibly tick), a stall — not honest slowness — trips the bound (60s to first token for
+    // cold prompt-processing, 25s of silence mid-stream), and failure is diagnosed from live state.
+    let acc = "";
+    let lastProgress = Date.now();
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const bound = new Promise<never>((_, rej) => {
+      timer = setInterval(() => {
+        const grace = acc ? 25_000 : 60_000;
+        if (Date.now() - lastProgress > grace) rej(new Error(acc ? "mid-stream-stall" : "no-first-token"));
+      }, 1_000);
+    });
+    Promise.race([
+      aiPromptStream(yourDayPrompt(ctx), (full) => {
+        if (!alive.current) return;
+        acc = full; lastProgress = Date.now();
+        setGenTok(approxTokens(full));
+        setText(full.trim()); // stream into place — the brief builds up live
+      }),
+      bound,
+    ])
       .then((t) => {
         if (!alive.current) return;
         setText(t.trim());
@@ -105,10 +136,11 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
       })
       .catch(async (e) => {
         if (!alive.current) return;
-        const msg = await explainFailure(e instanceof Error && e.message === "turn-budget" ? "turn-budget" : "error");
-        if (alive.current) setError(msg);
+        const reason = e instanceof Error && (e.message === "no-first-token" || e.message === "mid-stream-stall") ? e.message : "error";
+        const msg = await explainFailure(reason as "no-first-token" | "mid-stream-stall" | "error");
+        if (alive.current) { setText(""); setError(msg); }
       })
-      .finally(() => { if (alive.current) setBusy(false); });
+      .finally(() => { if (timer) clearInterval(timer); if (alive.current) setBusy(false); });
   }
 
   // Auto-generate on mount (uses cache so it won't re-call on every Dashboard visit). The dashboard only
@@ -157,8 +189,9 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
         <h3>Your day</h3>
         {aiReady && <button type="button" className="yourday-refresh" disabled={busy} onClick={() => generate(true)}>{busy ? "…" : "Refresh"}</button>}
       </div>
+      {busy && <BriefIndicator startMs={genStart} tokens={genTok} />}
       {text ? (
-        // AI narration, once the model has produced one (cached or fresh).
+        // AI narration — streams into place while generating, persists once complete.
         <div className="yourday-brief">{text}</div>
       ) : hasSignal ? (
         // Deterministic brief — always available, no model. Shown instantly on import, and while the AI
@@ -170,7 +203,6 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
               <ul className="yourday-sec-list">{s.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
             </div>
           ))}
-          {busy && <BusyLine />}
           {error && <p className="yourday-error">{error}</p>}
         </div>
       ) : error ? (

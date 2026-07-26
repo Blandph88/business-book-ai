@@ -19,8 +19,15 @@ export function backendNoun(avail: AiAvailability): string {
 // A user-facing explanation + instruction for a failed/stalled turn, from live state.
 export async function explainFailure(reason: FailReason, availAtStart?: AiAvailability): Promise<string> {
   // Re-probe: the situation may have changed since the turn started (server closed, key revoked…).
+  // The probe itself is TIME-BOXED — a wedged local server hangs availability too, and the live
+  // sweep saw the failure path itself hang past its caller's budget waiting on this.
   let now: AiAvailability | null = null;
-  try { now = await aiAvailability(); } catch { now = null; }
+  try {
+    now = await Promise.race([
+      aiAvailability(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_500)),
+    ]);
+  } catch { now = null; }
   const avail = now ?? availAtStart ?? { willRun: false };
   const noun = backendNoun(avail);
   if (!avail.willRun) {
