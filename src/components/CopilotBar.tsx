@@ -666,6 +666,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   };
   const latestReferent = (chatId: string | null, kind: Referent["kind"]): Referent | null =>
     (chatId && refsMap().get(chatId)?.find((x) => x.kind === kind)) || null;
+  const recentReferentLabels = (chatId: string | null, kind: Referent["kind"]): string[] =>
+    (chatId && refsMap().get(chatId)?.filter((x) => x.kind === kind).map((x) => x.label)) || [];
   const latestChatRef = useRef<UITurn[]>([]); // newest chat turns, for distilling memory on leave/unmount
   const distilledRef = useRef<Map<string, number>>(new Map()); // chatId → turns already distilled (skip redundant)
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -1248,7 +1250,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // the comparison silently collapsed into a solo brief).
       if (/\b(?:compare|vs\.?|versus|stack up|measure up)\b/i.test(text)) {
         const cmpText = resolveCompareDeixis(text, latestReferent(id, "contact")?.label, latestReferent(id, "opportunity")?.label);
-        const cmp = compareEntities(cmpText, data, today);
+        const cmp = compareEntities(cmpText, data, today, recentReferentLabels(id, "contact"));
         if (cmp) { await renderCompute(cmp); return; }
       }
       const brief = frontDoorBrief(text, data, today);

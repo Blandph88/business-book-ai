@@ -1268,7 +1268,7 @@ export function resolveCompareDeixis(text: string, personLabel?: string, recordL
   return t;
 }
 
-export function compareEntities(text: string, d: BookData, today: string): ComputeResult | null {
+export function compareEntities(text: string, d: BookData, today: string, recent: string[] = []): ComputeResult | null {
   const m = text.match(/\bcompare\s+(.+?)\s+(?:to|with|vs\.?|versus|against|and)\s+(.+?)(?:\?|$)/i)
     || text.match(/\bhow (?:do|does)\s+(.+?)\s+(?:compare|stack up|measure up)\s+(?:to|with|against)\s+(.+?)(?:\?|$)/i)
     || text.match(/^\s*(.+?)\s+(?:vs\.?|versus)\s+(.+?)\s*\??\s*$/i);
@@ -1278,6 +1278,13 @@ export function compareEntities(text: string, d: BookData, today: string): Compu
   if (!a || !b) return null;
   const profile = (ref: string): ComputeResult | null => {
     if (/^(?:them|him|her|it|that|this|they|he|she)$/i.test(ref)) return null; // deixis — needs thread context
+    // LEDGER-FIRST bare first names (re-verify item 14): "how does he compare to Olivia?" straight
+    // after the Olivia Thomas brief must bind to HER — the recently-touched referent — not fan out
+    // to the 62-way which-Olivia list.
+    if (!/\s/.test(ref)) {
+      const led = recent.find((label) => foldAccents((label.split(/\s+/)[0] || "")) === foldAccents(ref));
+      if (led && resolveContact(d, led, today)) return contactBrief(d, led, today);
+    }
     if (resolveContact(d, ref, today)) return contactBrief(d, ref, today);
     if (d.contacts.some((c) => orgMatches(c.organisation, ref))) return accountSummary(d, ref);
     return null;

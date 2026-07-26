@@ -824,3 +824,23 @@ describe("Re-verify item 7: cancel survives stray punctuation", () => {
     expect(cancelIntent("Close the Chevron deal as won")).toBe(false);
   });
 });
+
+describe("Re-verify item 14: compare binds bare first names through the ledger", () => {
+  const OLIVIA = contact({ first: "Olivia", last: "Thomas", organisation: "HSBC", met: true, url: "u-oth" });
+  const OLIVIA2 = contact({ first: "Olivia", last: "Reed", organisation: "Citi", url: "u-ore" });
+  const ROBERT = contact({ first: "Robert", last: "Schmidt", organisation: "Salesforce", met: true, url: "u-rs" });
+  const DC = book({ contacts: [OLIVIA, OLIVIA2, ROBERT] });
+  it("a bare shared first name resolves to the recent referent, both profiles render", () => {
+    const r = compareEntities("How does Robert Schmidt compare to Olivia?", DC, TODAY, ["Olivia Thomas"]);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/Side by side/);
+    expect(r!.intro).toMatch(/Robert Schmidt/);
+    expect(r!.intro).toMatch(/Olivia Thomas/);
+    expect(r!.intro).not.toMatch(/which one did you mean/i);
+  });
+  it("without a ledger match the ambiguous side still disambiguates", () => {
+    const r = compareEntities("How does Robert Schmidt compare to Olivia?", DC, TODAY, []);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/which one did you mean/i);
+  });
+});
