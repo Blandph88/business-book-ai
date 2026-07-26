@@ -1876,6 +1876,35 @@ export function changeCardIntent(text: string): boolean {
   return true;
 }
 
+// REMINDERS land on MEETINGS (re-verify item 28, Phil's design call recorded in agenda.ts: "Actions
+// live on meetings/opportunities — contacts no longer carry their own to-do"). Resolve WHO the
+// reminder is about: a named contact, or a deal/org reference ("the JPMorgan proposal") via the
+// opportunity's primary contact. Ambiguous → null, and the legacy contact card handles it.
+export function reminderSubject(text: string, d: BookData, today: string): Contact | null {
+  if (!/\bremind me to\b/i.test(text)) return null;
+  const scan = scanEntities(text, d);
+  if (scan.contacts.length === 1) return scan.contacts[0];
+  if (scan.contacts.length > 1) return null;
+  // Org reference, tolerant of partial names ("JPMorgan" for "JPMorgan Chase"): match on the org's
+  // first distinctive token (≥4 chars). Exactly one org may match, else it's ambiguous.
+  const tl = " " + foldAccents(text) + " ";
+  const orgs = new Set<string>();
+  for (const c of d.contacts) {
+    const o = (c.organisation || "").trim();
+    if (!o) continue;
+    const tok = foldAccents(o).split(/[^a-z0-9]+/).filter(Boolean)[0];
+    if (tok && tok.length >= 4 && tl.includes(` ${tok}`)) orgs.add(o);
+  }
+  if (orgs.size !== 1) return null;
+  const org = [...orgs][0];
+  const opp = d.opps.find((o) => orgMatches(o.organisation, org) && oppStatus(o) === "Open")
+    || d.opps.find((o) => orgMatches(o.organisation, org));
+  if (!opp) return null;
+  if (opp.contact_url) { const c = d.contacts.find((x) => x.url === opp.contact_url); if (c) return c; }
+  if (opp.primary_contact) return resolveContact(d, String(opp.primary_contact), today);
+  return null;
+}
+
 // News-shaped questions ("anything in the news about JPMorgan?") want CURRENT external coverage —
 // which an encyclopedic (Wikipedia) lookup can't honestly provide. Deal-status phrasings ("any news
 // on the JPMorgan deal?") are book questions and are excluded.

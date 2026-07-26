@@ -317,6 +317,19 @@ const meetingSpec: EntitySpec = {
         if (row.date_scheduled) v.date_scheduled = row.date_scheduled;
       }
       if (/\b(held|happened|done|completed|we met|met them)\b/i.test(ctx.text)) { v.meeting_stage = "Held"; if (!v.date_held) v.date_held = ctx.today; }
+      // A REMINDER against this meeting ("remind me to chase the JPMorgan proposal next Friday") lands
+      // in the follow-up fields — the ones the dashboard agenda actually reads (re-verify item 28).
+      const remindM = ctx.text.match(/\bremind me to\s+(.+)/i);
+      if (remindM) {
+        let act = remindM[1].trim().replace(/[.,!]+$/, "");
+        const when = relativeDate(ctx.today, ctx.text) || namedMonthDate(ctx.today, ctx.text);
+        if (when) {
+          v.followup_date = when;
+          act = act.replace(/\s*(?:on|by|before)?\s*(?:next|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month)\s*$/i, "").trim();
+          act = act.replace(/\s*(?:tomorrow|today)\s*$/i, "").trim();
+        }
+        v.followup = act;
+      }
       return v;
     }
     // PAST-TENSE precedence (retest #29): "I BUMPED INTO her this morning… and we agreed to catch up

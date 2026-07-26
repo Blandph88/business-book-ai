@@ -20,7 +20,7 @@ import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searc
 import { BusinessBookLogo } from "./Brand";
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, newsShaped, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, newsShaped, reminderSubject, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -1262,6 +1262,17 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // "create an opportunity") opens the propose→confirm card in code — the chatty LLM router was sending a
       // bare "add a contact" to companion ("give me their details…") instead of the empty form. Scoped to the
       // dictionary phrasings (not the softer "met/coffee" signal) so reflective turns still reach the model.
+      // REMINDERS → MEETING follow-up (re-verify item 28): the dashboard agenda reads meeting
+      // followup_date — contact next_action is legacy ("Actions live on meetings/opportunities").
+      // Resolve the subject (named contact, or deal/org → the opp's primary contact) and update their
+      // latest meeting; no resolvable subject or no meeting → the dictionary contact card still runs.
+      if (/\bremind me to\b/i.test(text) && !questionBlocksAction(text)) {
+        const rs = reminderSubject(text, data, today);
+        if (rs && data.meetingRows.some((m) => m.contact_url === rs.url)) {
+          await startAction("meeting", "update", `${rs.first} ${rs.last}`.trim(), text, prior, id, text);
+          return;
+        }
+      }
       const actIntent = routeIntent(text, { hasDoc: false });
       if (isActionIntent(actIntent) && actIntent.entity && actIntent.source === "dictionary" && !questionBlocksAction(text)) {
         await startAction(actIntent.entity, actIntent.op ?? "create", actIntent.target ?? text, text, prior, id, text);

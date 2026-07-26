@@ -16,7 +16,7 @@ import {
   frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, bookShapedText, revenueVocabOk, scanEntities,
   deicticRecordRef, resolveCompareDeixis, windowMonth, calendarMeetings, compoundContactsWarm,
   isReasoningRequest as reasonRq, warmNoDeal, meetingContent, namesakeSuperlative, companyZeroLine,
-  changeCardIntent, contactsMetAtLeast, findOpportunities, newsShaped,
+  changeCardIntent, contactsMetAtLeast, findOpportunities, newsShaped, reminderSubject,
 } from "./compute";
 import { searchBook } from "./grounding";
 import { normalizeRoute } from "./prompts";
@@ -865,5 +865,34 @@ describe("Re-verify item 15: work-at phrasings reach the deterministic brief", (
     const r = frontDoorBrief("Where does Daniel Garcia work?", D, TODAY);
     expect(r).not.toBeNull();
     expect(r!.intro).toMatch(/Daniel Garcia/);
+  });
+});
+
+describe("Re-verify item 28: reminders resolve their subject to a meeting-holder", () => {
+  const JPM_OPP = opp({ organisation: "JPMorgan Chase", opportunity_name: "JPMorgan Chase — Finance engagement", current_step: "proposal_build", contact_url: "https://www.linkedin.com/in/rt", id: "o-jpm" });
+  const RT = contact({ first: "Rachel", last: "Taylor", organisation: "JPMorgan Chase", met: true, url: "https://www.linkedin.com/in/rt" });
+  const DJ = book({ contacts: [RT, KAREN], opps: [JPM_OPP], meetingRows: [
+    meeting({ contact_url: RT.url, contactInfo: { name: "Rachel Taylor", organisation: "JPMorgan Chase", seniority: "", function: "", sector_group: "", phone: "" }, date_held: "2026-07-10" }),
+  ] });
+  it("'the JPMorgan proposal' resolves via the opp's primary contact", () => {
+    const c = reminderSubject("Remind me to chase the JPMorgan proposal next Friday.", DJ, TODAY);
+    expect(c?.last).toBe("Taylor");
+  });
+  it("a named contact resolves directly", () => {
+    const c = reminderSubject("Remind me to call Karen OConnor tomorrow", DJ, TODAY);
+    expect(c?.last).toBe("OConnor");
+  });
+  it("no org/contact reference → null (legacy contact card handles it)", () => {
+    expect(reminderSubject("Remind me to review the deck on Monday", DJ, TODAY)).toBeNull();
+  });
+  it("meeting update extract fills followup + parsed date from the reminder", async () => {
+    const { SPECS } = await import("./actions/actionSpecs");
+    const v = await SPECS.meeting.extract({
+      op: "update", text: "Remind me to chase the JPMorgan proposal next Friday.", targetId: "m1",
+      subjectUrl: RT.url, today: TODAY, contacts: DJ.contacts, meetingRows: DJ.meetingRows, opps: DJ.opps, sows: [], skipModel: true,
+    } as never);
+    expect(v.followup).toMatch(/chase the JPMorgan proposal/i);
+    expect(v.followup).not.toMatch(/next friday/i);
+    expect(v.followup_date).toBe("2026-07-24"); // TODAY is Thu 2026-07-23; "next Friday" = next occurrence
   });
 });
