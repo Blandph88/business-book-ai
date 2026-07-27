@@ -19,9 +19,16 @@ import { todayISO } from "../data/agenda";
 import { isCommonOrgToken } from "../data/orgTokens";
 import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searchAvailable, searchEntity, searchProvider, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities, type PromptArgs } from "../ai/ai";
 import { BusinessBookLogo } from "./Brand";
+import { NAV_ICON } from "./NavIcons";
+// Line icons for the education cards — the house nav style. Draft has no tab, so a small pencil.
+const DRAFT_ICON = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2 2 0 0 0 0-2.83l-1.17-1.17a2 2 0 0 0-2.83 0L4 16v4z" /><path d="M13.5 6.5l4 4" /></svg>);
+const STARTER_ICON: Record<string, React.ReactNode> = {
+  brief: NAV_ICON.contacts, pipeline: NAV_ICON.opportunities, gaps: NAV_ICON.insights,
+  log: NAV_ICON.meetings, draft: DRAFT_ICON, recall: NAV_ICON.chat,
+};
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult, draftMessagePrompt, type DraftKind } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, newsShaped, reminderSubject, contactSignalsText, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, rankContacts, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, newsShaped, reminderSubject, contactSignalsText, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, MONEY_DECISION, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -457,37 +464,36 @@ function actionFollowUp(kind: "contact" | "meeting" | "opportunity" | "contract"
 
 // Starter prompts shown on an empty copilot — one per capability, so users discover they can ask,
 // act, run a workflow and draft. `submit` chips fire immediately; the open-ended ones seed the box.
-// Self-contained starter prompts in three lanes the assistant infers between: Find (return clickable
-// records), Ask (a written answer), Do (take an action). Every one is fully-formed — no trailing "…",
-// no half-sentence to complete — so a click is a real question, not a fill-in-the-blank. A rotating,
-// lane-balanced subset shows each open (via pickStarters) so it never feels static.
-const STARTER_POOL: { group: "Find" | "Ask" | "Do"; text: string }[] = [
-  { group: "Ask", text: "How's my pipeline looking this quarter?" },
-  { group: "Ask", text: "Who's gone cold that I should re-engage?" },
-  { group: "Ask", text: "What should I focus on this week?" },
-  { group: "Ask", text: "What do you know about me?" },
-  { group: "Ask", text: "Where am I losing momentum in my funnel?" },
-  { group: "Find", text: "Find people I haven't spoken to in 90 days" },
-  { group: "Find", text: "Show my largest open opportunities" },
-  { group: "Find", text: "Show meetings from the last two weeks" },
-  { group: "Find", text: "Find my warmest leads right now" },
-  { group: "Find", text: "List the companies in my pipeline" },
-  { group: "Do", text: "Log a meeting I just had" },
-  { group: "Do", text: "Add a new opportunity" },
-  { group: "Do", text: "Draft a follow-up to my warmest lead" },
-  { group: "Do", text: "Remind me to check in with a contact" },
-  { group: "Do", text: "Mark an opportunity as won" },
+// EDUCATION CARDS (the empty-chat teach surface): one card per CATEGORY the copilot genuinely
+// supports, so a new/demo user sees the ENVELOPE at a glance — a brief, a pipeline read, finding the
+// gaps, logging, drafting, recall — rather than probing the edges. Each is fully-formed (a click IS a
+// real question). Cards that name a person inject a LIVE warm contact from the book (guaranteed to
+// exist), so it reads as "this knows my people", with a generic fallback for an empty book. Phrasings
+// rotate per open so it never feels static; the CATEGORIES are always all present (that's the teaching).
+type StarterTint = "find" | "ask" | "do";
+type StarterCat = { key: string; eyebrow: string; tint: StarterTint; variants: (warm?: string) => string[] };
+const STARTER_CATS: StarterCat[] = [
+  { key: "brief", eyebrow: "Brief", tint: "find",
+    variants: (w) => w ? [`Look at ${w}`, `Brief me on ${w}`, `What's my history with ${w}?`] : ["Brief me on my warmest lead", "Prime me on my strongest contact"] },
+  { key: "pipeline", eyebrow: "Pipeline", tint: "ask",
+    variants: () => ["How's my pipeline looking?", "What's the combined value of everything open?", "Which deals are at risk?"] },
+  { key: "gaps", eyebrow: "Find gaps", tint: "find",
+    variants: () => ["Which deals have no next meeting booked?", "Who's gone cold that I should re-engage?", "Who am I owing a reply to?"] },
+  { key: "log", eyebrow: "Log it", tint: "do",
+    variants: () => ["Log a meeting I just had", "Add a new opportunity", "Remind me to chase a proposal next Friday"] },
+  { key: "draft", eyebrow: "Draft", tint: "do",
+    variants: (w) => w ? [`Draft a follow-up to ${w}`, `Draft a reconnect note to ${w}`] : ["Draft a follow-up to my warmest lead"] },
+  { key: "recall", eyebrow: "Recall", tint: "ask",
+    variants: () => ["What was our last meeting about?", "Who was my final meeting of last month with?", "Summarise what I know about myself"] },
 ];
 
-// Pick a rotating, lane-balanced set (2 from each of Ask / Find / Do). `seed` advances once per open
-// so the suggestions differ each time — deterministic (no Math.random; safe under the sealed runtime).
-function pickStarters(seed: number): { group: string; text: string }[] {
-  const out: { group: string; text: string }[] = [];
-  for (const lane of ["Ask", "Find", "Do"] as const) {
-    const items = STARTER_POOL.filter((s) => s.group === lane);
-    for (let i = 0; i < 2; i++) out.push(items[(seed * 2 + i) % items.length]);
-  }
-  return out;
+// One card per category — the phrasing chosen by the rotation seed, the live warm name injected where
+// a category names a person. Deterministic (no Math.random; safe under the sealed runtime).
+export function buildStarterCards(warm: string | undefined, seed: number): { key: string; eyebrow: string; tint: StarterTint; text: string }[] {
+  return STARTER_CATS.map((cat) => {
+    const vs = cat.variants(warm);
+    return { key: cat.key, eyebrow: cat.eyebrow, tint: cat.tint, text: vs[seed % vs.length] };
+  });
 }
 
 // Advances each time a CopilotBar mounts (the modal remounts per open; the ChatTab per visit), so the
@@ -610,8 +616,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const [aiLoad, setAiLoad] = useState<{ active: boolean; progress: number; firstRun: boolean } | null>(null);
   const aiLoadRef = useRef<{ active: boolean; progress: number; firstRun: boolean } | null>(null); // latest, for the stall watchdog
   const seededRef = useRef(false);
-  // The rotating starter set, fixed for this mount so it doesn't reshuffle on every keystroke.
-  const [starters] = useState(() => pickStarters(starterRotation++));
+  // The rotation seed, fixed for this mount so the cards don't reshuffle on every keystroke.
+  const [starterSeed] = useState(() => starterRotation++);
   const [q, setQ] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [meetingRows, setMeetingRows] = useState<MeetingRow[]>([]);
@@ -761,6 +767,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
 
   const data: BookData = useMemo(() => ({ contacts, meetingRows, opps, sows }), [contacts, meetingRows, opps, sows]);
   const today = useMemo(() => todayISO(), []);
+  // The education cards, resolved once per mount: the warmest contact's name (guaranteed real — it
+  // comes from the ranked book) is injected into the person-naming cards; empty book → generic.
+  const starters = useMemo(() => {
+    const warm = rankContacts(data, "warmth", today).rows[0]?.cells[0];
+    return buildStarterCards(typeof warm === "string" && warm !== "—" ? warm : undefined, starterSeed);
+  }, [data, today, starterSeed]);
   const groups = useMemo(() => searchBook(q, data), [q, data]);
   // Contacts as picker options (for the action card's contact field).
   const contactOptions = useMemo(() => contacts.map((c) => ({ url: c.url, label: `${`${c.first} ${c.last}`.trim()} · ${c.organisation || "—"}` })).sort((a, b) => a.label.localeCompare(b.label)), [contacts]);
@@ -1979,9 +1991,13 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
             )}
             {aiReady && !q.trim() && (
               <div className="copilot-starters">
-                {starters.map((s, i) => (
-                  <button key={s.text + i} type="button" className="copilot-starter" onClick={() => ask(s.text)}>
-                    <span className="copilot-starter-label">{s.text}</span>
+                {starters.map((s) => (
+                  <button key={s.key} type="button" className="copilot-starter" onClick={() => ask(s.text)}>
+                    <span className="copilot-starter-icon" aria-hidden>{STARTER_ICON[s.key]}</span>
+                    <span className="copilot-starter-body">
+                      <span className={"copilot-starter-group copilot-starter-group--" + s.tint}>{s.eyebrow}</span>
+                      <span className="copilot-starter-label">{s.text}</span>
+                    </span>
                   </button>
                 ))}
               </div>

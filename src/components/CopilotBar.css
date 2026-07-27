@@ -84,7 +84,7 @@
 /* Read-only "which AI tier am I on" label in the field's bottom-right (switching lives in Freehold). */
 .copilot-tier { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 600; color: var(--ink-3); white-space: nowrap; margin-right: 2px; cursor: default; user-select: none; }
 .copilot-tier-dot { width: 6px; height: 6px; border-radius: 999px; background: #2e9e6b; flex: none; }
-.copilot-search .copilot-starters { justify-content: center; max-width: 680px; margin: 16px auto 0; padding: 0; }
+.copilot-search .copilot-starters { max-width: 680px; margin: 16px auto 0; padding: 0; }
 .copilot-search--active .copilot-results { margin-top: 12px; }
 
 .copilot-searchbar { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
@@ -147,19 +147,26 @@
   font-size: 12.5px; font-weight: 700; padding: 5px 11px; border-radius: var(--r-xs); cursor: pointer;
 }
 /* Starter-prompt chips on an empty copilot — discover ask / act / workflow / draft. */
-.copilot-starters { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 14px; }
+/* Education-card grid on the empty chat — one card per supported category, teaching the envelope. */
+.copilot-starters { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 14px; }
 .copilot-starter {
-  display: flex; flex-direction: column; gap: 2px; text-align: left;
-  border: 1px solid var(--line); background: #fff; border-radius: var(--r-sm);
-  padding: 8px 11px; cursor: pointer; font-family: inherit;
+  display: flex; align-items: flex-start; gap: 11px; text-align: left;
+  border: 1px solid var(--line); background: #fff; border-radius: var(--r-md, 10px);
+  padding: 12px 13px; cursor: pointer; font-family: inherit;
+  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease, transform 0.06s ease;
 }
-.copilot-starter:hover { background: var(--bg-2); border-color: var(--primary); }
-.copilot-starter-group { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--primary-700); }
-/* Lane tints so Find / Ask / Do read at a glance — the assistant still infers the real intent. */
+.copilot-starter:hover { background: var(--bg-2); border-color: var(--primary); box-shadow: 0 2px 8px rgba(21, 42, 64, 0.07); }
+.copilot-starter:active { transform: translateY(0.5px); }
+.copilot-starter-icon { flex: 0 0 auto; display: inline-flex; margin-top: 1px; color: var(--primary, #1f3b63); opacity: 0.85; }
+.copilot-starter-icon svg { width: 18px; height: 18px; }
+.copilot-starter-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.copilot-starter-group { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--primary-700); }
+/* Category tints so the lane reads at a glance — the assistant still infers the real intent. */
 .copilot-starter-group--find { color: #1f7a5a; }
 .copilot-starter-group--ask { color: var(--primary-700); }
 .copilot-starter-group--do { color: #9a5b14; }
-.copilot-starter-label { font-size: 13px; color: var(--ink); }
+.copilot-starter-label { font-size: 13px; line-height: 1.35; color: var(--ink); }
+@media (max-width: 560px) { .copilot-starters { grid-template-columns: 1fr; } }
 
 .copilot-results { overflow-y: auto; padding: 6px; }
 .copilot-empty { padding: 14px 12px; font-size: 13.5px; color: var(--ink-3); }
