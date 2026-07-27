@@ -962,3 +962,24 @@ describe("substring-collision audit (1,094-org scan): the squish/partial matcher
     expect(r.intro).not.toMatch(/Hannah|Joanne/);
   });
 });
+
+describe("warmest leads: visible order agrees with the visible score (live-run 10/10-below-9/10)", () => {
+  it("rows sort by the displayed tone score, composite only tie-breaking", () => {
+    const mk = (first: string, url: string, score: number, met = true) =>
+      contact({ first, last: "Lead", organisation: "Acme", met, messaged: true, url, warmthSentiment: { score, at: "2026-07-01" } as never });
+    const DL = book({
+      contacts: [mk("Nine", "w1", 9), mk("Ten", "w2", 10), mk("Eight", "w3", 8)],
+      meetingRows: [
+        meeting({ contact_url: "w1", date_held: "2026-07-20" }),
+        meeting({ contact_url: "w2", date_held: "2026-05-01" }),
+        meeting({ contact_url: "w3", date_held: "2026-07-21" }),
+      ],
+    });
+    const r = computeForQuery("Who are my warmest leads?", DL, TODAY);
+    expect(r).not.toBeNull();
+    const names = r!.rows.map((x) => String(x.cells[0]));
+    expect(names[0]).toBe("Ten Lead");
+    expect(names[1]).toBe("Nine Lead");
+    expect(names[2]).toBe("Eight Lead");
+  });
+});

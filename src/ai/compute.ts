@@ -380,9 +380,15 @@ export function rankContacts(d: BookData, by: "warmth" | "cold", today: string):
     if (!cold.length) return { intro: "Good news — no one's gone cold right now: everyone who engaged is either progressing or recently in touch.", columns: [], rows: [] };
     return { intro: `Worth re-engaging — they were warm but have gone quiet (replied with no meeting, or met 45+ days ago with nothing booked) (${cold.length}):`, columns: ["Name", "Role", "Company"], rows: cold.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—"], record: { tab: "contacts", id: c.url } })) };
   }
-  const ranked = d.contacts.map((c) => ({ c, s: warmth(c, lm, today) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 8);
+  let ranked = d.contacts.map((c) => ({ c, s: warmth(c, lm, today) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 8);
   if (!ranked.length) return { intro: "I can't see anyone with engagement logged yet — once you've messaged or met people, they'll rank here.", columns: [], rows: [] };
   const anyScored = ranked.some(({ c }) => c.warmthSentiment);
+  // The visible order must agree with the visible NUMBER (live run: a 10/10 sat below five 9/10s
+  // because the composite sorted while the tone score displayed). Composite picks WHO makes the
+  // top 8; the displayed tone score orders them, composite breaking ties.
+  if (anyScored) {
+    ranked = ranked.slice().sort((a, b) => ((b.c.warmthSentiment?.score ?? -1) - (a.c.warmthSentiment?.score ?? -1)) || (b.s - a.s));
+  }
   // Once the sentiment pass has run, show the model's WARMTH read so you can see WHY each lead ranks here —
   // not just the funnel stage. Before any scoring, keep the original stage-only table.
   if (anyScored) {

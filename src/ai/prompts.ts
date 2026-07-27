@@ -391,7 +391,9 @@ export function interpretResultPrompt(question: string, resultText: string, cont
       "do NOT introduce a person, company, deal or figure that isn't in the result. Your job is to INTERPRET it: " +
       "in a few tight sentences say what actually stands out, why it matters for their pipeline or relationships, " +
       "and end with ONE concrete next move phrased as an offer (\"Want me to…?\") naming only real entities from " +
-      "the result. Be specific and honest — push back where the data warrants; never hollow flattery. Match depth " +
+      "the result. The offer must be something you can actually DO here — draft, log, show, brief, rank — NEVER " +
+      "\"send\", \"schedule\", \"reach out\", \"introduce\" or \"follow up with\" someone yourself: nothing leaves " +
+      "this app unless the user sends it, so offer the DRAFT, not the deed. Be specific and honest — push back where the data warrants; never hollow flattery. Match depth " +
       "to the question: a bare count needs a sentence, a ranking or an \"am I doing enough\" needs a real read. " +
       "The table may be TRUNCATED (only the top rows shown) — never generalise a pattern to ALL rows from the few " +
       "you can see (don't say \"they all have 8 contacts\" from two visible rows); speak to the named rows or the " +
