@@ -8,6 +8,7 @@
 //  - SECTOR     is company → (industry, sub-sector) via the dictionary, then keyword
 //               heuristics, then "Other Industries" for the long tail (user can override).
 
+import { isCommonOrgToken } from "./orgTokens";
 import {
   COMPANY_DICTIONARY,
   COMPANY_KEYWORD_RULES,
@@ -195,7 +196,12 @@ const FUZZY: { norm: string; hit: Hit }[] = [];
   for (const e of COMPANY_DICTIONARY) {
     const hit: Hit = { group: INDUSTRY_LABEL[e.industry], sub: e.sub, entity: e.name };
     const nameNorm = normCompany(e.name);
-    if (nameNorm && !seenName.has(nameNorm)) {
+    // A canonical name that suffix-strips to ONE generic token must not enter the FUZZY contains-
+    // matcher: "Partners Group"→"partners" swallowed every "X & Partners" consultancy into PE&VC
+    // (251 contacts in the demo matrix — 2026-07-27 audit); ditto Strategy&→"strategy" and
+    // Apex Group→"apex". EXACT matching (the full normalised name/alias) still catches the real firm.
+    const fuzzySafe = nameNorm.includes(" ") || (nameNorm.length >= 4 && !isCommonOrgToken(nameNorm));
+    if (nameNorm && fuzzySafe && !seenName.has(nameNorm)) {
       seenName.add(nameNorm);
       FUZZY.push({ norm: nameNorm, hit });
     }
