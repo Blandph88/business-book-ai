@@ -1112,10 +1112,29 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // "[Action Item 1]" scaffolding with misquoted dates (live run: Patricia Green).
     if (!docText && isGenerate && !clearlyPersonal(text)) {
       let dc = scanEntities(text, data).contacts;
+      // An "at <Org>" qualifier narrows namesakes (the disambiguation chips below re-issue with it).
+      const atOrg = text.match(/\bat\s+([A-Za-z0-9&.'’\- ]{2,40}?)\s*[.?!]?\s*$/i)?.[1]?.trim().toLowerCase();
+      if (dc.length > 1 && atOrg) {
+        const narrowed = dc.filter((c) => (c.organisation || "").toLowerCase().startsWith(atOrg));
+        if (narrowed.length) dc = narrowed;
+      }
       if (dc.length !== 1 && /\b(?:him|her|them|he|she|they)\b/i.test(text)) {
         const led = latestReferent(id, "contact");
         const lc = led && data.contacts.find((c) => c.url === led.id);
         if (lc) dc = [lc];
+      }
+      // SHARED NAME → ask which (live run: two Patricia Greens sent the draft down the generic
+      // template path). Chips re-issue the same request with the org qualifier.
+      if (dc.length > 1 && dc.length <= 6) {
+        const chips: Chip[] = dc.map((c) => ({
+          label: `${c.first} ${c.last}`.trim() + (c.organisation ? ` · ${c.organisation}` : ""),
+          prompt: c.organisation ? `${text.replace(/[.?!]+$/, "")} at ${c.organisation}` : text,
+        }));
+        const msg = `${dc.length} people called ${`${dc[0].first} ${dc[0].last}`.trim()} — which one is this for?`;
+        persistTo(id, [...history, { role: "you", text }, { role: "ai", text: msg }]);
+        if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: msg, chips }]);
+        setAsking(false); markDone(id);
+        return;
       }
       if (dc.length === 1) {
         const c = dc[0];
