@@ -37,14 +37,9 @@ export function BusinessBookLogo({ size = 30 }: { size?: number }) {
 // The brand doubles as the HOME button: clicking it returns to the nameless Overview (the
 // network charts). When `onClick` is provided it renders as a button; otherwise a plain div.
 export function Brand({ onClick }: { onClick?: () => void }) {
-  const inner = (
-    <>
-      <BusinessBookLogo size={32} />
-      <span className="brand-name">
-        Business<span className="brand-name-thin">Book</span>
-      </span>
-    </>
-  );
+  // Icon-only (Phil's call, 2026-07-27): the wordmark lives in the side nav's "BusinessBook" item
+  // now; the tile stays the clickable home → the Overview charts.
+  const inner = <BusinessBookLogo size={32} />;
   if (onClick) {
     return (
       <button

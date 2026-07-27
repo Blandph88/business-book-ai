@@ -6,6 +6,10 @@ const svg = (children: React.ReactNode) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
 );
 
+// The open-book brand mark as a LINE icon (nav style, currentColor — not the navy tile): used by the
+// side nav's top "BusinessBook" item, which goes to the Overview charts like the top-left logo does.
+export const BOOK_NAV_ICON = svg(<><path d="M12 6.6C10 5.4 7.2 5.4 5.2 6.3V17.6C7.2 16.7 10 16.7 12 17.9" /><path d="M12 6.6C14 5.4 16.8 5.4 18.8 6.3V17.6C16.8 16.7 14 16.7 12 17.9" /><path d="M12 6.6v11.3" opacity="0.5" /></>);
+
 export const NAV_ICON: Record<TabId, React.ReactNode> = {
   metrics: svg(<><path d="M4 19V5" /><path d="M4 19h16" /><path d="M8 16l3.5-4 3 2.5L20 8" /></>), // home / overview chart
   dashboard: svg(<><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></>), // dashboard grid

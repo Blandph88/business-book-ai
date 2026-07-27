@@ -1,6 +1,6 @@
 import "./SideNav.css";
 import { TABS, type TabId } from "./TabNav";
-import { NAV_ICON } from "./NavIcons";
+import { NAV_ICON, BOOK_NAV_ICON } from "./NavIcons";
 import type { SavedChat } from "../storage/chats";
 
 // The left navigation rail. On non-mobile widths it IS the primary nav (the horizontal top-bar nav is
@@ -50,6 +50,17 @@ export function SideNav({
       </button>
 
       <nav className="sidenav-items" aria-hidden={!open}>
+        {/* BusinessBook — the brand as the FIRST nav item (above Dashboard): the open-book line icon
+            + wordmark, going to the same Overview charts as the top-left logo tile. */}
+        <button
+          type="button"
+          tabIndex={tab}
+          className={activeTab === "metrics" ? "sidenav-item sidenav-item--active" : "sidenav-item"}
+          onClick={() => onSelect("metrics")}
+        >
+          <span className="sidenav-item-icon">{BOOK_NAV_ICON}</span>
+          <span className="sidenav-item-label">Business<span className="sidenav-item-thin">Book</span></span>
+        </button>
         {/* The record tabs (the chat surface is presented separately below, not as a plain tab). */}
         {TABS.filter((t) => t.id !== "chat").map((t) => (
           <button

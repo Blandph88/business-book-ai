@@ -174,3 +174,6 @@ html:not(.is-mobile) .app {
 html:not(.is-mobile) .sidenav--open ~ .app {
   padding-left: 262px;
 }
+
+/* The "BusinessBook" wordmark in the nav item: Business bold, Book lighter (mirrors the old topbar mark). */
+.sidenav-item-thin { font-weight: 500; color: var(--ink-2, #55606e); }
