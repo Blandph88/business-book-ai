@@ -315,7 +315,8 @@ agreed.forEach((url, i) => {
     actions_mine: held ? pick(["Send follow-up + relevant case study", "Draft a one-pager", "Introduce a colleague"]) : undefined,
     actions_theirs: held ? "Share more detail on the current setup" : undefined,
     // Follow-ups sit beyond the agenda window (12+ days out) so they don't crowd "this week".
-    followup: held && !opp ? "Reconnect in two weeks" : undefined,
+    // Label matches the REAL gap (the fixed "two weeks" text sat next to 12–42-day dates — audit).
+    followup: held && !opp ? ((g) => (g <= 17 ? "Reconnect in two weeks" : g <= 31 ? "Reconnect in a few weeks" : "Reconnect next month"))(12 + (i % 30)) : undefined,
     followup_date: held && !opp ? isoDay(12 + (i % 30)) : undefined,
     // Sentiment records how a conversation WENT — future/unheld meetings carry none (audit).
     sentiment: held ? pick(SENTIMENT) : undefined,

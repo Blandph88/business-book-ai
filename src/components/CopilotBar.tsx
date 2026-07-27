@@ -1149,7 +1149,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       const md = computeText(computed);
       // Only derive chips when there are REAL records — a "can't find / nothing matches" reply has no
       // entities worth anchoring to, and deriving them produces non-sequiturs (a stray "Smith" → "DS Smith").
-      const chips = computed.rows.length ? buildChipSet(chipsFromAnswer(md, data), md, text) : [];
+      // …and NEVER on a which-one disambiguation (a "Draft a follow-up to Sarah Singh" chip presumes
+      // a pick the user hasn't made — live-run nit).
+      const chips = computed.rows.length && !isDisambiguation(computed.intro) ? buildChipSet(chipsFromAnswer(md, data), md, text) : [];
       const base: UITurn[] = [...prior, { role: "you", text }];
       const tableTurn: UITurn = { role: "ai", text: md, compute: computed, chips: chips.length ? chips : undefined };
       const persisted: ChatTurn[] = [...history, { role: "you", text }];

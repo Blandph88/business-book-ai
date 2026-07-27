@@ -107,6 +107,8 @@ export function calendarOpps(t: string, d: BookData, today: string): ComputeResu
 }
 
 const fullName = (c: Contact) => `${c.first} ${c.last}`.trim();
+// Strip a trailing period before we append our own — seed/user text often ends with one ("model..").
+const noDot = (s: string) => s.trim().replace(/\.+$/, "");
 function stageLabel(c: Contact): string {
   if (c.met) return "Met"; if (c.agreed_to_meet) return "Agreed to meet"; if (c.two_way) return "Two-way contact";
   if (c.responded) return "Replied"; if (c.messaged) return "Messaged"; return "Not contacted";
@@ -877,7 +879,10 @@ export function contactBrief(d: BookData, ref: string, today: string): ComputeRe
     // ("what's my history with Confluent") — fall through to the account footprint instead of a false
     // negative that denies a real relationship. Only then admit defeat, echoing the user's own casing.
     if (d.contacts.some((x) => orgMatches(x.organisation, ref)) || d.opps.some((o) => orgMatches(o.organisation, ref)) || d.sows.some((s) => orgMatches(s.organisation, ref))) return accountSummary(d, ref);
-    return { intro: `Hmm, I've had a good rummage and there's no "${ref}" in your book — no contact or company by that name yet. Want me to add them, or did you maybe mean someone else?`, columns: [], rows: [] };
+    // Echo title-cased when the user typed all-lowercase ("rolls-royce" → "Rolls-Royce") — the raw
+    // echo read like the app was being sloppy, not the user (live-run nit).
+    const echo = ref === ref.toLowerCase() ? ref.replace(/(^|[\s\-&/])([a-z])/g, (_, b, ch) => b + ch.toUpperCase()) : ref;
+    return { intro: `Hmm, I've had a good rummage and there's no "${echo}" in your book — no contact or company by that name yet. Want me to add them, or did you maybe mean someone else?`, columns: [], rows: [] };
   }
   const meetings = d.meetingRows.filter((m) => m.contact_url === c.url && m.meeting_stage === "Held").sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
   const allOpps = d.opps.filter((o) => o.contact_url === c.url || orgMatches(o.organisation, c.organisation));
@@ -895,7 +900,7 @@ export function contactBrief(d: BookData, ref: string, today: string): ComputeRe
     // when it disagrees — a feature, not a conflict.
     ownerWarmthLine(c),
     owed,
-    c.latentOpp?.text ? `Possible opportunity spotted in your messages: ${c.latentOpp.text}.` : "",
+    c.latentOpp?.text ? `Possible opportunity spotted in your messages: ${noDot(c.latentOpp.text)}.` : "",
     // STATUS-LABELLED related opps (Gate-0 #14 fix item): open counted as "related"; won/lost named as
     // PAST — the old statusless count had the narration advising users to chase dead deals.
     opps.length ? `${opps.length} open opportunit${opps.length === 1 ? "y" : "ies"} at ${c.organisation}${pastOpps ? ` (plus ${pastLabel(allOpps)})` : ""}.` : pastOpps ? `No open opportunities at ${c.organisation} — ${pastLabel(allOpps)}.` : "",
@@ -1845,9 +1850,9 @@ export function meetingContent(text: string, d: BookData, today: string, referen
   const bits = [
     `Your last meeting${who !== "—" ? ` with ${who}` : ""}${org ? ` (${org})` : ""} was on ${m.date_held}${m.sentiment ? ` — ${m.sentiment}` : ""}.`,
     m.notes ? `What you discussed: ${m.notes}` : "",
-    m.pain_points ? `Pain points raised: ${m.pain_points}.` : "",
-    m.org_insights ? `Org insight: ${m.org_insights}.` : "",
-    m.actions_mine ? `You took away: ${m.actions_mine}.` : "",
+    m.pain_points ? `Pain points raised: ${noDot(m.pain_points)}.` : "",
+    m.org_insights ? `Org insight: ${noDot(m.org_insights)}.` : "",
+    m.actions_mine ? `You took away: ${noDot(m.actions_mine)}.` : "",
     m.followup && !/^none needed/i.test(m.followup) ? `Agreed follow-up: ${m.followup}${m.followup_date ? ` (by ${m.followup_date})` : ""}.` : "",
   ].filter(Boolean);
   return {

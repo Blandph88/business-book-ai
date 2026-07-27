@@ -31,6 +31,10 @@ function contactContext(c: ContactRow, meetings: MeetingRow[]): string {
     `Recipient: ${`${c.first} ${c.last}`.trim()}`,
     c.position ? `Their role: ${c.position}` : "",
     c.organisation ? `Their company: ${c.organisation}` : "",
+    // Sector/function give a COLD contact real material — without them the 14B bracketed a
+    // placeholder ("[industry relevant to Roche]") despite the VOICE ban (live run, Adam Bell).
+    c.sector_group ? `Their industry: ${c.sector_group}${c.sub_group && c.sub_group !== c.sector_group ? ` (${c.sub_group})` : ""}` : "",
+    c.function ? `Their function: ${c.function}${c.seniority ? ` · ${c.seniority}` : ""}` : "",
     c.relationship_strength ? `Relationship strength: ${c.relationship_strength}` : "",
     c.last_contact_date ? `Last contact: ${c.last_contact_date}` : "",
     notes ? `From past meetings: ${notes}` : "",

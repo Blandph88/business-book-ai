@@ -611,7 +611,8 @@ const opportunitySpec: EntitySpec = {
       if (pcMatch?.organisation) v.organisation = pcMatch.organisation;
     }
     // (c) the conventional name pre-suggests so the required field never opens empty (retest #35/#39).
-    if (!existing && !v.opportunity_name && v.organisation) v.opportunity_name = `${v.organisation} — ${v.service_line || "Strategy"} engagement`;
+    const preSuggested = !existing && !v.opportunity_name && v.organisation ? `${v.organisation} — ${v.service_line || "Strategy"} engagement` : "";
+    if (preSuggested) v.opportunity_name = preSuggested;
     if (ctx.skipModel) return v; // deterministic-only (on-device): the form opens pre-filled, fast
     try {
       const ex = await aiJson<OppFill>(fillOpportunityPrompt(ctx.text, SERVICE_LINE));
@@ -627,6 +628,11 @@ const opportunitySpec: EntitySpec = {
         if (pcMatch?.organisation) v.organisation = pcMatch.organisation;
       }
       if (!existing && !v.opportunity_name && v.organisation) v.opportunity_name = `${v.organisation} — ${v.service_line || "Strategy"} engagement`;
+      // The pre-suggested name FOLLOWS the model-refined service line (live-run nit: name said
+      // "Strategy engagement" while Service line refined to Technology). Untouched-by-user only.
+      if (preSuggested && v.opportunity_name === preSuggested && v.organisation && v.service_line) {
+        v.opportunity_name = `${v.organisation} — ${v.service_line} engagement`;
+      }
       if (!existing) { const sl = norm(ex.service_line, SERVICE_LINE); if (sl) v.service_line = sl; }
       if (!v.est_value && ex.est_value && Number(ex.est_value) === parseMoney(ctx.text)) v.est_value = String(ex.est_value);
       const desc = notACommand(ex.description); if (desc && !v.description) v.description = desc;

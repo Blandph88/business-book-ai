@@ -21,6 +21,10 @@ export type ActionCardData = {
   savedSummary?: string;
 };
 
+// Enum OPTION labels prettify raw ids ("proposal_build" → "Proposal Build", "meeting" → "Meeting")
+// — the card showed "Stage: meeting" verbatim (live-run nit). Values stay raw; writes depend on them.
+const prettyEnum = (o: string) => /^[a-z0-9_]+$/.test(o) ? o.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : o;
+
 export function ActionCard({
   data,
   contacts,
@@ -95,11 +99,11 @@ export function ActionCard({
         const was = data.op === "update" && data.prev && data.prev[f.key] != null && data.prev[f.key] !== "" && data.prev[f.key] !== v ? data.prev[f.key] : null;
         return (
           <label key={f.key} className={"actc-field" + (miss ? " actc-field--missing" : "") + (was ? " actc-field--changed" : "")}>
-            <span>{f.label}{f.required ? " *" : ""}{was ? <em className="actc-was"> was: {was}</em> : null}</span>
+            <span>{f.label}{f.required ? " *" : ""}{was ? <em className="actc-was"> was: {f.type === "enum" ? prettyEnum(was) : was}</em> : null}</span>
             {f.type === "enum" ? (
               <select value={v} onChange={(e) => set(f.key, e.target.value)}>
                 <option value="">—</option>
-                {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+                {(f.options ?? []).map((o) => <option key={o} value={o}>{prettyEnum(o)}</option>)}
               </select>
             ) : f.type === "textarea" ? (
               <textarea rows={3} value={v} placeholder={f.placeholder} onChange={(e) => set(f.key, e.target.value)} />
