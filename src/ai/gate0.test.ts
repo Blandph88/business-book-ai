@@ -934,3 +934,31 @@ describe("orgMatches word-boundary (live run: 'at EY' matched StanlEY/DisnEY/KEY
     expect(r.rows[0].cells[0]).toBe("Karen Muller");
   });
 });
+
+describe("substring-collision audit (1,094-org scan): the squish/partial matchers are anchored", () => {
+  const DS = book({ contacts: [
+    contact({ first: "A", last: "A", organisation: "University of Oxford", url: "s1" }),
+    contact({ first: "B", last: "B", organisation: "AllianceBernstein", url: "s2" }),
+    contact({ first: "C", last: "C", organisation: "Scotiabank", url: "s3" }),
+    contact({ first: "D", last: "D", organisation: "Edward Jones", url: "s4" }),
+    contact({ first: "E", last: "E", organisation: "Ford", url: "s5" }),
+    contact({ first: "F", last: "F", organisation: "JPMorgan Chase", url: "s6" }),
+  ] });
+  it("mid-word squish matches are dead: Ford≠Oxford, Ernst≠AllianceBernstein, Bank≠Scotiabank, Ward≠Edward", () => {
+    expect(findContacts(DS, { company: "Ford" }).rows.map((r) => r.cells[0])).toEqual(["E E"]);
+    expect(findContacts(DS, { company: "Ernst" }).rows.length).toBe(0);
+    expect(findContacts(DS, { company: "Bank" }).rows.length).toBe(0);
+    expect(findContacts(DS, { company: "Ward" }).rows.length).toBe(0);
+  });
+  it("the spacing tolerance survives as a prefix: 'JP Morgan' → JPMorgan Chase", () => {
+    expect(findContacts(DS, { company: "JP Morgan" }).rows.map((r) => r.cells[0])).toEqual(["F F"]);
+  });
+  it("resolveContact partials are word-start anchored: 'Ann' never resolves hANNah", () => {
+    const DA = book({ contacts: [
+      contact({ first: "Hannah", last: "Singh", organisation: "GE", met: true, url: "a1" }),
+      contact({ first: "Joanne", last: "Reed", organisation: "BP", url: "a2" }),
+    ] });
+    const r = contactBrief(DA, "Ann", TODAY);
+    expect(r.intro).not.toMatch(/Hannah|Joanne/);
+  });
+});

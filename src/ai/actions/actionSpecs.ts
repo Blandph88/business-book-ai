@@ -227,8 +227,9 @@ export function matchOpportunity(query: string, opps: Opportunity[]): Opportunit
   const toks = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3 && !OPP_REF_STOP.has(t));
   if (!toks.length) return [];
   const scored = opps.map((o) => {
-    const hay = `${o.opportunity_name || ""} ${o.organisation || ""}`.toLowerCase();
-    return { o, score: toks.reduce((s, t) => s + (hay.includes(t) ? 1 : 0), 0) };
+    // Word-start anchored (the orgMatches collision class): token "lee" must not hit "Fleet".
+    const hay = ` ${`${o.opportunity_name || ""} ${o.organisation || ""}`.toLowerCase().replace(/[^a-z0-9]+/g, " ")} `;
+    return { o, score: toks.reduce((s, t) => s + (hay.includes(` ${t}`) ? 1 : 0), 0) };
   }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
   const top = scored[0]?.score ?? 0;
   return scored.filter((x) => x.score >= top).map((x) => x.o);

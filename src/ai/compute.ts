@@ -216,10 +216,12 @@ function orgMatches(org: string | undefined, q: string): boolean {
     const esc = o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     if (new RegExp(`(?:^|[^a-z0-9])${esc}(?:[^a-z0-9]|$)`).test(s)) return true;
   }
-  // Spacing/punctuation-tolerant ("JP Morgan" ↔ "JPMorgan Chase"), but only when the query is a deliberate,
-  // compact org reference — NOT a long phrase that merely happens to contain the squished letters.
+  // Spacing/punctuation-tolerant ("JP Morgan" ↔ "JPMorgan Chase") — PREFIX-anchored only. A mid-string
+  // squish match let "Ford"→Oxford, "Ernst"→AllianceBernstein, "Segro"→PublicServiceEnterpriseGROup
+  // (found by the 1,094-org collision scan after the EY bug). The tolerance exists for spacing variants
+  // of the org's own name, and those always align at the start.
   const sq = s.replace(/[^a-z0-9]/g, ""), oq = o.replace(/[^a-z0-9]/g, "");
-  return sq.length >= 4 && sq.length <= oq.length + 4 && oq.includes(sq);
+  return sq.length >= 4 && sq.length <= oq.length + 4 && oq.startsWith(sq);
 }
 
 // ── TOOLS ───────────────────────────────────────────────────────────────────────────────────────
@@ -819,7 +821,12 @@ export function resolveContact(d: BookData, ref: string, today: string): Contact
   if (/\b(warmest|hottest|most engaged)\b/.test(r)) return d.contacts.map((c) => ({ c, s: warmth(c, lm, today) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s)[0]?.c ?? null;
   const exact = d.contacts.find((c) => foldAccents(fullName(c)) === r);
   if (exact) return exact;
-  const partial = d.contacts.filter((c) => foldAccents(fullName(c)).includes(r) || r.includes(foldAccents(fullName(c))));
+  // Word-start anchored both ways (same collision class as orgMatches): "ann" must not match hANNah,
+  // and a full name inside a longer ref must sit on word boundaries.
+  const partial = d.contacts.filter((c) => {
+    const fn = foldAccents(fullName(c));
+    return (` ${fn} `).includes(` ${r}`) || (` ${r} `).includes(` ${fn} `);
+  });
   return partial.length === 1 ? partial[0] : (partial.sort((a, b) => warmth(b, lm, today) - warmth(a, lm, today))[0] ?? null);
 }
 // Say WHICH way past opportunities went — the record knows, so "(won or lost)" hedging is banned
@@ -1550,7 +1557,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
       // the user typed, so a 2-char name ("EY") that fuzzy-matches an unrelated org (…Stanl-EY) doesn't hijack
       // it. Short/ambiguous names fall through to the LLM router (which resolves them properly) or the fallback.
       const scopeToks = (scoped[1].toLowerCase().match(/[a-z]{4,}/g) || []);
-      if (co && scopeToks.some((tk) => co.toLowerCase().includes(tk))) return accountSummary(d, co);
+      if (co && scopeToks.some((tk) => new RegExp(`(?:^|[^a-z0-9])${tk}`).test(co.toLowerCase()))) return accountSummary(d, co);
     }
   }
   // A VAGUE business-open ("let's talk business", "catch me up", "where do things stand", "give me a rundown")
@@ -1778,7 +1785,7 @@ export function noteOnContact(text: string, d: BookData, today: string): { name:
     || text.match(/^\s*(?:add\s+a?\s*)?note\s+(?:on|about|for)\s+([A-Za-z\u00C0-\u017F''.\- ]{2,50})\s*$/i);
   if (!m) return null;
   const c = resolveContact(d, m[1].trim(), today);
-  if (!c || !foldAccents(fullName(c)).includes(foldAccents(m[1].trim().split(/\s+/)[0]))) return null;
+  if (!c || !(` ${foldAccents(fullName(c))}`).includes(` ${foldAccents(m[1].trim().split(/\s+/)[0])}`)) return null;
   return { name: fullName(c), note: (m[2] || "").trim() };
 }
 
