@@ -205,9 +205,10 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
       </div>
       {busy && <BriefIndicator startMs={genStart} tokens={genTok} />}
       {hasSignal ? (
-        // ONE structure, three fills per section: the AI's streamed narration once it has reached that
-        // section; a shimmer panel while regenerating; the deterministic lines otherwise. Headers never
-        // move — the user watches text land under each one (Phil's design).
+        // ONE structure, always (Phil's consistency call, 2026-07-27): header → AI take slot → the
+        // deterministic data lines. The lines are FACTS and never vanish; the take is the model's
+        // one-sentence read, shimmering while it regenerates and filling in place as the stream
+        // reaches its section. Pre-refresh and post-refresh render identically.
         <div className="yourday-sections">
           {sections.map((s) => {
             const ai = secTexts?.[s.key];
@@ -215,15 +216,13 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
               <div key={s.key} className="yourday-sec">
                 <div className="yourday-sec-label">{s.label}</div>
                 {ai ? (
-                  <div className="yourday-sec-ai">{ai}</div>
+                  <div className="yourday-sec-take">{ai}</div>
                 ) : busy ? (
-                  <div className="yourday-skel" aria-label="Rewriting…">
-                    <span className="yourday-skel-bar" />
+                  <div className="yourday-skel yourday-skel--take" aria-label="Writing this section's read…">
                     <span className="yourday-skel-bar yourday-skel-bar--short" />
                   </div>
-                ) : (
-                  <ul className="yourday-sec-list">{s.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
-                )}
+                ) : null}
+                <ul className="yourday-sec-list">{s.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
               </div>
             );
           })}
@@ -235,18 +234,16 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
         <p className="yourday-quiet">Nothing pressing today. Add contacts, log a meeting, or run a scan and I'll brief you here.</p>
       ) : null}
 
-      {/* Reconnect draft chips deep-link into the copilot. While the brief regenerates they shimmer as
-          pills in the same spots, so the row doesn't jump when the real chips return (Phil's design). */}
+      {/* Reconnect draft chips deep-link into the copilot. The data lines stay visible during a
+          regenerate, so the chips stay clickable too — nothing on the card ever blanks out. */}
       {aiReady && reconnectPeople.length > 0 && (
         <div className="yourday-actions">
           <span className="yourday-actions-label">Reconnect:</span>
-          {busy
-            ? reconnectPeople.map((c) => <span key={c.url} className="yourday-chip yourday-chip--skel" aria-hidden="true" />)
-            : reconnectPeople.map((c) => (
-              <button key={c.url} type="button" className="yourday-chip" onClick={() => onDraft(`Draft a reconnect message to ${`${c.first} ${c.last}`.trim()}`)}>
-                Draft → {`${c.first} ${c.last}`.trim()}
-              </button>
-            ))}
+          {reconnectPeople.map((c) => (
+            <button key={c.url} type="button" className="yourday-chip" onClick={() => onDraft(`Draft a reconnect message to ${`${c.first} ${c.last}`.trim()}`)}>
+              Draft → {`${c.first} ${c.last}`.trim()}
+            </button>
+          ))}
         </div>
       )}
 
