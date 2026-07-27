@@ -12,7 +12,7 @@ import { opportunityPhase, weightedValue } from "../data/opportunities";
 import type { HotOpp, StaleContact, AgingOpp } from "../data/dashboard";
 import type { AgendaItem } from "../data/agenda";
 import { formatMoney } from "../data/format";
-import { useAiAvailable, aiPromptStream, aiAvailability } from "../ai/ai";
+import { useAiAvailable, aiPromptStream } from "../ai/ai";
 import { explainFailure } from "../ai/health";
 import { yourDayPrompt } from "../ai/prompts";
 import "./YourDay.css";
@@ -181,18 +181,14 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
       .finally(() => { if (timer) clearInterval(timer); if (alive.current) setBusy(false); });
   }
 
-  // Auto-generate on mount (uses cache so it won't re-call on every Dashboard visit). The dashboard only
-  // renders YourDay once its data is ready, so the props are already populated here.
-  // LOCAL-TIER CALL DIET (Batch 2 S4): on a local backend (LM Studio/Ollama) the auto-narration
-  // contends with the copilot's foreground calls in the server's queue — and the deterministic
-  // sections already carry the full brief. So local tiers don't auto-generate; Refresh narrates on demand.
+  // Auto-generate on mount, EVERY tier (Phil's call, 2026-07-27): the takes should already be there
+  // the first time the dashboard opens — Refresh is the manual re-run, not the only way in. The old
+  // local-tier skip (Batch 2 call diet) predates the cache-per-day, true streaming, real watchdogs
+  // and the StrictMode fix; with those, one auto-narration per day is affordable on LM Studio too.
+  // The day-cache means tab-switching never re-calls; a same-day signal change regenerates once.
   useEffect(() => {
     if (!aiReady || secTexts || busy) return;
-    let cancelled = false;
-    aiAvailability()
-      .then((a) => { if (!cancelled && !(a.local || a.backend === "ollama")) generate(); })
-      .catch(() => { /* availability probe failed — keep the deterministic brief */ });
-    return () => { cancelled = true; };
+    generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiReady]);
 
