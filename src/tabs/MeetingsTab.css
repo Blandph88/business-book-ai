@@ -601,7 +601,6 @@
   background: rgba(31, 59, 99, 0.11);
 }
 .mform-ai-spark { font-size: 0.72rem; line-height: 1; opacity: 0.75; }
-.mform-prev-label { color: var(--ink-3); align-self: center; }
 
 .mform-save {
   font-size: 0.9rem;
