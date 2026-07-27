@@ -74,3 +74,9 @@
 @keyframes yourday-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @keyframes yourday-sweep { 0% { transform: translateX(-100%); } 55% { transform: translateX(100%); } 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .yourday-skel-bar, .yourday-skel::after { animation: none; } }
+
+/* AI narration under a header — slightly set apart from the deterministic list style. */
+.yourday-sec-ai { font-size: 13.5px; line-height: 1.5; color: var(--ink-1, #1c2733); white-space: pre-wrap; }
+/* Shimmering chip placeholders — same footprint as the real Draft chips so the row doesn't jump. */
+.yourday-chip--skel { display: inline-block; width: 132px; height: 26px; border-radius: 13px; border: 1px solid var(--line, #e4e8ee); background: linear-gradient(90deg, #ccd3dd 25%, #e6eaf0 50%, #ccd3dd 75%); background-size: 200% 100%; animation: yourday-shimmer 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .yourday-chip--skel { animation: none; } }

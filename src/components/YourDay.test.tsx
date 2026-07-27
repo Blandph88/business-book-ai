@@ -9,7 +9,7 @@ import type { StaleContact } from "../data/dashboard";
 // Mock the ai module so useAiAvailable() returns false (aiPrompt is never reached on this path).
 vi.mock("../ai/ai", () => ({ useAiAvailable: () => false, aiPrompt: vi.fn() }));
 
-import { YourDay } from "./YourDay";
+import { YourDay, parseSectionedBrief } from "./YourDay";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -82,5 +82,23 @@ describe("YourDay deterministic brief (AI off)", () => {
   it("shows the empty state when there is no signal at all", () => {
     act(() => root.render(<YourDay {...baseProps} />));
     expect(container.textContent || "").toContain("Nothing pressing today");
+  });
+});
+
+describe("parseSectionedBrief", () => {
+  const SECS = [
+    { key: "close", label: "Close these — near signature (probability-weighted values)", lines: ["a"] },
+    { key: "reconnect", label: "Reconnect — gone quiet", lines: ["b"] },
+  ];
+  it("fills sections by header, tolerant of shortened labels", () => {
+    const out = parseSectionedBrief("## Close these — near signature\nPush Google this week.\n\n## Reconnect — gone quiet\nStart with Priya.", SECS);
+    expect(out.close).toMatch(/Push Google/);
+    expect(out.reconnect).toMatch(/Priya/);
+  });
+  it("preamble and unknown sections are dropped; missing sections absent", () => {
+    const out = parseSectionedBrief("Here is your brief!\n## Something invented\nblah\n## Reconnect — gone quiet\nStart with Priya.", SECS);
+    expect(out.close).toBeUndefined();
+    expect(out.reconnect).toMatch(/Priya/);
+    expect(Object.keys(out).length).toBe(1);
   });
 });

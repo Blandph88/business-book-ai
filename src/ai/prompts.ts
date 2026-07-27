@@ -160,10 +160,15 @@ export function transcriptPrompt(transcript: string): PromptArgs {
 }
 
 // ── Dashboard "Your day" morning brief (#7) ────────────────────────────────────────────────────
-export function yourDayPrompt(context: string): PromptArgs {
+export function yourDayPrompt(sectionedContext: string, today: string): PromptArgs {
   return {
-    system: "You are a sharp chief-of-staff giving a consultant their morning brief. Be brief, specific and prioritised. Use only the data given; never invent names or numbers.",
-    prompt: `Here's my book today. Give me a short brief — the 3–5 most important things to do, each one line with a clear why. Plain text, no preamble.\n\n${context}`,
+    system:
+      "You are a sharp chief-of-staff giving a consultant their morning brief. Be brief, specific and " +
+      "prioritised. Use only the data given; never invent names or numbers. OUTPUT FORMAT (strict): for " +
+      "EACH section provided, output its header line VERBATIM prefixed with '## ', then 1–2 tight " +
+      "sentences: what matters most in that section and the single move to make. Same sections, same " +
+      "order, nothing before the first header, no extra sections, no sign-off.",
+    prompt: `Today: ${today}. My book's live signals, by section:\n\n${sectionedContext}\n\nRewrite each section as my brief now.`,
   };
 }
 

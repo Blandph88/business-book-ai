@@ -1,9 +1,10 @@
-// The "Your day" AI brief at the top of the Dashboard. It narrates a short prioritised brief from the
-// SAME deterministic signals the dashboard cards show — This week (agenda), deals near signature
-// (hotOpps), reconnect (stale), going-cold opps (aging) — passed in as props, so the AI can never say
-// something the cards below contradict. Per-item it drafts a reconnect message on the spot. The model's
-// only job is narration/prioritisation; every input is computed by the shared helpers (no re-derivation
-// with different thresholds). Auto-generates once per session (cached), with Refresh.
+// The "Your day" AI brief at the top of the Dashboard. It narrates the SAME deterministic signals the
+// dashboard cards show — deals near signature (hotOpps), reconnect (stale), going-cold opps (aging),
+// owed replies, latent opportunities — passed in as props, so the AI can never say something the cards
+// below contradict. The AI's job is a per-SECTION rewrite (Phil's design, 2026-07-27): each header
+// keeps its place, the lines beneath it shimmer while regenerating, and the model's prioritised read
+// of THAT section streams in under its own header — never a flat blob replacing the structure.
+// Auto-generates once per session on non-local tiers (cached); Refresh narrates on demand everywhere.
 
 import { useEffect, useRef, useState } from "react";
 import type { Contact } from "../data/contacts";
@@ -16,7 +17,7 @@ import { explainFailure } from "../ai/health";
 import { yourDayPrompt } from "../ai/prompts";
 import "./YourDay.css";
 
-const CACHE_KEY = "bob.yourday.v1"; // {day, sig, text} — once per (day + context signature) so tab-switching doesn't re-call, but an import/scan/log that changes the day's signals busts it
+const CACHE_KEY = "bob.yourday.v2"; // {day, sig, secs:{key:text}} — per (day + signals signature); v2 = sectioned brief
 
 // Cheap stable signature of the brief's context — so the cache regenerates when the underlying signals
 // change during the day (not just at midnight). djb2; collisions are harmless (worst case a stale reuse).
@@ -26,10 +27,31 @@ function ctxSignature(s: string): string {
   return String(h >>> 0);
 }
 
+type Section = { key: string; label: string; lines: string[] };
+
+// Parse the model's sectioned output (## <label> markers, one per section we asked for) into
+// key→body. Tolerant: unmatched headers are ignored; a missing section simply keeps its
+// deterministic lines. Called on every stream tick, so sections fill in as they complete.
+export function parseSectionedBrief(full: string, sections: Section[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const byLabel = new Map(sections.map((s) => [s.label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(), s.key]));
+  const parts = full.split(/^#{2,3}\s*/m).slice(1); // text before the first header is preamble — dropped
+  for (const part of parts) {
+    const nl = part.indexOf("\n");
+    const header = (nl >= 0 ? part.slice(0, nl) : part).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const body = nl >= 0 ? part.slice(nl + 1).trim() : "";
+    // Match on the header's leading words — the model may shorten a long label.
+    let key = byLabel.get(header);
+    if (!key) for (const [lbl, k] of byLabel) { if (lbl.startsWith(header) || header.startsWith(lbl.split(" ").slice(0, 3).join(" "))) { key = k; break; } }
+    if (key && body) out[key] = body;
+  }
+  return out;
+}
+
 type YourDayProps = {
   today: string;
   contacts: Contact[];
-  agenda: AgendaItem[]; // "This week" — dated commitments (same list the dashboard shows)
+  agenda: AgendaItem[]; // dated commitments (the full table renders below on the same page)
   hotOpps: HotOpp[]; // "Close these" — biggest deals near signature
   stale: StaleContact[]; // "Reconnect" — warm contacts gone quiet (45d+, unified with the card)
   aging: AgingOpp[]; // "Going cold" — open opps with no movement (30d+)
@@ -42,7 +64,7 @@ const approxTokens = (s: string) => Math.max(1, Math.round((s || "").length / 4)
 
 // The copilot's delivery indicator, miniaturised: a cycling glyph (visibly alive), a staged label,
 // live seconds and a ~token count once the narration starts streaming.
-const BRIEF_GLYPHS = ["+", "\u2726", "\u2736", "\u2737", "\u2738", "\u2739", "\u273A", "\u2733", "\u2217"];
+const BRIEF_GLYPHS = ["+", "✦", "✶", "✷", "✸", "✹", "✺", "✳", "∗"];
 function BriefIndicator({ startMs, tokens }: { startMs: number; tokens: number }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -62,12 +84,15 @@ function BriefIndicator({ startMs, tokens }: { startMs: number; tokens: number }
 
 export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraft }: YourDayProps) {
   const aiReady = useAiAvailable();
+  void agenda; // the agenda renders as its own table below — deliberately not narrated here
 
-  const [text, setText] = useState("");
+  // key→AI text for each section; null = no narration yet (deterministic lines show instead).
+  const [secTexts, setSecTexts] = useState<Record<string, string> | null>(null);
   const [busy, setBusy] = useState(false);
   const [genStart, setGenStart] = useState(0);
   const [genTok, setGenTok] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [quiet, setQuiet] = useState(false); // empty book — nothing to narrate
   // Ignore an in-flight generation that resolves after the Dashboard unmounts (no setState-after-unmount).
   const alive = useRef(true);
   // StrictMode-safe: the body RE-ARMS the flag on every (re)mount — the cleanup-only version left
@@ -77,44 +102,45 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
 
   const nm = (c: Contact) => `${c.first} ${c.last}`.trim() + (c.organisation ? ` (${c.organisation})` : "");
 
-  function buildContext(): string {
-    const owed = contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).slice(0, 8);
-    const latent = contacts.filter((c) => c.latentOpp?.text).slice(0, 8);
-    return [
-      `Today: ${today}.`,
-      agenda.length ? `This week (overdue + next 7 days):\n${agenda.slice(0, 10).map((a) => `- ${a.what}: ${a.who}${a.org ? ` (${a.org})` : ""} — ${a.statusLabel}, due ${a.date}`).join("\n")}` : "",
-      hotOpps.length ? `Deals near signature (probability-weighted values):\n${hotOpps.map(({ opp }) => `- ${opp.opportunity_name || opp.organisation || "(unnamed)"} ${formatMoney(weightedValue(opp))} weighted [${opportunityPhase(opp)}]`).join("\n")}` : "",
-      stale.length ? `Warm contacts gone quiet (reconnect):\n${stale.slice(0, 8).map(({ contact: c, daysSince }) => `- ${nm(c)}${daysSince != null ? ` — ${daysSince}d` : ""}`).join("\n")}` : "",
-      aging.length ? `Open opportunities stalling:\n${aging.slice(0, 8).map(({ opp, daysSince }) => `- ${opp.opportunity_name || opp.organisation || "(unnamed)"} — ${daysSince}d no movement`).join("\n")}` : "",
-      // Enrichment/thread signals — empty until a scan/import provides them, so this degrades gracefully.
-      owed.length ? `You owe a reply (they messaged last):\n${owed.map((c) => `- ${nm(c)}${c.thread?.lastDate ? ` since ${c.thread.lastDate}` : ""}`).join("\n")}` : "",
-      latent.length ? `Opportunities spotted in your messages:\n${latent.map((c) => `- ${nm(c)}: ${c.latentOpp!.text}`).join("\n")}` : "",
-    ].filter(Boolean).join("\n\n");
+  // The deterministic sections — the card's always-available content AND the model's exact input, so
+  // the narration can only rewrite what's really there (no re-derivation with different thresholds).
+  const oppName = (o: { opportunity_name?: string; organisation?: string }) => o.opportunity_name || o.organisation || "(unnamed)";
+  function deterministicSections(): Section[] {
+    const owed = contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).slice(0, 4);
+    const latent = contacts.filter((c) => c.latentOpp?.text).slice(0, 5);
+    const secs: Section[] = [];
+    // NO "This week" section here — the full agenda table renders directly below on the same page,
+    // and duplicating it made the brief long and strange (Phil, re-verify item 32).
+    if (hotOpps.length) secs.push({ key: "close", label: "Close these — near signature (probability-weighted values)", lines: hotOpps.slice(0, 4).map(({ opp }) => `${oppName(opp)} — ${formatMoney(weightedValue(opp))} weighted [${opportunityPhase(opp)}]`) });
+    if (stale.length) secs.push({ key: "reconnect", label: "Reconnect — gone quiet", lines: stale.slice(0, 4).map(({ contact: c, daysSince }) => `${nm(c)}${daysSince != null ? ` — ${daysSince}d quiet` : ""}`) });
+    if (aging.length) secs.push({ key: "cold", label: "Going cold — no movement", lines: aging.slice(0, 4).map(({ opp, daysSince }) => `${oppName(opp)} — ${daysSince}d no movement`) });
+    if (owed.length) secs.push({ key: "owed", label: "You owe a reply", lines: owed.map((c) => `${nm(c)}${c.thread?.lastDate ? ` — since ${c.thread.lastDate}` : ""}`) });
+    if (latent.length) secs.push({ key: "latent", label: "Spotted in your messages", lines: latent.map((c) => `${nm(c)}: ${c.latentOpp!.text}`) });
+    return secs;
   }
 
   function generate(force = false) {
     if (busy) return;
-    const ctx = buildContext();
-    // Nothing to narrate (empty / no-signal book) → don't burn a generation or invite invented items.
-    // buildContext joins signal sections with newlines; only the "Today: …" line means no signal.
-    if (!ctx.includes("\n")) { setText("Nothing pressing today. Add contacts, log a meeting, or run a scan and I'll brief you here."); return; }
+    const secs = deterministicSections();
+    if (!secs.length) { setQuiet(true); return; }
+    const ctx = secs.map((s) => `## ${s.label}\n${s.lines.map((l) => `- ${l}`).join("\n")}`).join("\n\n");
     const sig = ctxSignature(ctx);
     if (!force) {
       try {
         const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) || "null");
         // Reuse only when it's the same day AND the underlying signals are unchanged — otherwise the brief
         // would stay stale after an import/scan/logged meeting added or cleared items in the day's context.
-        if (cached && cached.day === today && cached.sig === sig && cached.text) { setText(cached.text); return; }
+        if (cached && cached.day === today && cached.sig === sig && cached.secs) { setSecTexts(cached.secs); return; }
       } catch { /* ignore */ }
     }
     setBusy(true);
     setError(null);
+    setSecTexts(null); // shimmer panels take over under each header
     setGenStart(Date.now());
     setGenTok(0);
-    // STREAMED, stall-bounded, honestly-failing (the copilot's delivery contract, applied here after
-    // the live sweep found this surface hanging): the narration STREAMS into the card as it writes
-    // (tokens visibly tick), a stall — not honest slowness — trips the bound (60s to first token for
-    // cold prompt-processing, 25s of silence mid-stream), and failure is diagnosed from live state.
+    // STREAMED, stall-bounded, honestly-failing (the copilot's delivery contract): each section's
+    // narration fills its own panel as the stream reaches it; a stall — not honest slowness — trips
+    // the bound (60s to first token for cold prompt-processing, 25s of silence mid-stream).
     let acc = "";
     let lastProgress = Date.now();
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -125,36 +151,38 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
       }, 1_000);
     });
     Promise.race([
-      aiPromptStream(yourDayPrompt(ctx), (full) => {
+      aiPromptStream(yourDayPrompt(ctx, today), (full) => {
         if (!alive.current) return;
         acc = full; lastProgress = Date.now();
         setGenTok(approxTokens(full));
-        setText(full.trim()); // stream into place — the brief builds up live
+        setSecTexts(parseSectionedBrief(full, secs)); // sections fill in place as they complete
       }),
       bound,
     ])
       .then((t) => {
         if (!alive.current) return;
-        setText(t.trim());
-        try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ day: today, sig, text: t.trim() })); } catch { /* ignore */ }
+        const parsed = parseSectionedBrief(t, secs);
+        setSecTexts(Object.keys(parsed).length ? parsed : null); // unparseable → deterministic lines stand
+        if (Object.keys(parsed).length) {
+          try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ day: today, sig, secs: parsed })); } catch { /* ignore */ }
+        }
       })
       .catch(async (e) => {
         if (!alive.current) return;
         const reason = e instanceof Error && (e.message === "no-first-token" || e.message === "mid-stream-stall") ? e.message : "error";
         const msg = await explainFailure(reason as "no-first-token" | "mid-stream-stall" | "error");
-        if (alive.current) { setText(""); setError(msg); }
+        if (alive.current) { setSecTexts(null); setError(msg); }
       })
       .finally(() => { if (timer) clearInterval(timer); if (alive.current) setBusy(false); });
   }
 
   // Auto-generate on mount (uses cache so it won't re-call on every Dashboard visit). The dashboard only
   // renders YourDay once its data is ready, so the props are already populated here.
-  // LOCAL-TIER CALL DIET (Batch 2 S4, deferred item now done): on a local backend (LM Studio/Ollama)
-  // the auto-narration contends with the copilot's foreground calls in the server's queue — and the
-  // deterministic sections below already carry the full brief. So local tiers don't auto-generate;
-  // Refresh still narrates on demand.
+  // LOCAL-TIER CALL DIET (Batch 2 S4): on a local backend (LM Studio/Ollama) the auto-narration
+  // contends with the copilot's foreground calls in the server's queue — and the deterministic
+  // sections already carry the full brief. So local tiers don't auto-generate; Refresh narrates on demand.
   useEffect(() => {
-    if (!aiReady || text || busy) return;
+    if (!aiReady || secTexts || busy) return;
     let cancelled = false;
     aiAvailability()
       .then((a) => { if (!cancelled && !(a.local || a.backend === "ollama")) generate(); })
@@ -162,24 +190,6 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiReady]);
-
-  // The SAME signals buildContext() feeds the model, rendered as a readable structured brief with NO model.
-  // This is what makes the card alive the instant the book is imported (before/without any AI): the model's
-  // job was only ever narration/prioritisation, and every input here is already computed deterministically.
-  const oppName = (o: { opportunity_name?: string; organisation?: string }) => o.opportunity_name || o.organisation || "(unnamed)";
-  function deterministicSections(): { key: string; label: string; lines: string[] }[] {
-    const owed = contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).slice(0, 4);
-    const latent = contacts.filter((c) => c.latentOpp?.text).slice(0, 5);
-    const secs: { key: string; label: string; lines: string[] }[] = [];
-    // NO "This week" section here — the full agenda table renders directly below on the same page,
-    // and duplicating it made the brief long and strange (Phil, re-verify item 32).
-    if (hotOpps.length) secs.push({ key: "close", label: "Close these — near signature (probability-weighted values)", lines: hotOpps.slice(0, 4).map(({ opp }) => `${oppName(opp)} — ${formatMoney(weightedValue(opp))} weighted [${opportunityPhase(opp)}]`) });
-    if (stale.length) secs.push({ key: "reconnect", label: "Reconnect — gone quiet", lines: stale.slice(0, 4).map(({ contact: c, daysSince }) => `${nm(c)}${daysSince != null ? ` — ${daysSince}d quiet` : ""}`) });
-    if (aging.length) secs.push({ key: "cold", label: "Going cold — no movement", lines: aging.slice(0, 4).map(({ opp, daysSince }) => `${oppName(opp)} — ${daysSince}d no movement`) });
-    if (owed.length) secs.push({ key: "owed", label: "You owe a reply", lines: owed.map((c) => `${nm(c)}${c.thread?.lastDate ? ` — since ${c.thread.lastDate}` : ""}`) });
-    if (latent.length) secs.push({ key: "latent", label: "Spotted in your messages", lines: latent.map((c) => `${nm(c)}: ${c.latentOpp!.text}`) });
-    return secs;
-  }
 
   // Chips mirror EXACTLY the names the Reconnect section shows (both capped at 4) — the live run
   // had two chip-only names that appeared nowhere above them.
@@ -194,52 +204,49 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
         {aiReady && <button type="button" className="yourday-refresh" disabled={busy} onClick={() => generate(true)}>{busy ? "…" : "Refresh"}</button>}
       </div>
       {busy && <BriefIndicator startMs={genStart} tokens={genTok} />}
-      {text ? (
-        // AI narration — streams into place while generating, persists once complete.
-        <div className="yourday-brief">{text}</div>
-      ) : busy && hasSignal ? (
-        // REGENERATING (Phil's design): the section headers stay, each section's lines become a
-        // shimmering panel — the copilot's reserved-narration treatment — until the streamed brief
-        // replaces them.
+      {hasSignal ? (
+        // ONE structure, three fills per section: the AI's streamed narration once it has reached that
+        // section; a shimmer panel while regenerating; the deterministic lines otherwise. Headers never
+        // move — the user watches text land under each one (Phil's design).
         <div className="yourday-sections">
-          {sections.map((s) => (
-            <div key={s.key} className="yourday-sec">
-              <div className="yourday-sec-label">{s.label}</div>
-              <div className="yourday-skel" aria-label="Rewriting…">
-                <span className="yourday-skel-bar" />
-                <span className="yourday-skel-bar yourday-skel-bar--short" />
+          {sections.map((s) => {
+            const ai = secTexts?.[s.key];
+            return (
+              <div key={s.key} className="yourday-sec">
+                <div className="yourday-sec-label">{s.label}</div>
+                {ai ? (
+                  <div className="yourday-sec-ai">{ai}</div>
+                ) : busy ? (
+                  <div className="yourday-skel" aria-label="Rewriting…">
+                    <span className="yourday-skel-bar" />
+                    <span className="yourday-skel-bar yourday-skel-bar--short" />
+                  </div>
+                ) : (
+                  <ul className="yourday-sec-list">{s.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
+                )}
               </div>
-            </div>
-          ))}
-        </div>
-      ) : hasSignal ? (
-        // Deterministic brief — always available, no model. Shown instantly on import, and while the AI
-        // narration (if AI is on) is still generating or if it fails, so the card is never empty.
-        <div className="yourday-sections">
-          {sections.map((s) => (
-            <div key={s.key} className="yourday-sec">
-              <div className="yourday-sec-label">{s.label}</div>
-              <ul className="yourday-sec-list">{s.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
-            </div>
-          ))}
+            );
+          })}
           {error && <p className="yourday-error">{error}</p>}
         </div>
       ) : error ? (
         <p className="yourday-error">{error}</p>
-      ) : (
-        <p className="yourday-loading">Nothing pressing today. Add contacts, log a meeting, or run a scan and I'll brief you here.</p>
-      )}
+      ) : quiet || !hasSignal ? (
+        <p className="yourday-quiet">Nothing pressing today. Add contacts, log a meeting, or run a scan and I'll brief you here.</p>
+      ) : null}
 
-      {/* The per-item reconnect DRAFT needs the model; the reconnect list itself is already in the brief above.
-          So the Draft chips only appear when AI is on — otherwise we point to setup in the note below. */}
+      {/* Reconnect draft chips deep-link into the copilot. While the brief regenerates they shimmer as
+          pills in the same spots, so the row doesn't jump when the real chips return (Phil's design). */}
       {aiReady && reconnectPeople.length > 0 && (
         <div className="yourday-actions">
           <span className="yourday-actions-label">Reconnect:</span>
-          {reconnectPeople.map((c) => (
-            <button key={c.url} type="button" className="yourday-chip" onClick={() => onDraft(`Draft a reconnect message to ${`${c.first} ${c.last}`.trim()}`)}>
-              Draft → {`${c.first} ${c.last}`.trim()}
-            </button>
-          ))}
+          {busy
+            ? reconnectPeople.map((c) => <span key={c.url} className="yourday-chip yourday-chip--skel" aria-hidden="true" />)
+            : reconnectPeople.map((c) => (
+              <button key={c.url} type="button" className="yourday-chip" onClick={() => onDraft(`Draft a reconnect message to ${`${c.first} ${c.last}`.trim()}`)}>
+                Draft → {`${c.first} ${c.last}`.trim()}
+              </button>
+            ))}
         </div>
       )}
 
