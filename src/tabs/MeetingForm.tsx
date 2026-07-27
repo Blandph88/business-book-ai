@@ -14,8 +14,8 @@ import {
   OWNER_NAME,
 } from "../data/vocab";
 import { SearchableSelect, type Option } from "./formControls";
-import { useAiAvailable, aiJson } from "../ai/ai";
-import { summarizeMeetingPrompt, transcriptPrompt, type MeetingExtract, type TranscriptExtract } from "../ai/prompts";
+import { useAiAvailable, aiPromptStream } from "../ai/ai";
+import { transcriptPrompt, type TranscriptExtract } from "../ai/prompts";
 import { TranscriptModal } from "../components/TranscriptModal";
 
 // Defaults filled into an empty meeting so the owner isn't retyping the obvious: us =
@@ -223,44 +223,38 @@ export function MeetingForm({
   // filled. Computed live off the draft, so the banner clears as fields are completed.
   const missing = draft.date_held ? meetingMissingFields(draft) : [];
 
-  // AI: turn raw notes into structured fields (actions / follow-up / sentiment / opportunity). It
-  // fills the form's own fields so the owner reviews and edits them in place, then Saves (A2).
+  // "Summarise notes with AI" REMOVED (Phil's call, 2026-07-27): people don't want the things
+  // they typed re-written or second-guessed. The transcript INSERT below fills EMPTY fields from a
+  // pasted transcript instead — additive, never touching what the user wrote.
   const aiReady = useAiAvailable();
-  const [aiBusy, setAiBusy] = useState(false);
   const [aiNote, setAiNote] = useState<string | null>(null);
-  async function summarizeWithAi() {
-    if (!draft.notes?.trim() || aiBusy) return;
-    setAiBusy(true);
-    setAiNote(null);
-    try {
-      const j = await aiJson<MeetingExtract>(summarizeMeetingPrompt(draft.notes, draft.purpose, draft.org_insights, draft.pain_points));
-      setDraft((d) => ({
-        ...d,
-        actions_mine: j.actions_mine?.trim() || d.actions_mine,
-        actions_theirs: j.actions_theirs?.trim() || d.actions_theirs,
-        followup: j.followup?.trim() || d.followup,
-        followup_date: j.followup_days > 0 ? addDaysISO(today, j.followup_days) : d.followup_date,
-        sentiment: (SENTIMENT as readonly string[]).includes(j.sentiment) ? (j.sentiment as Meeting["sentiment"]) : d.sentiment,
-        opportunity_spotted: j.opportunity_spotted === "Yes" ? "Yes" : j.opportunity_spotted === "No" ? "No" : d.opportunity_spotted,
-      }));
-      setAiNote("Filled from your notes — review the fields below and Save.");
-    } catch {
-      setAiNote("Couldn't read that — try again, or fill the fields manually.");
-    } finally {
-      setAiBusy(false);
-    }
-  }
 
   // AI: dissect a pasted transcript into the write-up (#9). The escalation candidate — long context;
   // runs on-device and falls through to BYOK automatically if the local model can't handle the length.
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [transcriptBusy, setTranscriptBusy] = useState(false);
+  const [transcriptStart, setTranscriptStart] = useState(0);
+  const [transcriptTok, setTranscriptTok] = useState(0);
+  const [transcriptErr, setTranscriptErr] = useState<string | null>(null);
   async function extractTranscript(transcript: string) {
     if (!transcript.trim() || transcriptBusy) return;
     setTranscriptBusy(true);
+    setTranscriptErr(null);
     setAiNote(null);
+    setTranscriptStart(Date.now());
+    setTranscriptTok(0);
     try {
-      const j = await aiJson<TranscriptExtract>(transcriptPrompt(transcript));
+      // STREAMED so the modal's working line ticks real tokens, and time-boxed (120s — transcripts
+      // are the longest prompts in the app) so a stall fails honestly instead of freezing the modal.
+      const budget = new Promise<never>((_, rej) => setTimeout(() => rej(new Error("turn-budget")), 120_000));
+      const raw = await Promise.race([
+        aiPromptStream({ ...transcriptPrompt(transcript), json: true }, (full) => setTranscriptTok(Math.max(1, Math.round(full.length / 4)))),
+        budget,
+      ]);
+      // Lenient JSON extraction (same as aiJson): models sometimes wrap the object in prose/fences.
+      const start = raw.search(/[{[]/);
+      const end = Math.max(raw.lastIndexOf("}"), raw.lastIndexOf("]"));
+      const j = JSON.parse(start >= 0 && end > start ? raw.slice(start, end + 1) : raw) as TranscriptExtract;
       setDraft((d) => ({
         ...d,
         notes: d.notes?.trim() ? `${d.notes}\n\n${j.summary ?? ""}`.trim() : (j.summary ?? "").trim() || d.notes,
@@ -277,7 +271,7 @@ export function MeetingForm({
       setTranscriptOpen(false);
       setAiNote(j.opportunity_spotted === "Yes" && j.opportunity_name ? `Filled from transcript. Possible opportunity: ${j.opportunity_name} — review & Save.` : "Filled from transcript — review the fields and Save.");
     } catch {
-      setAiNote("Couldn't read that transcript — it may be too long for the on-device model; try a shorter section or add an AI key in Settings.");
+      setTranscriptErr("Couldn't read that transcript — it may be too long for this model, or the read stalled. Try a shorter section, or add an AI key in Settings.");
     } finally {
       setTranscriptBusy(false);
     }
@@ -341,6 +335,15 @@ export function MeetingForm({
             )}
             {/* Cross-tab record links, in the same header position as the contact and
                 opportunity forms (the linked opportunity used to sit at the bottom). */}
+            {aiReady && (
+              // Transcript INSERT lives with the header actions (Phil's design): paste a transcript,
+              // AI fills the EMPTY write-up fields — additive to what's typed, never rewriting it.
+              <p className="mform-links mform-links--ai">
+                <button type="button" className="mform-inline-btn" title="Paste a call/meeting transcript — AI fills the empty write-up fields" onClick={() => setTranscriptOpen(true)}>
+                  <span className="mform-ai-spark" aria-hidden>✦</span>Dissect transcript
+                </button>
+              </p>
+            )}
             {target.mode === "edit" && (onOpenContact || onOpenOpportunity) && (
               <p className="mform-links">
                 {onOpenContact && target.row.contact_url && (
@@ -560,28 +563,7 @@ export function MeetingForm({
                 rows={6}
               />
             </Field>
-            {aiReady && (
-              <div className="mform-ai-row">
-                <button
-                  type="button"
-                  className="mform-secondary"
-                  title="Use your notes to fill actions, follow-up, sentiment and whether there's an opportunity"
-                  disabled={!draft.notes?.trim() || aiBusy}
-                  onClick={summarizeWithAi}
-                >
-                  {aiBusy ? "Reading notes…" : "Summarise notes with AI"}
-                </button>
-                <button
-                  type="button"
-                  className="mform-secondary"
-                  title="Paste a call/meeting transcript and let AI fill the write-up"
-                  onClick={() => setTranscriptOpen(true)}
-                >
-                  Dissect transcript
-                </button>
-                {aiNote && <span className="mform-ai-note">{aiNote}</span>}
-              </div>
-            )}
+            {aiNote && <p className="mform-ai-note">{aiNote}</p>}
             <Field label="Org insights">
               <TextArea
                 value={draft.org_insights}
@@ -700,7 +682,7 @@ export function MeetingForm({
       </aside>
 
       {transcriptOpen && (
-        <TranscriptModal busy={transcriptBusy} onExtract={extractTranscript} onClose={() => setTranscriptOpen(false)} />
+        <TranscriptModal busy={transcriptBusy} startMs={transcriptStart} tokens={transcriptTok} error={transcriptErr} onInsert={extractTranscript} onClose={() => setTranscriptOpen(false)} />
       )}
     </div>
   );
