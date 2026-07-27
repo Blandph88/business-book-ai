@@ -35,7 +35,10 @@ export function AiSuggest({
   const [copied, setCopied] = useState(false);
   // Ignore an in-flight generation that resolves after the panel closes (no setState-after-unmount).
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  // StrictMode-safe: the body RE-ARMS the flag on every (re)mount — the cleanup-only version left
+  // alive=false after StrictMode's simulated remount, so results/errors/busy-clears were silently
+  // discarded and every generation on this surface looked like an infinite stall (the 475s hang).
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   const run = useCallback(
     (tweak?: string) => {

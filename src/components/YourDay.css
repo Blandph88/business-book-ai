@@ -65,3 +65,12 @@
 @media (prefers-reduced-motion: reduce) {
   .yourday-loading, .yourday-loading .thinking-glyph { animation: none; }
 }
+
+/* The copilot's reserved-narration shimmer, per-section: container + moving bars + sweeping sheen. */
+.yourday-skel { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 8px; justify-content: center; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line, #e4e8ee); border-radius: 8px; background: var(--bg-2, #eef1f5); }
+.yourday-skel-bar { display: block; height: 10px; border-radius: 5px; background: linear-gradient(90deg, #ccd3dd 25%, #e6eaf0 50%, #ccd3dd 75%); background-size: 200% 100%; animation: yourday-shimmer 1.4s ease-in-out infinite; }
+.yourday-skel-bar--short { width: 58%; }
+.yourday-skel::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.65) 50%, transparent 65%); animation: yourday-sweep 1.8s ease-in-out infinite; pointer-events: none; }
+@keyframes yourday-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes yourday-sweep { 0% { transform: translateX(-100%); } 55% { transform: translateX(100%); } 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .yourday-skel-bar, .yourday-skel::after { animation: none; } }

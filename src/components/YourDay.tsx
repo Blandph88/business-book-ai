@@ -70,7 +70,10 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
   const [error, setError] = useState<string | null>(null);
   // Ignore an in-flight generation that resolves after the Dashboard unmounts (no setState-after-unmount).
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  // StrictMode-safe: the body RE-ARMS the flag on every (re)mount — the cleanup-only version left
+  // alive=false after StrictMode's simulated remount, so results/errors/busy-clears were silently
+  // discarded and every generation on this surface looked like an infinite stall (the 475s hang).
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   const nm = (c: Contact) => `${c.first} ${c.last}`.trim() + (c.organisation ? ` (${c.organisation})` : "");
 
@@ -194,6 +197,21 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
       {text ? (
         // AI narration — streams into place while generating, persists once complete.
         <div className="yourday-brief">{text}</div>
+      ) : busy && hasSignal ? (
+        // REGENERATING (Phil's design): the section headers stay, each section's lines become a
+        // shimmering panel — the copilot's reserved-narration treatment — until the streamed brief
+        // replaces them.
+        <div className="yourday-sections">
+          {sections.map((s) => (
+            <div key={s.key} className="yourday-sec">
+              <div className="yourday-sec-label">{s.label}</div>
+              <div className="yourday-skel" aria-label="Rewriting…">
+                <span className="yourday-skel-bar" />
+                <span className="yourday-skel-bar yourday-skel-bar--short" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : hasSignal ? (
         // Deterministic brief — always available, no model. Shown instantly on import, and while the AI
         // narration (if AI is on) is still generating or if it fails, so the card is never empty.

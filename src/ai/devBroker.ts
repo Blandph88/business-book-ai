@@ -234,7 +234,11 @@ async function byokPromptStream(cfg: Byok, input: string, opts: PromptArgs | und
   msgs.push({ role: "user", content: input });
   const ctrl = new AbortController();
   let lastChunk = Date.now();
-  const watchdog = setInterval(() => { if (Date.now() - lastChunk > 30_000) ctrl.abort(); }, 2_000);
+  let sawChunk = false;
+  // Prompt processing emits NO chunks — a big context on modest hardware can take a minute before the
+  // first token, and aborting a healthy read only to re-run it one-shot doubles the cost. 75s to the
+  // first chunk, 25s of silence after.
+  const watchdog = setInterval(() => { if (Date.now() - lastChunk > (sawChunk ? 25_000 : 75_000)) ctrl.abort(); }, 2_000);
   try {
     const res = await fetch(base + "/chat/completions", {
       method: "POST",
@@ -249,7 +253,7 @@ async function byokPromptStream(cfg: Byok, input: string, opts: PromptArgs | und
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      lastChunk = Date.now();
+      lastChunk = Date.now(); sawChunk = true;
       buf += dec.decode(value, { stream: true });
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
