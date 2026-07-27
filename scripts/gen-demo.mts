@@ -297,9 +297,14 @@ agreed.forEach((url, i) => {
   }
 
   const held = stage === "Held";
+  // CONSISTENCY (2026-07-27 audit): agreed must PRECEDE held (the free-running mAgreed sequence had
+  // "agreed 13 Jun, held 4 Jun" on ~50 rows) — clamp to 3–20 days before the held date.
+  const agreedFixed = held && mHeld && mAgreed > mHeld
+    ? new Date(Date.parse(mHeld) - (3 + (i % 18)) * 86_400_000).toISOString().slice(0, 10)
+    : mAgreed;
   seedMinutes.push({
     contact_url: url, meeting_no: 1, meeting_stage: stage,
-    date_agreed: mAgreed, date_scheduled: mSched, date_held: mHeld,
+    date_agreed: agreedFixed, date_scheduled: mSched, date_held: mHeld,
     type: pick(MEETING_TYPE), location: pick(["Their office", "Coffee near Liverpool St", "Video call", "Lunch in the City", "Industry conference"]),
     attendees_ours: OWNER.name, attendees_client: full,
     purpose: "Introductory meeting / explore where we could help.",
@@ -312,7 +317,8 @@ agreed.forEach((url, i) => {
     // Follow-ups sit beyond the agenda window (12+ days out) so they don't crowd "this week".
     followup: held && !opp ? "Reconnect in two weeks" : undefined,
     followup_date: held && !opp ? isoDay(12 + (i % 30)) : undefined,
-    sentiment: pick(SENTIMENT),
+    // Sentiment records how a conversation WENT — future/unheld meetings carry none (audit).
+    sentiment: held ? pick(SENTIMENT) : undefined,
     opportunity: opp,
   });
 });

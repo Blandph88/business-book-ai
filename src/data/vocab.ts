@@ -313,3 +313,20 @@ export const DELIVERABLE_CATEGORIES = [
   "Other",
 ] as const;
 export type DeliverableCategory = (typeof DELIVERABLE_CATEGORIES)[number];
+
+// Locations for the "Based in" field — business hubs + countries, shared by the contact form's
+// combobox and the copilot action-card typeahead so both surfaces offer the same list. Free text is
+// always allowed on top (a city we didn't list is still valid — the copilot writes e.g. "Madrid").
+export const LOCATIONS = [
+  "London", "Manchester", "Edinburgh", "New York", "San Francisco", "Boston", "Chicago", "Los Angeles",
+  "Washington DC", "Toronto", "Dublin", "Paris", "Frankfurt", "Berlin", "Munich", "Amsterdam",
+  "Brussels", "Zurich", "Geneva", "Madrid", "Barcelona", "Milan", "Rome", "Stockholm", "Copenhagen",
+  "Oslo", "Helsinki", "Vienna", "Warsaw", "Lisbon", "Athens", "Dubai", "Abu Dhabi", "Riyadh", "Doha",
+  "Singapore", "Hong Kong", "Tokyo", "Seoul", "Shanghai", "Sydney", "Melbourne", "Auckland", "Mumbai",
+  "Bangalore", "Delhi", "São Paulo", "Mexico City", "Johannesburg", "Cairo", "Tel Aviv",
+  "United Kingdom", "United States", "Canada", "Ireland", "France", "Germany", "Netherlands",
+  "Belgium", "Switzerland", "Austria", "Spain", "Portugal", "Italy", "Sweden", "Denmark", "Norway",
+  "Finland", "Poland", "Greece", "United Arab Emirates", "Saudi Arabia", "Qatar", "Singapore",
+  "Japan", "South Korea", "China", "India", "Australia", "New Zealand", "Brazil", "Mexico",
+  "South Africa", "Egypt", "Israel",
+] as const;

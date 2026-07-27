@@ -10,8 +10,9 @@ import {
   RELATIONSHIP_STRENGTH,
   PRIORITY,
   DECISION_ROLE,
+  LOCATIONS,
 } from "../data/vocab";
-import { Field, TextField, TextArea, Select } from "./formControls";
+import { Field, TextField, TextArea, Select , SearchableSelect } from "./formControls";
 import { ContactLinks } from "../components/BrandIcons";
 import { useAiAvailable } from "../ai/ai";
 
@@ -341,12 +342,15 @@ export function ContactForm({
 
           {/* ── Owner-maintained CRM fields: the editable part ────────────── */}
           <fieldset className="mform-section">
-            <legend>Your CRM fields</legend>
+            <legend>Your relationship</legend>
             <div className="mform-grid">
               <Field label="Based in">
-                <TextField
+                <SearchableSelect
                   value={draft.based_in}
+                  options={LOCATIONS.map((l) => ({ value: l, label: l }))}
                   onChange={(v) => set("based_in", v)}
+                  placeholder="City or country…"
+                  allowFreeText
                 />
               </Field>
               <Field label="Phone / WhatsApp">

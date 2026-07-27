@@ -16,7 +16,7 @@ import { getAppMode } from "../lib/appMode";
 
 // Bump this whenever the generated demo dataset changes (after `npm run gen-demo`), to force every
 // demo browser onto the new data with no stale leftovers.
-export const DEMO_DATA_VERSION = "2026-07-26-reverify"; // sow date reanchor+thin, actionable housekeeping, your-day trim
+export const DEMO_DATA_VERSION = "2026-07-27-consistency"; // agreed≤held + no sentiment on future meetings (seed audit)
 
 const STAMP_KEY = "bob.demoDataVersion";
 

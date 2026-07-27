@@ -9,6 +9,7 @@
 // Read/query only — no bulk or destructive writes (9a). Opens from the top bar (Search or Chats).
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { LOCATIONS } from "../data/vocab";
 import { loadContacts, type Contact } from "../data/contacts";
 import { loadAllMeetings } from "../storage/meetings";
 import { buildMeetingRows, type MeetingRow } from "../data/meetings";
@@ -41,15 +42,6 @@ import { explainFailure, startKeepalive } from "../ai/health";
 import type { Navigate, TabId, TabIntent } from "./TabNav";
 import "./CopilotBar.css";
 
-// Default typeahead lists for action-card fields (all still free-text). Locations cover common business
-// hubs + countries; next-actions are the deterministic moves a consultant logs against a contact.
-const COMMON_LOCATIONS = [
-  "London", "New York", "San Francisco", "Boston", "Chicago", "Los Angeles", "Washington DC", "Toronto",
-  "Dublin", "Paris", "Frankfurt", "Berlin", "Munich", "Amsterdam", "Zurich", "Geneva", "Madrid", "Milan",
-  "Stockholm", "Copenhagen", "Dubai", "Singapore", "Hong Kong", "Tokyo", "Sydney", "Mumbai", "Bangalore",
-  "United Kingdom", "United States", "Canada", "Ireland", "France", "Germany", "Netherlands", "Switzerland",
-  "Spain", "Italy", "Sweden", "UAE", "Singapore", "Australia", "India", "Japan",
-];
 
 type View = "search" | "chat" | "history" | "memory";
 
@@ -776,7 +768,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const orgOptions = useMemo(() => [...new Set(contacts.map((c) => c.organisation?.trim()).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b)), [contacts]);
   // Typeahead suggestion lists for the action-card fields (org from the book; locations + next-actions are
   // sensible defaults — all still free-text, so the user can type anything).
-  const actionSuggestions = useMemo(() => ({ organisation: orgOptions, based_in: COMMON_LOCATIONS }), [orgOptions]);
+  const actionSuggestions = useMemo(() => ({ organisation: orgOptions, based_in: [...LOCATIONS] }), [orgOptions]);
 
   useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }); }, [chat, asking, view]);
 
