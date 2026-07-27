@@ -17,6 +17,7 @@ import { SearchableSelect, type Option } from "./formControls";
 import { useAiAvailable, aiPromptStream } from "../ai/ai";
 import { transcriptPrompt, type TranscriptExtract } from "../ai/prompts";
 import { TranscriptModal } from "../components/TranscriptModal";
+import { logFailure } from "../ai/failureLog";
 
 // Defaults filled into an empty meeting so the owner isn't retyping the obvious: us =
 // the owner, them = the contact, location = the usual city. All stay editable.
@@ -271,6 +272,7 @@ export function MeetingForm({
       setTranscriptOpen(false);
       setAiNote(j.opportunity_spotted === "Yes" && j.opportunity_name ? `Filled from transcript. Possible opportunity: ${j.opportunity_name} — review & Save.` : "Filled from transcript — review the fields and Save.");
     } catch {
+      logFailure({ surface: "transcript-insert", reason: "error", ms: Date.now() - transcriptStart });
       setTranscriptErr("Couldn't read that transcript — it may be too long for this model, or the read stalled. Try a shorter section, or add an AI key in Settings.");
     } finally {
       setTranscriptBusy(false);

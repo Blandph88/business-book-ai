@@ -270,7 +270,18 @@
 .thinking-word { font-weight: 600; letter-spacing: 0.01em; }
 .thinking-secs { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 0.92em; }
 /* "Thought for XXs · ~N tokens" under a finished reply, and the live tokens/secs while streaming. */
-.copilot-genmeta { margin-top: 5px; font-size: 0.72rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.copilot-genmeta { font-size: 0.72rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* AI-turn footer: the timing receipt + a subtle flag affordance (appears on hover of the turn). */
+.copilot-turn-foot { display: flex; align-items: center; gap: 10px; margin-top: 5px; }
+.copilot-turn-foot .copilot-genmeta { margin: 0; }
+.copilot-flag {
+  margin-left: auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 22px; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--ink-3, #97a0ac); opacity: 0; transition: opacity 0.12s ease, color 0.12s ease;
+}
+.copilot-flag svg { width: 15px; height: 15px; }
+.copilot-turn--ai:hover .copilot-flag, .copilot-flag:focus-visible { opacity: 0.7; }
+.copilot-flag:hover { color: #b23; opacity: 1; }
 .copilot-genmeta--live { margin: 3px 0 0 2px; opacity: 0.85; }
 /* Model badge in the chat-thread header (top-right): the active AI model, detection-only. */
 .copilot-head-model { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 600; color: var(--ink-3); white-space: nowrap; flex: none; cursor: default; user-select: none; }

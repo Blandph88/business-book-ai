@@ -22,6 +22,7 @@ import { BusinessBookLogo } from "./Brand";
 import { NAV_ICON } from "./NavIcons";
 // Line icons for the education cards — the house nav style. Draft has no tab, so a small pencil.
 const DRAFT_ICON = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2 2 0 0 0 0-2.83l-1.17-1.17a2 2 0 0 0-2.83 0L4 16v4z" /><path d="M13.5 6.5l4 4" /></svg>);
+const FLAG_ICON = (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 21V4" /><path d="M5 4h11l-1.8 3.5L16 11H5" /></svg>);
 const STARTER_ICON: Record<string, React.ReactNode> = {
   brief: NAV_ICON.contacts, pipeline: NAV_ICON.opportunities, gaps: NAV_ICON.insights,
   log: NAV_ICON.meetings, draft: DRAFT_ICON, recall: NAV_ICON.chat,
@@ -46,6 +47,9 @@ import type { ContactRow } from "../tabs/ContactForm";
 import { markBusy, markDone, isBusy, subscribeInflight } from "../ai/inflight";
 import { checkNarration, isDisambiguation, stripForeignGlitch } from "../ai/narrationCheck";
 import { explainFailure, startKeepalive } from "../ai/health";
+import { logFailure, failuresReportText } from "../ai/failureLog";
+import { FlagModal, type FlagMeta } from "./FlagModal";
+import { saveFlag } from "../storage/flags";
 import type { Navigate, TabId, TabIntent } from "./TabNav";
 import "./CopilotBar.css";
 
@@ -637,6 +641,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   const [saved, setSaved] = useState<SavedChat[]>(() => listChats());
   const [notes, setNotes] = useState<Note[]>([]); // the AI's distilled memory (loaded when the view opens)
   const [doc, setDoc] = useState<LoadedDoc | null>(null); // an attached document, fed into the next message
+  const [flagTurn, setFlagTurn] = useState<{ question: string; answer: string; meta: FlagMeta; nowMs: number } | null>(null); // the AI turn being flagged
+  const [diagCopied, setDiagCopied] = useState(false); // "Copy diagnostics" transient state
   const [docNote, setDocNote] = useState("");
   const chatIdRef = useRef<string | null>(null);
   // The opportunity touched most recently in THIS session — the referent for "update that/it" (Gate-0 #35).
@@ -939,13 +945,19 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       if (finalText) {
         const verdict = checkNarration(stripForeignGlitch(finalText), md);
         finalText = verdict.ok ? verdict.cleaned : "";
+        if (!verdict.ok) logFailure({ surface: "copilot-narration", reason: "narration-dropped", backend: activeBackend });
       }
       if (chatIdRef.current !== id) return;
       if (!finalText) { setChat([...base, tableTurn]); persistTo(id, [...persisted, tablePersist]); return; }
       setChat(compose(finalText));
       const narr: ChatTurn = { role: "ai", text: finalText };
       persistTo(id, position === "above" ? [...persisted, narr, tablePersist] : [...persisted, tablePersist, narr]);
-    } catch { deliverFallback(); }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      const reason = msg.includes("mid-stream") ? "mid-stream-stall" : msg.includes("no first token") ? "no-first-token" : "error";
+      logFailure({ surface: "copilot-interpret", reason, backend: activeBackend, ms: Date.now() - genStartRef.current });
+      deliverFallback();
+    }
     finally { setAsking(false); setStreaming(false); }
   }
 
@@ -971,6 +983,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
       if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
     } catch {
+      logFailure({ surface: "copilot-stream", reason: "no-first-token", backend: activeBackend });
       const aiText = await explainFailure("no-first-token");
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
       if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
@@ -1010,6 +1023,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
       if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
     } catch {
+      logFailure({ surface: "copilot-stream", reason: "no-first-token", backend: activeBackend });
       const aiText = await explainFailure("no-first-token");
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
       if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
@@ -1406,7 +1420,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
           const rawRoute = await Promise.race([aiJson<Record<string, unknown>>(routerPrompt(text, history)), routeTimeout]);
           routed = normalizeRoute(rawRoute); // schema-tolerant: accepts the malformed-but-obvious shapes seen in the LM Studio logs
         }
-        catch { routed = null; }
+        catch { routed = null; logFailure({ surface: "copilot-router", reason: "router-fallback", backend: activeBackend }); }
         finally { if (routeTimer) clearTimeout(routeTimer); }
       }
       if (routed?.route === "help") {
@@ -1587,6 +1601,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         }
       }
     } catch {
+      logFailure({ surface: "copilot-grounded", reason: "error", backend: activeBackend, ms: Date.now() - genStartRef.current });
       // Even if the model errors, still surface any records the message pointed at (e.g. the EY account
       // card) so a records request isn't a dead end. The apology is DIAGNOSED from live backend state —
       // never the canned warm-up excuse the retest caught being wrong about a warm LM Studio (#13/#22).
@@ -1876,6 +1891,11 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   function openMemory() { setNotes(listNotes()); setView("memory"); }
   function removeNote(id: string) { deleteNote(id); setNotes(listNotes()); }
   function clearAllNotes() { clearNotes(); setNotes([]); }
+  // The question a given AI turn answered = the nearest preceding user turn (for the flag report).
+  const questionForIndex = (i: number): string => {
+    for (let j = i - 1; j >= 0; j--) if (chat[j].role === "you") return chat[j].text;
+    return "";
+  };
 
   const renderRelated = (related?: RelatedHit[]) =>
     related && related.length > 0 ? (
@@ -1918,6 +1938,16 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     <div className={"copilot-backdrop" + (fullPage ? " copilot-backdrop--inline" : "")} onClick={fullPage ? undefined : onClose}>
       <div className={"copilot copilot--" + view + (fullPage ? " copilot--fullpage" : "")} role="dialog" aria-label="Ask or search your book" onClick={(e) => e.stopPropagation()}>
         <input ref={docInputRef} type="file" accept=".txt,.md,.csv,.tsv,.json,.vtt,.srt,text/*,application/json" style={{ display: "none" }} onChange={(e) => { onPickFile(e.target.files?.[0]); e.currentTarget.value = ""; }} />
+        {flagTurn && (
+          <FlagModal
+            question={flagTurn.question}
+            answer={flagTurn.answer}
+            meta={flagTurn.meta}
+            nowMs={flagTurn.nowMs}
+            onClose={() => setFlagTurn(null)}
+            onCopied={(report) => { saveFlag({ at: flagTurn.nowMs, question: flagTurn.question, answer: flagTurn.answer, report }); setFlagTurn(null); }}
+          />
+        )}
         {view === "chat" && (
           <div className="copilot-head">
             {saved.length > 0 && <button type="button" className="copilot-headbtn" onClick={openHistory}>‹ Chats</button>}
@@ -2054,6 +2084,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
             <div className="copilot-head">
               <button type="button" className="copilot-headbtn" onClick={openHistory}>‹ Chats</button>
               <span className="copilot-head-title">What I remember</span>
+              <button type="button" className="copilot-headbtn" title="Copy a content-free record of recent AI failures on this device — for a Freehold bug report"
+                onClick={async () => { try { await navigator.clipboard.writeText(failuresReportText(Date.now())); setDiagCopied(true); setTimeout(() => setDiagCopied(false), 1800); } catch { /* clipboard blocked */ } }}>
+                {diagCopied ? "Copied ✓" : "Copy diagnostics"}
+              </button>
               {notes.length > 0 && <button type="button" className="copilot-headbtn" onClick={clearAllNotes}>Clear all</button>}
             </div>
             <div className="copilot-memory">
@@ -2115,8 +2149,22 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                         ))}
                       </div>
                     )}
-                    {t.role === "ai" && t.genMs != null && (
-                      <div className="copilot-genmeta">Thought for {Math.max(1, Math.round(t.genMs / 1000))}s{t.genTok ? ` · ~${formatTokens(t.genTok)} tokens` : ""}</div>
+                    {t.role === "ai" && (t.genMs != null || (!t.narrPending && !t.receipt && (t.text || t.compute))) && (
+                      <div className="copilot-turn-foot">
+                        {t.genMs != null && (
+                          <span className="copilot-genmeta">Thought for {Math.max(1, Math.round(t.genMs / 1000))}s{t.genTok ? ` · ~${formatTokens(t.genTok)} tokens` : ""}</span>
+                        )}
+                        {!t.narrPending && !t.receipt && (t.text || t.compute) && (
+                          <button type="button" className="copilot-flag btn-ico" title="Flag this answer as wrong or off — composes a local bug report you can copy" aria-label="Flag this answer"
+                            onClick={() => setFlagTurn({
+                              question: questionForIndex(i),
+                              answer: t.compute ? computeText(t.compute) : t.text,
+                              meta: { aiLabel, aiModel, local: activeLocal, cloud: isCapableBackend(activeBackend) && !activeLocal, genMs: t.genMs, genTok: t.genTok, computed: !!t.compute },
+                              nowMs: Date.now(),
+                            })}
+                          >{FLAG_ICON}</button>
+                        )}
+                      </div>
                     )}
                   </div>
                 ),

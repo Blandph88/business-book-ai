@@ -14,6 +14,7 @@ import type { AgendaItem } from "../data/agenda";
 import { formatMoney } from "../data/format";
 import { useAiAvailable, aiPromptStream } from "../ai/ai";
 import { explainFailure } from "../ai/health";
+import { logFailure } from "../ai/failureLog";
 import { yourDayPrompt } from "../ai/prompts";
 import "./YourDay.css";
 
@@ -180,6 +181,7 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
       .catch(async (e) => {
         if (!alive.current) return;
         const reason = e instanceof Error && (e.message === "no-first-token" || e.message === "mid-stream-stall") ? e.message : "error";
+        logFailure({ surface: "yourday", reason, ms: Date.now() - genStart });
         const msg = await explainFailure(reason as "no-first-token" | "mid-stream-stall" | "error");
         if (alive.current) { setSecTexts(null); setError(msg); }
       })

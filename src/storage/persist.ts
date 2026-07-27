@@ -46,6 +46,7 @@ const KEYS = [
   "bob.memory.v1", // memory.ts — durable facts the AI distils from past chats
   "bob.ownedContacts.v1", // ownedContacts.ts — contacts added manually (not from LinkedIn)
   "bob.targets.v1", // targets.ts — was previously NOT mirrored; included so the full book persists + backs up
+  "bob.flags.v1", // flags.ts — user-flagged AI answers (bug reports they curate); travels with the book
   // (the imported LinkedIn network lives in IndexedDB, not here — too large for localStorage)
 ].map(scopedKey);
 

@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import pkg from "./package.json";
 // NOTE: the personal app's dev-only file-persistence plugin (owner-data-plugin) was REMOVED from
 // this marketplace fork — in the product, owned data lives in the buyer's own file via the seal's
 // data adapter, not a dev-server file. (It also caused stale demo data to reload across boots.)
@@ -19,6 +20,8 @@ export default defineConfig({
   // like /products/heirloom-bd-crm/v1/ — asset URLs become relative to index.html.
   // (At the dev/root origin it behaves exactly as before.)
   base: "./",
+  // Exposed to the app for the bug-report / diagnostics footer (a real identifier in flagged answers).
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   plugins: [react()],
   server: {
     port: 5173,
