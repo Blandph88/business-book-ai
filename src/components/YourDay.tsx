@@ -116,7 +116,9 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
     // NO "This week" section here — the full agenda table renders directly below on the same page,
     // and duplicating it made the brief long and strange (Phil, re-verify item 32).
     if (hotOpps.length) secs.push({ key: "close", label: "Close these — near signature (probability-weighted values)", lines: hotOpps.slice(0, 4).map(({ opp }) => `${oppName(opp)} — ${formatMoney(weightedValue(opp))} weighted [${opportunityPhase(opp)}]`) });
-    if (stale.length) secs.push({ key: "reconnect", label: "Reconnect — gone quiet", lines: stale.slice(0, 4).map(({ contact: c, daysSince }) => `${nm(c)}${daysSince != null ? ` — ${daysSince}d quiet` : ""}`) });
+    // "never logged" is stated explicitly: without it the model faced four bare names and INVENTED a
+    // recency rationale for its pick (seed fact-check, 2026-07-27).
+    if (stale.length) secs.push({ key: "reconnect", label: "Reconnect — gone quiet", lines: stale.slice(0, 4).map(({ contact: c, daysSince }) => `${nm(c)}${daysSince != null ? ` — ${daysSince}d quiet` : " — no meeting ever logged"}`) });
     if (aging.length) secs.push({ key: "cold", label: "Going cold — no movement", lines: aging.slice(0, 4).map(({ opp, daysSince }) => `${oppName(opp)} — ${daysSince}d no movement`) });
     if (owed.length) secs.push({ key: "owed", label: "You owe a reply", lines: owed.map((c) => `${nm(c)}${c.thread?.lastDate ? ` — since ${c.thread.lastDate}` : ""}`) });
     if (latent.length) secs.push({ key: "latent", label: "Spotted in your messages", lines: latent.map((c) => `${nm(c)}: ${c.latentOpp!.text}`) });
