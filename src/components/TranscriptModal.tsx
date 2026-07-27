@@ -25,15 +25,28 @@ function WorkingLine({ startMs, tokens }: { startMs: number; tokens: number }) {
   );
 }
 
-export function TranscriptModal({ onClose, onInsert, busy, startMs, tokens, error }: {
+export function TranscriptModal({ onClose, onInsert, busy, startMs, tokens, error, contactName }: {
   onClose: () => void;
   onInsert: (transcript: string) => void;
   busy: boolean;
   startMs: number;
   tokens: number;
   error?: string | null;
+  // The meeting's contact — a transcript that never mentions them gets a wrong-meeting warning
+  // before inserting (live test: NatWest content landed silently in a Volkswagen contact's write-up).
+  contactName?: string;
 }) {
   const [t, setT] = useState("");
+  const [confirmMismatch, setConfirmMismatch] = useState(false);
+  const mismatch = (() => {
+    if (!contactName || !t.trim()) return false;
+    const low = t.toLowerCase();
+    return !contactName.toLowerCase().split(/\s+/).filter((w) => w.length >= 2).some((w) => low.includes(w));
+  })();
+  const insert = () => {
+    if (mismatch && !confirmMismatch) { setConfirmMismatch(true); return; }
+    onInsert(t);
+  };
   return (
     <div className="aisg-backdrop" onClick={(e) => { e.stopPropagation(); if (!busy) onClose(); }}>
       <div className="aisg-panel" role="dialog" aria-label="Dissect a transcript" onClick={(e) => e.stopPropagation()}>
@@ -48,11 +61,14 @@ export function TranscriptModal({ onClose, onInsert, busy, startMs, tokens, erro
           <textarea className="aisg-text" rows={10} value={t} onChange={(e) => setT(e.target.value)} placeholder="Paste the transcript here…" disabled={busy} />
           {busy && <WorkingLine startMs={startMs} tokens={tokens} />}
           {!busy && error && <p className="aisg-error">{error}</p>}
+          {!busy && confirmMismatch && mismatch && (
+            <p className="aisg-error">This transcript never mentions {contactName} — is it the right meeting? Insert will fill THIS write-up.</p>
+          )}
         </div>
         <footer className="aisg-footer">
           <span className="aisg-spacer" />
           <button type="button" className="aisg-ghost" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="button" className="aisg-primary" onClick={() => onInsert(t)} disabled={busy || !t.trim()}>{busy ? "Inserting…" : "Insert"}</button>
+          <button type="button" className="aisg-primary" onClick={insert} disabled={busy || !t.trim()}>{busy ? "Inserting…" : confirmMismatch && mismatch ? "Insert anyway" : "Insert"}</button>
         </footer>
         <p className="aisg-note">Runs on your machine — the transcript stays local.</p>
       </div>

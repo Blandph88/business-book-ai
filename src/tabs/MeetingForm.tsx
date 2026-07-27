@@ -682,7 +682,7 @@ export function MeetingForm({
       </aside>
 
       {transcriptOpen && (
-        <TranscriptModal busy={transcriptBusy} startMs={transcriptStart} tokens={transcriptTok} error={transcriptErr} onInsert={extractTranscript} onClose={() => setTranscriptOpen(false)} />
+        <TranscriptModal busy={transcriptBusy} startMs={transcriptStart} tokens={transcriptTok} error={transcriptErr} contactName={target.mode === "edit" ? target.row.contactInfo.name : draft.attendees_client} onInsert={extractTranscript} onClose={() => setTranscriptOpen(false)} />
       )}
     </div>
   );
