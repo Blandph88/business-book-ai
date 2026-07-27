@@ -908,3 +908,29 @@ describe("Re-verify item 28: reminders resolve their subject to a meeting-holder
     expect(v.followup_date).toBe("2026-07-24"); // TODAY is Thu 2026-07-23; "next Friday" = next occurrence
   });
 });
+
+describe("orgMatches word-boundary (live run: 'at EY' matched StanlEY/DisnEY/KEYCorp…)", () => {
+  const DE = book({ contacts: [
+    contact({ first: "Omar", last: "Singh", organisation: "EY", url: "e1" }),
+    contact({ first: "Camille", last: "Johnson", organisation: "Morgan Stanley", url: "e2" }),
+    contact({ first: "John", last: "Johnson", organisation: "Disney", url: "e3" }),
+    contact({ first: "David", last: "Moore", organisation: "KeyCorp", url: "e4" }),
+    contact({ first: "Karen", last: "Muller", organisation: "McKinsey & Company", url: "e5" }),
+    contact({ first: "Mary", last: "Cole", organisation: "JPMorgan Chase", url: "e6" }),
+  ] });
+  it("'EY' matches ONLY EY", () => {
+    const r = findContacts(DE, { company: "EY" });
+    expect(r.rows.length).toBe(1);
+    expect(r.rows[0].cells[0]).toBe("Omar Singh");
+  });
+  it("'JPMorgan' still matches JPMorgan Chase (boundary prefix)", () => {
+    const r = findContacts(DE, { company: "JPMorgan" });
+    expect(r.rows.length).toBe(1);
+    expect(r.rows[0].cells[0]).toBe("Mary Cole");
+  });
+  it("'McKinsey' matches McKinsey & Company, not EY", () => {
+    const r = findContacts(DE, { company: "McKinsey" });
+    expect(r.rows.length).toBe(1);
+    expect(r.rows[0].cells[0]).toBe("Karen Muller");
+  });
+});

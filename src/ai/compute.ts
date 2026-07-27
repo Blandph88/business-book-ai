@@ -201,7 +201,12 @@ function orgMatches(org: string | undefined, q: string): boolean {
   const o = org.toLowerCase(), s = q.trim().toLowerCase();
   if (!s) return false;
   // The query is (part of) the org name — the user named it (e.g. "JPMorgan" → "JPMorgan Chase").
-  if (o.includes(s)) return true;
+  // WORD-BOUNDARY anchored, never bare substring: "EY" was matching Morgan StanlEY, DisnEY, KEYCorp,
+  // McKinsEY, KearnEY, KingslEY… (live run: "who do I know at EY" returned 57 "EY" contacts). A short
+  // (≤3-char) query must equal a whole token; a longer one must start at a token boundary.
+  const escS = s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (s.length <= 3 ? new RegExp(`(?:^|[^a-z0-9])${escS}(?:[^a-z0-9]|$)`).test(o)
+    : new RegExp(`(?:^|[^a-z0-9])${escS}`).test(o)) return true;
   // The org name appears INSIDE a longer query. Only trust this for a DISTINCTIVE org — a multi-word name,
   // or a single token ≥5 chars that isn't a common word — and only as a whole word. Else "Next"/"Open"
   // match ordinary phrases ("my NEXT priority", "OPEN deals") and a whole clause is mistaken for a company.
