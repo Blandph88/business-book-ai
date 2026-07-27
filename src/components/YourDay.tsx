@@ -18,6 +18,7 @@ import { yourDayPrompt } from "../ai/prompts";
 import "./YourDay.css";
 
 const CACHE_KEY = "bob.yourday.v2"; // {day, sig, secs:{key:text}} — per (day + signals signature); v2 = sectioned brief
+const AUTORAN_KEY = "bob.yourday.autoran.v1"; // session flag: the auto-narration runs once per app entry
 
 // Cheap stable signature of the brief's context — so the cache regenerates when the underlying signals
 // change during the day (not just at midnight). djb2; collisions are harmless (worst case a stale reuse).
@@ -185,13 +186,18 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
       .finally(() => { if (timer) clearInterval(timer); if (alive.current) setBusy(false); });
   }
 
-  // Auto-generate on mount, EVERY tier (Phil's call, 2026-07-27): the takes should already be there
-  // the first time the dashboard opens — Refresh is the manual re-run, not the only way in. The old
-  // local-tier skip (Batch 2 call diet) predates the cache-per-day, true streaming, real watchdogs
-  // and the StrictMode fix; with those, one auto-narration per day is affordable on LM Studio too.
-  // The day-cache means tab-switching never re-calls; a same-day signal change regenerates once.
+  // Auto-generate ONCE per app session (Phil's call, 2026-07-27): the takes appear on the user's
+  // FIRST dashboard visit after entering the app; every later visit shows the session's cached takes
+  // (even if the data has since changed — the data LINES are live regardless), and only the Refresh
+  // button re-runs the model. No per-visit re-writes.
   useEffect(() => {
     if (!aiReady || secTexts || busy) return;
+    try {
+      const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) || "null");
+      if (cached && cached.day === today && cached.secs) { setSecTexts(cached.secs); return; }
+    } catch { /* ignore */ }
+    if (sessionStorage.getItem(AUTORAN_KEY)) return; // already ran this session — Refresh is the re-run
+    try { sessionStorage.setItem(AUTORAN_KEY, "1"); } catch { /* ignore */ }
     generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiReady]);
