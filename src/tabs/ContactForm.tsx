@@ -13,11 +13,9 @@ import {
 } from "../data/vocab";
 import { Field, TextField, TextArea, Select } from "./formControls";
 import { ContactLinks } from "../components/BrandIcons";
-import { useAiAvailable, aiPrompt, aiJson } from "../ai/ai";
-import { draftMessagePrompt, briefContactPrompt, suggestCrmPrompt, type DraftKind, type CrmSuggest } from "../ai/prompts";
+import { useAiAvailable, aiJson } from "../ai/ai";
+import { suggestCrmPrompt, type CrmSuggest } from "../ai/prompts";
 import { contactSignalsText } from "../ai/compute";
-import { relevantNotes } from "../storage/memory";
-import { AiSuggest } from "../components/AiSuggest";
 
 // Default home country until an org→country mapping is wired up.
 const DEFAULT_BASED_IN = "Saudi Arabia";
@@ -66,6 +64,7 @@ export function ContactForm({
   onLogMeeting,
   onAddOpportunity,
   onOpenAccount,
+  onAsk,
   onClose,
 }: {
   contact: ContactRow;
@@ -84,6 +83,8 @@ export function ContactForm({
   met?: boolean;
   // Persist this contact's edits (keyed by the stable url) — buffered until Save.
   onSave: (url: string, edits: OwnerEdits) => void;
+  // Send a prompt into the copilot chat (the AI draft/brief actions deep-link there).
+  onAsk?: (prompt: string) => void;
   // Cross-tab links: this contact's meetings / opportunities, filtered to them.
   onOpenMeetings?: () => void;
   onOpenOpportunities?: () => void;
@@ -111,8 +112,6 @@ export function ContactForm({
 
   // AI affordances (draft a message / brief me) — only shown when the host can run inference.
   const aiReady = useAiAvailable();
-  const [aiPanel, setAiPanel] = useState<"draft" | "brief" | null>(null);
-  const [draftKind, setDraftKind] = useState<DraftKind>("first-touch");
   const [crmBusy, setCrmBusy] = useState(false);
   const [crmNote, setCrmNote] = useState<string | null>(null);
 
@@ -235,19 +234,22 @@ export function ContactForm({
                 )}
               </p>
             )}
-            {aiReady && (
-              <p className="mform-links mform-ai-links">
-                <button type="button" className="mform-inline-btn" onClick={() => { setDraftKind("first-touch"); setAiPanel("draft"); }}>
-                  Draft: reach out
+            {aiReady && onAsk && (
+              // AI actions DEEP-LINK into the copilot (Phil's call, 2026-07-27): one hardened
+              // pipeline — real notes, memory, budgets, honest failure — instead of a second modal.
+              // The "at <org>" qualifier pre-disambiguates shared names for the draft front door.
+              <p className="mform-links mform-links--ai">
+                <button type="button" className="mform-inline-btn" onClick={() => onAsk(`Draft a first outreach message to ${name}${contact.organisation ? ` at ${contact.organisation}` : ""}`)}>
+                  <span className="mform-ai-spark" aria-hidden>✦</span>Draft: reach out
                 </button>
-                <button type="button" className="mform-inline-btn" onClick={() => { setDraftKind("follow-up"); setAiPanel("draft"); }}>
-                  Follow up
+                <button type="button" className="mform-inline-btn" onClick={() => onAsk(`Draft a follow-up to ${name}${contact.organisation ? ` at ${contact.organisation}` : ""}`)}>
+                  <span className="mform-ai-spark" aria-hidden>✦</span>Follow up
                 </button>
-                <button type="button" className="mform-inline-btn" onClick={() => { setDraftKind("reconnect"); setAiPanel("draft"); }}>
-                  Reconnect
+                <button type="button" className="mform-inline-btn" onClick={() => onAsk(`Draft a reconnect message to ${name}${contact.organisation ? ` at ${contact.organisation}` : ""}`)}>
+                  <span className="mform-ai-spark" aria-hidden>✦</span>Reconnect
                 </button>
-                <button type="button" className="mform-inline-btn" onClick={() => setAiPanel("brief")}>
-                  Brief me
+                <button type="button" className="mform-inline-btn" onClick={() => onAsk(`Brief me on ${name}`)}>
+                  <span className="mform-ai-spark" aria-hidden>✦</span>Brief me
                 </button>
               </p>
             )}
@@ -455,28 +457,6 @@ export function ContactForm({
         </footer>
       </aside>
 
-      {aiPanel === "draft" && (
-        <AiSuggest
-          title="Draft a message"
-          subtitle={`To ${name || "this contact"} · ${draftKind === "first-touch" ? "first outreach" : draftKind === "follow-up" ? "follow-up" : "reconnect"}`}
-          generate={(tweak) => aiPrompt(draftMessagePrompt(contact, meetings, draftKind, tweak, relevantNotes(`${name} ${contact.organisation || ""}`).map((n) => n.text).join("\n"), contactSignalsText(contact)))}
-          tweaks={[
-            { label: "Shorter", instruction: "Make it shorter — 1–2 sentences." },
-            { label: "Warmer", instruction: "Make it warmer and more personal." },
-            { label: "More direct", instruction: "Make it more direct and to the point." },
-          ]}
-          onClose={() => setAiPanel(null)}
-        />
-      )}
-      {aiPanel === "brief" && (
-        <AiSuggest
-          title={`Brief: ${name || "contact"}`}
-          subtitle="Pre-outreach summary"
-          editable={false}
-          generate={() => aiPrompt(briefContactPrompt(contact, meetings, relevantNotes(`${name} ${contact.organisation || ""}`).map((n) => n.text).join("\n"), contactSignalsText(contact)))}
-          onClose={() => setAiPanel(null)}
-        />
-      )}
     </div>
   );
 }

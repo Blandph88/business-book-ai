@@ -111,6 +111,7 @@ type Props = {
   onNavigate?: Navigate;
   // Open the organisation "account" overlay (clicking an org name).
   onOpenAccount?: (org: string) => void;
+  onAsk?: (prompt: string) => void; // deep-link a draft/brief request into the copilot chat
   // Called when the user finishes with a form (Save OR close) — lets App return to the
   // Dashboard/Metrics tab it was reached from. No-ops when there's no such origin, so a
   // form opened from within this tab just stays put.
@@ -128,6 +129,7 @@ export function ContactsTab({
   intent,
   onNavigate,
   onOpenAccount,
+  onAsk,
   onReturn,
   onImport,
 }: Props) {
@@ -469,6 +471,7 @@ export function ContactsTab({
 
       {formTarget && (
         <ContactForm
+          onAsk={onAsk}
           contact={formTarget}
           // The raw pipeline number (auto-extracted) vs the owner's manual override,
           // passed separately so the form edits only the override (see ContactForm).

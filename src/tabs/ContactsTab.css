@@ -149,8 +149,9 @@
 }
 /* The Profile field shows LinkedIn + WhatsApp side by side. */
 .mform-links {
-  display: inline-flex;
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 /* The compact variant shown next to a name in the Contacts table row. */
 .wa-link--row {
