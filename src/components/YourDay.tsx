@@ -93,6 +93,10 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
   const [genTok, setGenTok] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [quiet, setQuiet] = useState(false); // empty book — nothing to narrate
+  // A short shimmer over the DATA lines on Refresh: they recompute live on every render anyway, but
+  // the button says Refresh, so the whole card visibly re-runs (Phil's call) — lines sweep ~0.8s and
+  // reappear freshly derived; the AI takes keep shimmering until their stream fills.
+  const [sweep, setSweep] = useState(false);
   // Ignore an in-flight generation that resolves after the Dashboard unmounts (no setState-after-unmount).
   const alive = useRef(true);
   // StrictMode-safe: the body RE-ARMS the flag on every (re)mount — the cleanup-only version left
@@ -136,6 +140,7 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
     setBusy(true);
     setError(null);
     setSecTexts(null); // shimmer panels take over under each header
+    if (force) { setSweep(true); setTimeout(() => { if (alive.current) setSweep(false); }, 800); }
     setGenStart(Date.now());
     setGenTok(0);
     // STREAMED, stall-bounded, honestly-failing (the copilot's delivery contract): each section's
@@ -222,7 +227,14 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
                     <span className="yourday-skel-bar yourday-skel-bar--short" />
                   </div>
                 ) : null}
-                <ul className="yourday-sec-list">{s.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
+                {sweep ? (
+                  <div className="yourday-skel" aria-label="Re-checking…">
+                    <span className="yourday-skel-bar" />
+                    <span className="yourday-skel-bar yourday-skel-bar--short" />
+                  </div>
+                ) : (
+                  <ul className="yourday-sec-list">{s.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
+                )}
               </div>
             );
           })}
