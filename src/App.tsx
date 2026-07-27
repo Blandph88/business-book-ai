@@ -362,6 +362,7 @@ export default function App() {
             <ChatTab
               key={chatLaunch.key}
               view={chatLaunch.view}
+              restoreLast={chatLaunch.key === 0}
               openChatId={chatLaunch.chatId}
               seedPrompt={chatLaunch.seed}
               onChatsChanged={refreshChats}

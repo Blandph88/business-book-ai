@@ -588,7 +588,7 @@ function GrowTextarea({ value, onChange, onEnter, className, placeholder, autoFo
   );
 }
 
-export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "search", fullPage = false, onAsk, seedPrompt, openChatId, onChatsChanged }: { onNavigate: Navigate; onOpenAccount?: (org: string) => void; onClose: () => void; initialView?: View; fullPage?: boolean; onAsk?: (text: string) => void; seedPrompt?: string; openChatId?: string; onChatsChanged?: () => void }) {
+export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "search", fullPage = false, onAsk, seedPrompt, openChatId, restoreLast = false, onChatsChanged }: { onNavigate: Navigate; onOpenAccount?: (org: string) => void; onClose: () => void; initialView?: View; fullPage?: boolean; onAsk?: (text: string) => void; seedPrompt?: string; openChatId?: string; restoreLast?: boolean; onChatsChanged?: () => void }) {
   const aiReady = useAiAvailable();
   // Re-checkable active backend. When it's the stub (no real on-device model), we show the setup ladder
   // instead of letting the copilot answer with placeholder text. `aiNonce` bumps after a successful setup.
@@ -709,9 +709,11 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   }, [openChatId]);
 
   // A hard refresh must land back on the SAME thread, not the chat list (Phil, re-verify session).
-  // The open chat id is session-persisted; restore it when nothing more specific was requested.
+  // The open chat id is session-persisted; restore it ONLY on the page-load mount (restoreLast) —
+  // an explicit nav to Chats / New chat must show what was asked for (live bug: every nav landed on
+  // the restored thread), and the quick palette never restores.
   useEffect(() => {
-    if (openChatId || seedPrompt) return;
+    if (!restoreLast || !fullPage || openChatId || seedPrompt) return;
     let last: string | null = null;
     try { last = sessionStorage.getItem(OPEN_CHAT_KEY); } catch { /* ignore */ }
     if (!last) return;

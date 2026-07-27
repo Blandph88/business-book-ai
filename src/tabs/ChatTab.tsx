@@ -12,6 +12,7 @@ export function ChatTab({
   view = "search",
   openChatId,
   seedPrompt,
+  restoreLast,
   onChatsChanged,
 }: {
   onNavigate: Navigate;
@@ -19,6 +20,9 @@ export function ChatTab({
   view?: "search" | "history" | "chat";
   openChatId?: string;
   seedPrompt?: string;
+  // True only on the tab's INITIAL mount (page load) — an explicit nav (Chats / New chat) must
+  // show what was asked for, never the session-restored thread.
+  restoreLast?: boolean;
   onChatsChanged?: () => void;
 }) {
   return (
@@ -28,6 +32,7 @@ export function ChatTab({
         initialView={view}
         openChatId={openChatId}
         seedPrompt={seedPrompt}
+        restoreLast={restoreLast}
         onChatsChanged={onChatsChanged}
         onNavigate={onNavigate}
         onOpenAccount={onOpenAccount}
