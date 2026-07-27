@@ -97,25 +97,6 @@ export function summarizeMeetingPrompt(notes: string, purpose?: string, orgInsig
   };
 }
 
-// ── Contacts: auto-suggest CRM fields (#6, behind a button) ────────────────────────────────────
-export type CrmSuggest = {
-  relationship_strength: string;
-  priority: string;
-  decision_role: string;
-  next_action: string;
-  next_action_days: number;
-};
-export function suggestCrmPrompt(c: ContactRow, meetings: MeetingRow[], rel: readonly string[], pri: readonly string[], roles: readonly string[], signals = ""): PromptArgs {
-  return {
-    system: "You set CRM fields for a contact from what's known. Be realistic — don't over-rate cold contacts. If a relationship-warmth score is given, use it as the PRIMARY basis for relationship_strength (and factor an owed reply / spotted opportunity into priority). Reply with ONLY a JSON object.",
-    prompt:
-      `Suggest CRM values as JSON with keys exactly:\n` +
-      `{"relationship_strength": one of ${JSON.stringify(rel)}, "priority": one of ${JSON.stringify(pri)}, ` +
-      `"decision_role": one of ${JSON.stringify(roles)}, "next_action": string (a concrete next step), "next_action_days": number}\n\n` +
-      `${signals ? `Signals:\n${signals}\n\n` : ""}Context:\n${contactContext(c, meetings)}`,
-  };
-}
-
 // ── Account summary (#11) ──────────────────────────────────────────────────────────────────────
 export function accountSummaryPrompt(org: string, contactLines: string[], meetingLines: string[], oppLines: string[], memory?: string): PromptArgs {
   return {

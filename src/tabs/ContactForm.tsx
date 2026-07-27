@@ -13,9 +13,7 @@ import {
 } from "../data/vocab";
 import { Field, TextField, TextArea, Select } from "./formControls";
 import { ContactLinks } from "../components/BrandIcons";
-import { useAiAvailable, aiJson } from "../ai/ai";
-import { suggestCrmPrompt, type CrmSuggest } from "../ai/prompts";
-import { contactSignalsText } from "../ai/compute";
+import { useAiAvailable } from "../ai/ai";
 
 // Default home country until an org→country mapping is wired up.
 const DEFAULT_BASED_IN = "Saudi Arabia";
@@ -112,31 +110,10 @@ export function ContactForm({
 
   // AI affordances (draft a message / brief me) — only shown when the host can run inference.
   const aiReady = useAiAvailable();
-  const [crmBusy, setCrmBusy] = useState(false);
-  const [crmNote, setCrmNote] = useState<string | null>(null);
-
-  // Auto-suggest CRM fields from what's known (relationship, priority, decision role). The suggested
-  // next step is ADVISORY only (shown in the note) — contact-level next_action was removed (Phil's
-  // call, 2026-07-26): actions live on meetings/opportunities, where the agenda reads them.
-  async function suggestCrm() {
-    if (crmBusy) return;
-    setCrmBusy(true);
-    setCrmNote(null);
-    try {
-      const j = await aiJson<CrmSuggest>(suggestCrmPrompt(contact, meetings, RELATIONSHIP_STRENGTH, PRIORITY, DECISION_ROLE, contactSignalsText(contact)));
-      setDraft((d) => ({
-        ...d,
-        relationship_strength: (RELATIONSHIP_STRENGTH as readonly string[]).includes(j.relationship_strength) ? (j.relationship_strength as OwnerEdits["relationship_strength"]) : d.relationship_strength,
-        priority: (PRIORITY as readonly string[]).includes(j.priority) ? (j.priority as OwnerEdits["priority"]) : d.priority,
-        decision_role: (DECISION_ROLE as readonly string[]).includes(j.decision_role) ? (j.decision_role as OwnerEdits["decision_role"]) : d.decision_role,
-      }));
-      setCrmNote(j.next_action?.trim() ? `Suggested next action: ${j.next_action.trim()} — review & Save.` : "Filled the fields below — review & Save.");
-    } catch {
-      setCrmNote("Couldn't suggest those — try again or set them manually.");
-    } finally {
-      setCrmBusy(false);
-    }
-  }
+  // "Auto-suggest with AI" REMOVED (Phil's call, 2026-07-27): relationship/priority/decision-role
+  // are OWNER-judgment fields — an AI pre-fill the user rubber-stamps blurs whose read they record
+  // (the same provenance rule that stops derived warmth overriding the owner's rating). The derived
+  // signal lives in the labelled warmth score; advisory insight lives in "Brief me" (copilot).
 
   // Save, normalising a blank phone to "unset" so it never persists "" over the pipeline.
   function commit() {
@@ -365,15 +342,6 @@ export function ContactForm({
           {/* ── Owner-maintained CRM fields: the editable part ────────────── */}
           <fieldset className="mform-section">
             <legend>Your CRM fields</legend>
-            {aiReady && (
-              <div className="mform-ai-row">
-                <button type="button" className="mform-secondary" disabled={crmBusy} onClick={suggestCrm}
-                  title="Suggest relationship, priority, decision role and a next action from what's known">
-                  {crmBusy ? "Thinking…" : "Auto-suggest with AI"}
-                </button>
-                {crmNote && <span className="mform-ai-note">{crmNote}</span>}
-              </div>
-            )}
             <div className="mform-grid">
               <Field label="Based in">
                 <TextField
