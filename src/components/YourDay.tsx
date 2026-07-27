@@ -115,7 +115,9 @@ export function YourDay({ today, contacts, agenda, hotOpps, stale, aging, onDraf
     const secs: Section[] = [];
     // NO "This week" section here — the full agenda table renders directly below on the same page,
     // and duplicating it made the brief long and strange (Phil, re-verify item 32).
-    if (hotOpps.length) secs.push({ key: "close", label: "Close these — near signature (probability-weighted values)", lines: hotOpps.slice(0, 4).map(({ opp }) => `${oppName(opp)} — ${formatMoney(weightedValue(opp))} weighted [${opportunityPhase(opp)}]`) });
+    // Ordered by the number the line SHOWS (weighted) — hotOpps arrives raw-value-ordered, which put
+    // Google above the higher-weighted Chevron right under a take saying Chevron leads.
+    if (hotOpps.length) secs.push({ key: "close", label: "Close these — near signature (probability-weighted values)", lines: hotOpps.slice().sort((a, b) => weightedValue(b.opp) - weightedValue(a.opp)).slice(0, 4).map(({ opp }) => `${oppName(opp)} — ${formatMoney(weightedValue(opp))} weighted [${opportunityPhase(opp)}]`) });
     // "never logged" is stated explicitly: without it the model faced four bare names and INVENTED a
     // recency rationale for its pick (seed fact-check, 2026-07-27).
     if (stale.length) secs.push({ key: "reconnect", label: "Reconnect — gone quiet", lines: stale.slice(0, 4).map(({ contact: c, daysSince }) => `${nm(c)}${daysSince != null ? ` — ${daysSince}d quiet` : " — no meeting ever logged"}`) });
