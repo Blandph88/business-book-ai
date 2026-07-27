@@ -13,7 +13,9 @@ const VOICE =
   "person, plain and warm, like a real person — no corporate jargon, no emoji, no subject line, no " +
   "sign-off block. Never invent facts you weren't given, and never assert an unverifiable claim or " +
   "superlative (\"market leader\", \"best in class\", \"saved clients millions\") — keep it specific and " +
-  "grounded in the real relationship. Output only the message text.";
+  "grounded in the real relationship. NEVER emit bracketed placeholders (\"[Action Item 1]\", \"[Your Name]\") — " +
+  "write the full message from the facts given, and simply write around anything you don't know. " +
+  "Output only the message text.";
 
 function meetingNotes(meetings: MeetingRow[]): string {
   return meetings

@@ -16,11 +16,11 @@ import { loadAllOpportunities, type Opportunity } from "../storage/opportunities
 import { loadAllSows, type Sow } from "../storage/revenue";
 import { todayISO } from "../data/agenda";
 import { isCommonOrgToken } from "../data/orgTokens";
-import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searchAvailable, searchEntity, searchProvider, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities } from "../ai/ai";
+import { useAiAvailable, aiAvailability, aiPrompt, aiPromptStream, aiJson, searchAvailable, searchEntity, searchProvider, useAiBackend, isCapableBackend, capabilityLevel, shortModelName, aiCapabilities, type PromptArgs } from "../ai/ai";
 import { BusinessBookLogo } from "./Brand";
-import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult } from "../ai/prompts";
+import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult, draftMessagePrompt, type DraftKind } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, newsShaped, reminderSubject, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, newsShaped, reminderSubject, contactSignalsText, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, MONEY_DECISION, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -34,6 +34,7 @@ import { ActionCard, type ActionCardData } from "./ActionCard";
 import { Markdown } from "./Markdown";
 import { listChats, getChat, saveChat, deleteChat, newChatId, titleFromTurns, type SavedChat, type StoredTurn } from "../storage/chats";
 import { relevantNotes, addNotes, listNotes, deleteNote, clearNotes, type Note } from "../storage/memory";
+import type { ContactRow } from "../tabs/ContactForm";
 import { markBusy, markDone, isBusy, subscribeInflight } from "../ai/inflight";
 import { checkNarration, isDisambiguation, stripForeignGlitch } from "../ai/narrationCheck";
 import { explainFailure, startKeepalive } from "../ai/health";
@@ -942,6 +943,36 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     finally { setAsking(false); setStreaming(false); }
   }
 
+  // DRAFT stream (re-verify follow-on): a "draft a follow-up to <contact>" rides the purpose-built
+  // draftMessagePrompt — real meetings/notes/signals/memory — instead of the generic grounded path,
+  // which knew the meeting existed but never saw its notes and emitted "[Action Item 1]" scaffolding.
+  async function streamDraft(args: PromptArgs, text: string, prior: UITurn[], id: string, history: ChatTurn[]) {
+    let firstTok = true, bailed = false;
+    const streamP = aiPromptStream(args, (full) => {
+      if (bailed || chatIdRef.current !== id) return;
+      if (firstTok) { firstTok = false; setAsking(false); setStreaming(true); }
+      setGenTokens(approxTokens(full));
+      setChat([...prior, { role: "you", text }, { role: "ai", text: full }]);
+    });
+    try {
+      const turnBudget = new Promise<never>((_, rej) => setTimeout(() => { bailed = true; rej(new Error("turn-budget")); }, 75_000));
+      const reply = await Promise.race([
+        streamP,
+        turnBudget,
+        firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
+      ]);
+      const aiText = stripForeignGlitch(reply.trim()) || "(no response)";
+      persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
+      if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
+    } catch {
+      const aiText = await explainFailure("no-first-token");
+      persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText }]);
+      if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: aiText }]);
+    } finally {
+      setStreaming(false); setAsking(false); markDone(id);
+    }
+  }
+
   // The COMPANION stream: for a personal / general / advice turn the topic-gate routed AWAY from the book.
   // Warm and broad — NO records, NO chips, NO related cards, NO "want me to…?" — just talk with them. The
   // persona's depth/challenge scales with model capability; on a stall it falls back to a warm line, never a
@@ -1075,6 +1106,29 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // LIST table — that wants the model to write something, not a roster. Only list/show/find queries.
     const isGenerate = /^\s*(draft|write|compose|prepare|prep|send|email|message|reply|respond)\b/i.test(text);
     const avail = await aiAvailability();
+    // DRAFT FRONT DOOR: a draft/write request naming ONE known contact (or deictically pointing at
+    // the ledger's latest) gets the purpose-built prompt with their REAL meetings + signals + memory —
+    // the generic grounded path knew a meeting existed but never saw its notes, so drafts came out as
+    // "[Action Item 1]" scaffolding with misquoted dates (live run: Patricia Green).
+    if (!docText && isGenerate && !clearlyPersonal(text)) {
+      let dc = scanEntities(text, data).contacts;
+      if (dc.length !== 1 && /\b(?:him|her|them|he|she|they)\b/i.test(text)) {
+        const led = latestReferent(id, "contact");
+        const lc = led && data.contacts.find((c) => c.url === led.id);
+        if (lc) dc = [lc];
+      }
+      if (dc.length === 1) {
+        const c = dc[0];
+        const kind: DraftKind = /\breconnect|re-?engage\b/i.test(text) ? "reconnect"
+          : /\b(?:first|intro|cold)\b/i.test(text) && !data.meetingRows.some((m) => m.contact_url === c.url) ? "first-touch"
+          : "follow-up";
+        const theirMeetings = data.meetingRows.filter((m) => m.contact_url === c.url);
+        const mem = relevantNotes(`${c.first} ${c.last} ${c.organisation || ""}`, 8).map((n) => n.text).join("\n");
+        pushReferent(id, { kind: "contact", id: c.url, label: `${c.first} ${c.last}`.trim() });
+        await streamDraft(draftMessagePrompt(c as ContactRow, theirMeetings, kind, undefined, mem, contactSignalsText(c)), text, prior, id, history);
+        return;
+      }
+    }
     setLocalTier(!!(avail.local || avail.backend === "ollama"));
     // Render a computed result directly (clickable rows via `compute`); markdown kept for persistence + chips.
     const renderCompute = async (computed: ComputeResult): Promise<void> => {
