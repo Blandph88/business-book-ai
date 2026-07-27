@@ -19,10 +19,7 @@ import {
 import { formatMoney } from "../data/format";
 import { ContactLinks } from "./BrandIcons";
 import type { Navigate } from "./TabNav";
-import { useAiAvailable, aiPrompt } from "../ai/ai";
-import { accountSummaryPrompt } from "../ai/prompts";
-import { relevantNotes } from "../storage/memory";
-import { AiSuggest } from "./AiSuggest";
+import { useAiAvailable } from "../ai/ai";
 
 // A read-only "account" overlay for one organisation: everyone we know there, every
 // meeting held/planned with them, and every opportunity in their name — the institution
@@ -45,12 +42,15 @@ function meetingDate(m: MeetingRow): string {
 export function AccountView({
   org,
   onNavigate,
+  onAsk,
   onClose,
 }: {
   // The exact organisation string to gather (matches the value stored on contacts/opps).
   org: string;
   // Deep-link into a tab. The App wraps this to also close the overlay.
   onNavigate: Navigate;
+  // Send a prompt into the copilot chat (the summary action deep-links there).
+  onAsk?: (prompt: string) => void;
   onClose: () => void;
 }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -105,16 +105,8 @@ export function AccountView({
   // The open weighted pipeline for this account (Won/Lost excluded — see §6 rule 4).
   const pipeline = openWeightedPipeline(orgOpps);
 
-  // AI account summary (read-only brief), built from this org's people/meetings/opps.
+  // The AI account summary deep-links into the copilot (see the button below).
   const aiReady = useAiAvailable();
-  const [aiOpen, setAiOpen] = useState(false);
-  function summarise() {
-    const contactLines = people.map((c) => `${`${c.first} ${c.last}`.trim()} — ${[c.seniority, c.function].filter(Boolean).join(", ") || "role unknown"}`);
-    const meetingLines = meetingRows.map((m) => `${m.contactInfo.name} #${m.meeting_no}: ${m.meeting_stage || "?"} ${meetingDate(m)}${m.sentiment ? ` (${m.sentiment})` : ""}`);
-    const oppLines = orgOpps.map((o) => `${o.opportunity_name || "(unnamed)"}: ${opportunityPhase(o)} · ${opportunityStatus(o)} · ${formatMoney(weightedValue(o))}`);
-    const memory = relevantNotes(org).map((n) => n.text).join("\n");
-    return aiPrompt(accountSummaryPrompt(org, contactLines, meetingLines, oppLines, memory));
-  }
 
   return (
     <div className="mform-backdrop" onClick={onClose}>
@@ -135,10 +127,13 @@ export function AccountView({
               {orgOpps.length === 1 ? "opportunity" : "opportunities"}
               {pipeline > 0 ? ` · ${formatMoney(pipeline)} open pipeline` : ""}
             </p>
-            {aiReady && people.length > 0 && (
-              <p className="mform-links">
-                <button type="button" className="mform-inline-btn" onClick={() => setAiOpen(true)}>
-                  Summarise this account
+            {aiReady && onAsk && people.length > 0 && (
+              // Deep-links into the copilot (Phil's call, 2026-07-27): accountSummary runs
+              // deterministically there (instant footprint) with narration + labelled background
+              // on the hardened pipeline — the last AiSuggest text surface, now retired.
+              <p className="mform-links mform-links--ai">
+                <button type="button" className="mform-inline-btn" onClick={() => onAsk(`Give me the lay of the land at ${org}`)}>
+                  <span className="mform-ai-spark" aria-hidden>✦</span>Summarise this account
                 </button>
               </p>
             )}
@@ -285,14 +280,6 @@ export function AccountView({
         </div>
       </aside>
 
-      {aiOpen && (
-        <AiSuggest
-          title={`${org} — account summary`}
-          editable={false}
-          generate={summarise}
-          onClose={() => setAiOpen(false)}
-        />
-      )}
     </div>
   );
 }

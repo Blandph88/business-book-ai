@@ -381,6 +381,7 @@ export default function App() {
             setAccountOrg(null);
             navigate(tab, next);
           }}
+          onAsk={(text) => { setAccountOrg(null); askInChat(text); }}
           onClose={() => setAccountOrg(null)}
         />
       )}
