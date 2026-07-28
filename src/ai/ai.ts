@@ -162,7 +162,9 @@ export type AiBackend = "webllm" | "builtin" | "byok" | "ollama" | "stub";
 // qualify; the tiny built-in (Nano) and in-browser WebLLM (small 3B) don't. Ideally the broker reports a
 // per-model capability flag — until then this is the sensible default by backend.
 export function isCapableBackend(backend?: string): boolean {
-  return backend === "byok" || backend === "ollama";
+  // democloud = the Freehold-HOSTED demo model (gpt-4o-mini): a fast, capable cloud tier, so it gets
+  // the full treatment (LLM tool-router, chip-gen) and is NOT shown the "on-device, limited" note.
+  return backend === "byok" || backend === "ollama" || backend === "democloud";
 }
 
 // Capability is per-MODEL, not per-tier — and it's a GRADIENT, not a binary. WebLLM spans 1B→7B; Ollama
@@ -173,6 +175,7 @@ export function isCapableBackend(backend?: string): boolean {
 export type Capability = "small" | "mid" | "high";
 export function capabilityLevel(backend?: string, model?: string): Capability {
   if (backend === "byok") return "high";
+  if (backend === "democloud") return "high"; // hosted gpt-4o-mini — a high-capability cloud model
   const m = (model || "").toLowerCase();
   const billions = (() => { const x = m.match(/\b(\d+(?:\.\d+)?)\s*b\b/) || m.match(/-(\d+(?:\.\d+)?)b-/); return x ? parseFloat(x[1]) : null; })();
   if (backend === "ollama") return billions != null && billions < 4 ? "mid" : "high";
@@ -183,6 +186,7 @@ export function capabilityLevel(backend?: string, model?: string): Capability {
 // "Llama-3.2-3B-Instruct-q4f16_1-MLC" → "Llama 3.2 3B"; "claude-opus-4-8" → "claude-opus-4-8" (as-is).
 export function shortModelName(model?: string): string {
   if (!model) return "";
+  model = model.replace(/^[\w.-]+\//, ""); // strip a provider prefix ("openai/gpt-4o-mini" → "gpt-4o-mini")
   if (/^Gemini/i.test(model)) return model;
   const base = model.replace(/-Instruct.*$/i, "").replace(/-q\d.*$/i, "");
   if (/^(Llama|Qwen|Phi|Mistral|Gemma)/i.test(base)) return base.replace(/[-_]/g, " ");
@@ -214,6 +218,7 @@ export function backendLabel(backend?: string, byok?: boolean): string {
     case "builtin": return "Built-in AI";
     case "ollama": return "Local runtime";
     case "byok": return "Your API key";
+    case "democloud": return "Freehold demo model";
     case "stub": return "Demo mode";
     default: return byok ? "Your API key" : "AI";
   }
