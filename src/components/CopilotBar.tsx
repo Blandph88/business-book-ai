@@ -563,7 +563,7 @@ function TierLabel() {
   return (
     <span className="copilot-tier" title={`AI tier: ${label}${short ? ` (${short})` : ""} · capability: ${lvl}${ctx}. Model selection is managed by Freehold.`}>
       <span className="copilot-tier-dot" />
-      {label}{short ? ` · ${short}` : ""}
+      {short || label}
     </span>
   );
 }
