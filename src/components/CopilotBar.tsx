@@ -558,7 +558,10 @@ function TierLabel() {
   const { label, contextTokens, backend, model } = useAiBackend();
   if (!backend) return null;
   const ctx = contextTokens ? ` · ~${Math.round(contextTokens / 1000)}k context` : "";
-  const short = shortModelName(model);
+  // The hosted demo shows a BRANDED label ("Freehold Demo AI"), never the underlying model — naming
+  // "gpt-4o-mini" would leak the provider and read off-brand for a privacy product. Owned tiers still
+  // show the real model name (a buyer wants to see their own on-device / BYOK model).
+  const short = backend === "democloud" ? "" : shortModelName(model);
   const lvl = capabilityLevel(backend, model);
   return (
     <span className="copilot-tier" title={`AI tier: ${label}${short ? ` (${short})` : ""} · capability: ${lvl}${ctx}. Model selection is managed by Freehold.`}>
@@ -2014,11 +2017,6 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                 {doc ? (<><span className="copilot-doc-name">⎘ {doc.name}</span><button type="button" className="copilot-doc-x" onClick={() => setDoc(null)} aria-label="Remove">✕</button></>) : <span className="copilot-doc-note">{docNote}</span>}
               </div>
             )}
-            {aiReady && !isCapableBackend(activeBackend) && !q.trim() && (
-              <div className="copilot-capnote">
-                You're on an <strong>on-device model</strong> — private and free, but its answers can be limited and occasionally off. For sharper, more reliable results, connect a more capable model — your own API key, or a local model — in your AI settings on Freehold.
-              </div>
-            )}
             {aiReady && !q.trim() && (
               <div className="copilot-starters">
                 {starters.map((s) => (
@@ -2109,14 +2107,6 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         {view === "chat" && (
           <>
             <div className="copilot-chat" ref={threadRef}>
-              {/* Capability heads-up on an on-device model (WebLLM / Nano): sets expectations about quality
-                  without disparaging the privacy default. Sits at the TOP of the thread, so it's there on a
-                  new chat and simply scrolls up as the conversation grows — no nag, no dismiss needed. */}
-              {aiReady && !isCapableBackend(activeBackend) && (
-                <div className="copilot-capnote">
-                  You're on an <strong>on-device model</strong> — private and free, but its answers can be limited and occasionally off. For sharper, more reliable results, connect a more capable model — your own API key, or a local model — in your AI settings on Freehold.
-                </div>
-              )}
               {/* Chatting shares one local model with a background scan, so we pause the scan for you when you
                   chat. Tell them once (dismissable), so the paused banner isn't a surprise. */}
               {aiReady && sharesLocalModel && !pauseNoticeDismissed && (scanStatus === "running" || scanStatus === "paused") && (

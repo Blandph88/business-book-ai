@@ -218,7 +218,7 @@ export function backendLabel(backend?: string, byok?: boolean): string {
     case "builtin": return "Built-in AI";
     case "ollama": return "Local runtime";
     case "byok": return "Your API key";
-    case "democloud": return "Freehold demo model";
+    case "democloud": return "Freehold Demo AI";
     case "stub": return "Demo mode";
     default: return byok ? "Your API key" : "AI";
   }
