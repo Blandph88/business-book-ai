@@ -13,7 +13,7 @@ import {
   type Opportunity,
 } from "../storage/opportunities";
 import { buildMeetingRows, type MeetingRow } from "../data/meetings";
-import { warmthCell, warmthLabel, WARMTH_LEVELS } from "../ai/compute";
+import { warmthCell, warmthLabelFor, WARMTH_LEVELS } from "../ai/compute";
 import {
   RELATIONSHIP_STRENGTH,
   PRIORITY,
@@ -70,7 +70,7 @@ const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
     { key: "seniority", label: "Seniority", options: SENIORITY, get: (c) => c.seniority },
     { key: "sector_group", label: "Sector group", options: SECTOR_GROUPS, get: (c) => c.sector_group },
     { key: "relationship", label: "Relationship", options: RELATIONSHIP_STRENGTH, get: (c) => c.relationship_strength ?? "" },
-    { key: "warmth", label: "Warmth", options: WARMTH_LEVELS, get: (c) => warmthLabel(c.warmthSentiment) }, // LLM message-tone; unscored won't match any level
+    { key: "warmth", label: "Warmth", options: WARMTH_LEVELS, get: (c) => warmthLabelFor(c) }, // AI tone where scored; a never-replied contact is deterministically Cold, so "Cold" filters the dormant book
     { key: "owed", label: "Owes reply", options: YESNO, get: (c) => (c.thread && !c.thread.lastFromOwner ? "Yes" : "No") }, // deterministic: they messaged last
     { key: "opportunity", label: "Opportunity spotted", options: YESNO, get: (c) => (c.latentOpp?.text ? "Yes" : "No") }, // a lead spotted in messages by the Opportunity scan (precursor to a pipeline opportunity)
     { key: "priority", label: "Priority", options: PRIORITY, get: (c) => c.priority ?? "" },

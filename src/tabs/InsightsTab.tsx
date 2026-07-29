@@ -58,8 +58,18 @@ export function InsightsTab() {
   const [redact, setRedact] = useState(scanRedactEnabled());
 
   const reload = useCallback(() => { loadContacts().then(setContacts); }, []);
-  useEffect(() => { reload(); aiAvailable().then(setAiOn); aiAvailability().then((a) => setCloud(isCapableBackend(a.backend) && !a.local)); }, [reload]);
+  const recheckAi = useCallback(() => { aiAvailable().then(setAiOn); aiAvailability().then((a) => setCloud(isCapableBackend(a.backend) && !a.local)); }, []);
+  useEffect(() => { reload(); recheckAi(); }, [reload, recheckAi]);
   useEffect(() => { if (task.status === "done") reload(); }, [task.status, reload]);
+  // The AI tier is set in the Freehold panel, OUTSIDE this sealed app — so a change there doesn't remount
+  // us. Re-detect whenever a scan modal opens (and on window focus), so a stale "not set up" from page-load
+  // never blocks a scan the buyer just configured.
+  useEffect(() => { if (modal) recheckAi(); }, [modal, recheckAi]);
+  useEffect(() => {
+    const onFocus = () => recheckAi();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [recheckAi]);
 
   const candidates = contacts.filter(hasWarmthSignal).length;
   const warmthScored = contacts.filter((c) => c.warmthSentiment).length;
@@ -80,10 +90,10 @@ export function InsightsTab() {
     {
       job: "warmth",
       done: warmthScored, total: warmthTotal, remaining: warmthRemaining,
-      desc: "Rates how warm and keen each contact is, from the tone of their replies — powering your warmest-leads ranking, the Warmth column/filter, and the temperature chart.",
+      desc: "Rates how warm and keen each contact is, from the tone of their replies — powering your warmest-leads ranking, the Warmth column/filter, and the temperature chart. It scores everyone who's replied to you; contacts you've never had a conversation with are marked cold automatically.",
       status: isDemo
         ? `Sample data — ${warmthScored.toLocaleString()} relationships scored (this is what the scan produces).`
-        : warmthScored > 0 ? `${warmthScored.toLocaleString()} of ${candidates.toLocaleString()} relationships scored${warmthRemaining > 0 ? ` · ${warmthRemaining.toLocaleString()} to go` : " · all done"}` : `${candidates.toLocaleString()} relationships ready to analyse`,
+        : warmthScored > 0 ? `${warmthScored.toLocaleString()} of ${candidates.toLocaleString()} replied-to relationships scored${warmthRemaining > 0 ? ` · ${warmthRemaining.toLocaleString()} to go` : " · all done"}` : `${candidates.toLocaleString()} replied-to relationships ready to score — the rest of your book is marked cold`,
     },
     {
       job: "opportunities",

@@ -160,10 +160,21 @@ export function warmthLabel(w?: WarmthSentiment): string {
   const s = w.score;
   return s >= 8 ? "Keen" : s >= 6 ? "Warm" : s >= 4 ? "Neutral" : s >= 2 ? "Cool" : "Cold";
 }
-// A compact cell for tables: "Keen · 9/10", or "—" when this contact hasn't been scored yet.
+// Display category for a whole Contact, WITH the deterministic cold default. An AI score maps by tone; a
+// contact who has NEVER replied (no inbound message) is deterministically "Cold" — there's no relationship
+// to read, and it costs no AI, so the column/filter/chart cover the WHOLE book, not just the scanned few.
+// A contact who HAS replied but isn't scored yet stays "" (a genuine pending-scan state → shown as "—").
+// This is the chokepoint the column, filter and chart share, so they always agree.
+export function warmthLabelFor(c: Contact): string {
+  if (c.warmthSentiment && typeof c.warmthSentiment.score === "number") return warmthLabel(c.warmthSentiment);
+  return (c.inbound?.length ?? 0) === 0 ? "Cold" : "";
+}
+// A compact cell for tables: "Keen · 9/10" when scored, "Cold" for a never-replied contact (deterministic),
+// or "—" when a contact who DID reply just hasn't been scored yet.
 export function warmthCell(c: Contact): string {
   const w = c.warmthSentiment;
-  return w && typeof w.score === "number" ? `${warmthLabel(w)} · ${Math.round(w.score)}/10` : "—";
+  if (w && typeof w.score === "number") return `${warmthLabel(w)} · ${Math.round(w.score)}/10`;
+  return (c.inbound?.length ?? 0) === 0 ? "Cold" : "—";
 }
 // The DRY relationship-signal block that feeds the generative features (drafts, briefs, account summary,
 // Your Day). Assembles ONLY the signals present on this contact — warmth, who-owes-a-reply, a latent
