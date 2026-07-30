@@ -13,7 +13,7 @@ export type ActionCardData = {
   title: string;
   fields: FieldSpec[];
   values: Record<string, string>;
-  needsContact: boolean;
+  needsContact: boolean | "optional";
   subjectUrl?: string;
   targetId?: string; // the existing record being updated (opportunity/contract), so confirm edits in place
   prev?: Record<string, string>; // the record's stored values before the command's changes — drives the diff labels
@@ -67,7 +67,7 @@ export function ActionCard({
   }
 
   const set = (k: string, v: string) => setValues((s) => ({ ...s, [k]: v }));
-  const missingContact = data.needsContact && !subjectUrl;
+  const missingContact = data.needsContact === true && !subjectUrl;
   const missingRequired = data.fields.some((f) => f.required && !(values[f.key] ?? "").trim());
   const blocked = missingContact || missingRequired || !!busy;
 
@@ -86,7 +86,19 @@ export function ActionCard({
             options={contactOptions}
             placeholder="Search your contacts…"
             filterMode="namePrefix"
-            onChange={(v) => setSubjectUrl(v || undefined)}
+            onChange={(v) => {
+              setSubjectUrl(v || undefined);
+              // Opportunity: the picked contact fills organisation + primary contact (empty fields only) —
+              // the same auto-fill the tab form's Linked-contact picker does (#22).
+              if (data.kind === "opportunity" && v) {
+                const c = contacts.find((x) => x.url === v);
+                if (c) {
+                  const [nm, org] = c.label.split(" · "); // options are labelled "First Last · Org"
+                  if (org && !(values.organisation ?? "").trim()) set("organisation", org);
+                  if (nm && !(values.primary_contact ?? "").trim()) set("primary_contact", nm);
+                }
+              }
+            }}
           />
         </label>
       )}

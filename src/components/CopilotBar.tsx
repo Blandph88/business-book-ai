@@ -1734,7 +1734,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     setActionBusy(true);
     const spec = SPECS[kind];
     // CREATE-a-contact makes a NEW person, so there's no existing contact to resolve/pick.
-    const needsContact = spec.needsContact && !(kind === "contact" && op === "create");
+    const requireContact = spec.needsContact === true && !(kind === "contact" && op === "create");
+    const needsContact = requireContact; // legacy local name — gates clarification + save-blocking only
     // SUBJECT RESOLUTION — for EVERY action kind (Gate-0 #29/#34/#40: opportunities/contracts used to skip
     // this entirely because needsContact=false, which is exactly why "for them"/"for Daniel" left blank or
     // contaminated fields; a resolved subject now feeds the extract's contact + employer defaults).
@@ -1874,7 +1875,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         if (m) prev = { meeting_stage: m.meeting_stage || "", date_held: m.date_held || "", date_scheduled: m.date_scheduled || "", purpose: m.purpose || "", notes: m.notes || "", sentiment: m.sentiment || "" };
       }
     }
-    const card: ActionCardData = { kind, op, title: spec.title(ctx), fields, values, needsContact, subjectUrl, targetId, prev, status: "draft" };
+    const card: ActionCardData = { kind, op, title: spec.title(ctx), fields, values, needsContact: requireContact ? true : (spec.needsContact === "optional" ? "optional" : false), subjectUrl, targetId, prev, status: "draft" };
     let lead = op === "create" ? `Here's a draft ${spec.label.toLowerCase()} from what you said — check it${needsContact && !subjectUrl ? ", pick the contact" : ""} and confirm to save.` : `Here's the change — review and confirm to update.`;
     // A meeting UPDATE defaults to the contact's MOST RECENT meeting; when they have several, name WHICH one
     // in the lead (date + who) so the user can't silently confirm an edit to the wrong call — they can say the

@@ -48,7 +48,9 @@ export type ActionResult = { id: string; summary: string; undo: () => void };
 export type EntitySpec = {
   kind: ActionKind;
   label: string;
-  needsContact: boolean;
+  // true = a contact is REQUIRED (meeting); "optional" = show the picker but never block (opportunity —
+  // #22: the card lacked the picker the tab form has, which is what let wrong-org/name-only records happen).
+  needsContact: boolean | "optional";
   // Usually a fixed field list; a function when the fields differ by op (e.g. CREATE a contact needs
   // name/org/title inputs, UPDATE a contact edits CRM fields on an existing row).
   fields: FieldSpec[] | ((op: "create" | "update") => FieldSpec[]);
@@ -580,7 +582,7 @@ const OPP_FIELDS: FieldSpec[] = [
 const opportunitySpec: EntitySpec = {
   kind: "opportunity",
   label: "Opportunity",
-  needsContact: false,
+  needsContact: "optional", // picker shown, never blocks (#22)
   // UPDATE adds a visible Won/Open/Lost control; CREATE doesn't (a new deal is Open by definition).
   fields: (op) => (op === "update" ? [...OPP_FIELDS, { key: "outcome", label: "Outcome", type: "enum", options: OPP_OUTCOME }] : OPP_FIELDS),
   title: (ctx) => {
@@ -719,7 +721,7 @@ const opportunitySpec: EntitySpec = {
         opportunity_name: values.opportunity_name || existing.opportunity_name,
         organisation: values.organisation || existing.organisation,
         primary_contact: values.primary_contact || existing.primary_contact,
-        primary_contact_url: (() => { const q = values.primary_contact || existing.primary_contact; if (!q) return existing.primary_contact_url; const m = matchContacts(q, ctx.contacts); return m.length === 1 ? m[0].url : existing.primary_contact_url; })(),
+        primary_contact_url: ctx.subjectUrl || (() => { const q = values.primary_contact || existing.primary_contact; if (!q) return existing.primary_contact_url; const m = matchContacts(q, ctx.contacts); return m.length === 1 ? m[0].url : existing.primary_contact_url; })(),
         service_line: (norm(values.service_line, SERVICE_LINE) as ServiceLine) || existing.service_line,
         current_step: finalStep,
         est_value: values.est_value ? Number(values.est_value) : existing.est_value,
@@ -745,8 +747,8 @@ const opportunitySpec: EntitySpec = {
       id,
       opportunity_name: values.opportunity_name || `${values.organisation || "New"} opportunity`,
       organisation: values.organisation || "",
-      primary_contact: values.primary_contact || "",
-      primary_contact_url: (() => { const q = values.primary_contact; if (!q) return undefined; const m = matchContacts(q, ctx.contacts); return m.length === 1 ? m[0].url : undefined; })(),
+      primary_contact: values.primary_contact || (ctx.subjectUrl ? contactName(ctx, ctx.subjectUrl) : ""),
+      primary_contact_url: ctx.subjectUrl || (() => { const q = values.primary_contact; if (!q) return undefined; const m = matchContacts(q, ctx.contacts); return m.length === 1 ? m[0].url : undefined; })(),
       service_line: (norm(values.service_line, SERVICE_LINE) as ServiceLine) || "Strategy",
       current_step: step,
       est_value: values.est_value ? Number(values.est_value) : undefined,
