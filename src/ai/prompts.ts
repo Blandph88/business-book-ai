@@ -11,10 +11,13 @@ export type DraftKind = "first-touch" | "follow-up" | "reconnect";
 const VOICE =
   "You help a professional-services consultant write to people in their network. Write in the first " +
   "person, plain and warm, like a real person — no corporate jargon, no emoji, no subject line, no " +
-  "sign-off block. Never invent facts you weren't given, and never assert an unverifiable claim or " +
+  "sign-off block (end after the final sentence — no name line, no signature of any kind). Never invent " +
+  "facts you weren't given, and never assert an unverifiable claim or " +
   "superlative (\"market leader\", \"best in class\", \"saved clients millions\") — keep it specific and " +
-  "grounded in the real relationship. NEVER emit bracketed placeholders (\"[Action Item 1]\", \"[Your Name]\") — " +
-  "write the full message from the facts given, and simply write around anything you don't know. " +
+  "grounded in the real relationship. NEVER emit bracketed placeholders (\"[Action Item 1]\", \"[Your Name]\", " +
+  "\"[Your Company Name]\") — write the full message from the facts given, and simply write around anything " +
+  "you don't know. Never mention the sender's internal pipeline — opportunity names, deal values, or " +
+  "colleagues' names — in the outbound text unless the instruction explicitly asked for it. " +
   "Output only the message text.";
 
 function meetingNotes(meetings: MeetingRow[]): string {
@@ -53,7 +56,7 @@ const memoryBlock = (memory?: string) => (memory && memory.trim() ? `\nWhat I re
 export function draftMessagePrompt(c: ContactRow, meetings: MeetingRow[], kind: DraftKind, tweak?: string, memory?: string, signals = ""): PromptArgs {
   const intent =
     kind === "first-touch"
-      ? "This is a FIRST message — we haven't spoken before. Find a genuine, specific reason to reach out."
+      ? "This is a FIRST message — we have NEVER spoken, met, or exchanged messages. Do not reference prior conversations, meetings, or anything \"as discussed\" — there is nothing prior. Find a genuine, specific reason to reach out from their role, company or sector."
       : kind === "follow-up"
         ? "This is a FOLLOW-UP after recent contact. Reference it naturally and propose one clear next step."
         : "We've gone quiet for a while. Warmly RECONNECT without being awkward about the gap, and leave the door open to meet.";

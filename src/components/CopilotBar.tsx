@@ -29,7 +29,7 @@ const STARTER_ICON: Record<string, React.ReactNode> = {
 };
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult, draftMessagePrompt, type DraftKind } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, rankContacts, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, lastMetQuery, newsShaped, reminderSubject, contactSignalsText, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, rankContacts, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, lastMetQuery, newsShaped, reminderSubject, owedReplies, orgMatches, contactSignalsText, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, MONEY_DECISION, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -1148,6 +1148,17 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         const lc = led && data.contacts.find((c) => c.url === led.id);
         if (lc) dc = [lc];
       }
+      // FIRST-NAME target ("Draft a follow-up to Priya after our meeting") — scanEntities needs a full
+      // name, so the bare first name fell through to the GENERIC template path (the source of every
+      // "[Your Name]" leak in the live battery, #27). Resolve the span; several matches → the picker.
+      if (!dc.length) {
+        const span = text.match(/\b(?:to|for)\s+([A-Za-z\u00C0-\u017F][\w\u00C0-\u017F.'-]*(?:\s+[A-Za-z\u00C0-\u017F][\w\u00C0-\u017F.'-]*)?)/i)?.[1]
+          ?.replace(/\s+(?:after|about|re|regarding|following|from|on)\b.*$/i, "").trim();
+        if (span && !/^(?:my|the|our|a|an|someone|anyone)$/i.test(span)) {
+          const cand = matchContacts(span, data.contacts);
+          if (cand.length >= 1 && cand.length <= 6) dc = cand;
+        }
+      }
       // SHARED NAME → ask which (live run: two Patricia Greens sent the draft down the generic
       // template path). Chips re-issue the same request with the org qualifier.
       if (dc.length > 1 && dc.length <= 6) {
@@ -1163,14 +1174,45 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       }
       if (dc.length === 1) {
         const c = dc[0];
-        const kind: DraftKind = /\breconnect|re-?engage\b/i.test(text) ? "reconnect"
-          : /\b(?:first|intro|cold)\b/i.test(text) && !data.meetingRows.some((m) => m.contact_url === c.url) ? "first-touch"
-          : "follow-up";
         const theirMeetings = data.meetingRows.filter((m) => m.contact_url === c.url);
+        // The draft MODE comes from the RELATIONSHIP STATE, not the user's verb (fix #28: a "check-in
+        // note" to a never-contacted person fabricated "our recent discussions" — there were none).
+        const neverEngaged = !theirMeetings.length && !c.two_way && !(c.inbound?.length) && !(c.thread?.inboundCount);
+        const kind: DraftKind = neverEngaged ? "first-touch"
+          : /\breconnect|re-?engage\b/i.test(text) ? "reconnect"
+          : /\b(?:first|intro|cold)\b/i.test(text) && !theirMeetings.length ? "first-touch"
+          : "follow-up";
         const mem = relevantNotes(`${c.first} ${c.last} ${c.organisation || ""}`, 8).map((n) => n.text).join("\n");
         pushReferent(id, { kind: "contact", id: c.url, label: `${c.first} ${c.last}`.trim() });
         await streamDraft(draftMessagePrompt(c as ContactRow, theirMeetings, kind, undefined, mem, contactSignalsText(c)), text, prior, id, history);
         return;
+      }
+      // SET-DESCRIPTION targets (fix: composition gap 22a/22b) — "someone I've gone quiet with" / "a new
+      // <Org> contact" describe a set a TOOL can resolve; offer real candidates instead of a [Name] template.
+      if (!dc.length) {
+        const goneQuiet = /\b(?:gone (?:quiet|cold)|lost touch|haven'?t (?:spoken|talked)|quiet with)\b/i.test(text);
+        const orgForNew = /\b(?:new|cold)\b[^?]*\bcontact\b|\bfirst[- ]?touch\b/i.test(text) ? scanEntities(text, data).orgs[0] : "";
+        let cands: { name: string; org: string }[] = [];
+        if (goneQuiet) {
+          const owed = owedReplies(data, today);
+          cands = owed.rows.slice(0, 5).map((r) => ({ name: String(r.cells[0]), org: String(r.cells[1] || "") }));
+        } else if (orgForNew) {
+          cands = data.contacts.filter((c) => !c.messaged && orgMatches(c.organisation, orgForNew)).slice(0, 5)
+            .map((c) => ({ name: `${c.first} ${c.last}`.trim(), org: c.organisation }));
+        }
+        if (cands.length) {
+          const chips: Chip[] = cands.map((x) => ({
+            label: `${x.name}${x.org ? ` · ${x.org}` : ""}`,
+            prompt: `${goneQuiet ? "Draft a reconnect message to" : "Write a first-touch intro to"} ${x.name}${x.org ? ` at ${x.org}` : ""}`,
+          }));
+          const msg = goneQuiet
+            ? "Worth re-engaging — pick who this is for:"
+            : `Here are people at ${orgForNew} you haven't contacted yet — pick who this is for:`;
+          persistTo(id, [...history, { role: "you", text }, { role: "ai", text: msg }]);
+          if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: msg, chips }]);
+          setAsking(false); markDone(id);
+          return;
+        }
       }
     }
     setLocalTier(!!(avail.local || avail.backend === "ollama"));

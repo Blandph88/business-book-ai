@@ -238,7 +238,7 @@ function oppStatus(o: Opportunity): "Open" | "Won" | "Lost" { if (o.lost) return
 function oppWeighted(o: Opportunity): number { return (o.est_value ?? 0) * (o.probability ?? 0); }
 const stepLabel = (id: string) => id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 // Loose company match: an org "contains" the query as a word-ish substring (case-insensitive).
-function orgMatches(org: string | undefined, q: string): boolean {
+export function orgMatches(org: string | undefined, q: string): boolean {
   if (!org) return false;
   const o = org.toLowerCase(), s = q.trim().toLowerCase();
   if (!s) return false;
