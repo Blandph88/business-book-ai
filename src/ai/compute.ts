@@ -473,7 +473,9 @@ export function rankOpportunities(d: BookData, by: "value" | "probability" | "ri
     const signals = (o: Opportunity) => Number(quiet(o)) + Number(staleMet(o));
     list = open
       .filter((o) => (bigEarly(o) || quiet(o) || staleMet(o)) && !(recentMet(o) && signals(o) === 0))
-      .sort((a, b) => (signals(b) - signals(a)) || (b.est_value ?? 0) - (a.est_value ?? 0))
+      // Within a signal tier, the STALEST deal is the most at-risk — oldest last-met first (a £75k deal
+      // silent since February outranks a £200k one met last month), value only as the tiebreak.
+      .sort((a, b) => (signals(b) - signals(a)) || (metOn(a) || "9999").localeCompare(metOn(b) || "9999") || (b.est_value ?? 0) - (a.est_value ?? 0))
       .slice(0, 10);
     intro = `At risk of stalling${valNote ? ` (deals${valNote})` : ""} — gone quiet on you, no meeting in 45+ days, or big and still early-stage:`;
     riskLastMet = (o) => { const dt = metOn(o); return dt ? dt : "never met"; };
@@ -1396,7 +1398,14 @@ export function compareEntities(text: string, d: BookData, today: string, recent
     return names.size > 1;
   };
   for (const side of [a, b]) {
-    if (ambiguous(side)) return contactBrief(d, side, today); // emits the which-one-did-you-mean picker
+    if (ambiguous(side)) {
+      const pick = contactBrief(d, side, today); // emits the which-one-did-you-mean picker
+      if (pick && pick.rows.length > 6) {
+        // 50 namesakes is a wall, not a question (regression R16) — offer the 6 closest, invite the full name.
+        return { ...pick, intro: pick.intro.replace(/which one did you mean\?.*$/i, "which one did you mean? Here are the 6 closest — type the full name if yours isn't here."), rows: pick.rows.slice(0, 6) };
+      }
+      return pick;
+    }
   }
   const profile = (ref: string): ComputeResult | null => {
     if (/^(?:them|him|her|it|that|this|they|he|she)$/i.test(ref)) return null; // deixis — needs thread context
@@ -2167,6 +2176,9 @@ export function runTool(call: ToolCall, d: BookData, today: string, sourceText =
       return findContacts(d, { company: co, stage, decisionRole: !!a.decisionRole });
     }
     case "findMeetings": {
+      // The user's own words win over router-computed day counts: "since April" must reach windowSince,
+      // not arrive here as a rebuilt "last 180 days" (regression R2 — the router bypassed the boundary).
+      if (windowSince(sourceText, today)) return findMeetings(d, today, sourceText);
       const dir = str(a.direction);
       const win = num(a.windowDays) ?? num(a.window_days);
       const range = dir === "upcoming" ? `upcoming${win ? ` ${win} days` : ""}`

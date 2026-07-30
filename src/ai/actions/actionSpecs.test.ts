@@ -141,3 +141,10 @@ describe("#26 — contact-update extraction actually populates the card", () => 
     expect(v.notes).toBe("Emma prefers email");
   });
 });
+
+describe("R9 residual — possessive subject span", () => {
+  it("'Update Priya OConnor's role to Partner' extracts the NAME, not 'Partner'", async () => {
+    const { extractSubjectSpan } = await import("./actionSpecs");
+    expect(extractSubjectSpan("Update Priya OConnor's role to Partner")).toBe("Priya OConnor");
+  });
+});

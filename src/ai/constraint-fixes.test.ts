@@ -186,3 +186,32 @@ describe("#29 — comparative first-name ambiguity asks instead of silently pick
     expect(r?.intro).toContain("Side by side");
   });
 });
+
+describe("regression residuals (2026-07-30 battery re-run)", () => {
+  it("R2: runTool findMeetings lets the user's 'since <month>' beat router-computed day args", () => {
+    const d = book({ meetingRows: [meeting("u1", "Old", "OldCo", "2026-03-15"), meeting("u2", "New", "NewCo", "2026-05-10")] });
+    const r = runTool({ tool: "findMeetings", args: { direction: "past", windowDays: 180 } }, d, TODAY, "meetings since april?");
+    expect(r?.intro).toContain("since April");
+    expect(r?.rows).toHaveLength(1);
+  });
+  it("S3: within a signal tier the STALEST deal outranks a bigger fresher one", () => {
+    const d = book({
+      contacts: [contact("k1", "Kay", "Png", "KPMG"), contact("j1", "Jo", "Pm", "JPMorgan Chase")],
+      meetingRows: [meeting("k1", "Kay Png", "KPMG", "2026-02-16"), meeting("j1", "Jo Pm", "JPMorgan Chase", "2026-06-01")],
+      opps: [
+        opp("o-j", "JPMorgan Chase", "j1", 200_000, "clearance"),
+        opp("o-k", "KPMG", "k1", 75_000, "proposal_delivery"),
+      ],
+    });
+    const r = rankOpportunities(d, "risk", undefined, TODAY);
+    const companies = r.rows.map((x) => String(x.cells[1]));
+    expect(companies.indexOf("KPMG")).toBeLessThan(companies.indexOf("JPMorgan Chase"));
+  });
+  it("R16: the compare-ambiguity picker caps at 6 with a type-the-full-name invite", () => {
+    const many = Array.from({ length: 9 }, (_, i) => contact(`p${i}`, "Priya", `Surname${i}`, `Org${i}`));
+    const d = book({ contacts: [...many, contact("pat", "Patricia", "Miller", "ExxonMobil")] });
+    const r = compareEntities("Who's the stronger relationship, Priya or Patricia Miller?", d, TODAY);
+    expect(r?.rows.length).toBeLessThanOrEqual(6);
+    expect(r?.intro).toContain("full name");
+  });
+});

@@ -299,6 +299,10 @@ export function extractOrg(text: string, ctx: ActionCtx): string {
 // used to capture "Berlin" and score prefix junk). Returns "" when no span parses (caller falls back).
 export function extractSubjectSpan(text: string): string {
   const head = text.split(/[:;–—]|(?:\s-\s)|,/)[0];
+  // POSSESSIVE subject first — "Update Priya OConnor's role to Partner": the name sits BEFORE the field
+  // phrase, so the preposition rule below would grab "Partner" (regression R9).
+  const poss = head.match(/\b([A-Z\u00C0-\u017F][\w\u00C0-\u017F.'-]*(?:\s+[A-Z\u00C0-\u017F][\w\u00C0-\u017F.'-]*)?)['’]s\b/);
+  if (poss) return poss[1].trim();
   const m = head.match(/\b(?:with|to|for|about|on|re|into)\s+(.+)$/i);
   if (!m) return "";
   return m[1]
