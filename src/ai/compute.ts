@@ -1913,6 +1913,28 @@ export function frontDoorBrief(text: string, d: BookData, today: string): Comput
   return contactBrief(d, ref, today);
 }
 
+// LAST-MET recency ("when did I last meet them / Mary?") — fix #30: the pronoun ask fell through to the
+// LLM router, which reinterpreted it as a windowed meetings list and never consumed the thread referent.
+// Subject = a contact named in the text, else the referent the caller carries. Returns null (fall through)
+// when neither exists — an unanchored "them" must not guess.
+export function lastMetQuery(text: string, d: BookData, today: string, referentName?: string): ComputeResult | null {
+  if (!/\bwhen\s+(?:did|have)\s+(?:i|we)\s+last\s+(?:meet|met|see|seen|speak|spoke|talk|catch(?:ed)? up)\b|\bwhen\s+was\s+(?:my|our)\s+last\s+(?:meeting|call|catch[- ]?up)\b/i.test(text)) return null;
+  const scan = scanEntities(text, d);
+  let c: Contact | null = scan.contacts[0] ?? null;
+  if (!c && referentName) c = resolveContact(d, referentName, today);
+  if (!c) return null;
+  const held = d.meetingRows
+    .filter((m) => m.meeting_stage === "Held" && m.date_held && m.contact_url === c!.url)
+    .sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
+  if (!held.length) return { intro: `You haven't met ${fullName(c)} yet — no held meeting is logged. Their stage: ${stageLabel(c)}.`, subject: { kind: "contact", id: c.url, label: fullName(c) }, columns: [], rows: [] };
+  const m = held[0];
+  return {
+    intro: `You last met ${fullName(c)}${c.organisation ? ` (${c.organisation})` : ""} on ${m.date_held}${m.sentiment ? ` — ${m.sentiment}` : ""}${held.length > 1 ? ` (${held.length} meetings all time)` : ""}.`,
+    subject: { kind: "contact", id: c.url, label: fullName(c) },
+    columns: [], rows: [{ cells: [m.date_held || "—", fullName(c), c.organisation || "—", m.sentiment || "—"], record: { tab: "meetings", id: m.id } }],
+  };
+}
+
 // MEETING-CONTENT retrieval ("what did X and I talk about?", "what was our last meeting about?") —
 // the NOTES are the answer, fetched deterministically; planned in Batch 2 and caught missing in the
 // re-verify (retest #32/#36 both wanted this). Subject = a named contact, the thread referent (passed
@@ -2169,7 +2191,21 @@ export function runTool(call: ToolCall, d: BookData, today: string, sourceText =
     }
     // A pronoun/self name → null, so answer() falls through to the grounded book path (which resolves
     // the thread's actual person) instead of briefing a coincidental substring match.
-    case "contactBrief": { const n = named(a.name) || named(a.contact); return n ? contactBrief(d, n, today) : null; }
+    case "contactBrief": {
+      const n = named(a.name) || named(a.contact);
+      if (!n) return null;
+      // OVER-CARRY GUARD (fix #1): after a few turns about a person, the router kept briefing THEM for a
+      // question that explicitly named someone/something else ("what's my history with ExxonMobil?" →
+      // Priya's brief). If the routed name does NOT appear in the user's actual text, and the text scans
+      // a different explicit entity, the user's own words win: org → account footprint, contact → their brief.
+      const inText = foldAccents(sourceText).includes(foldAccents(n).split(" ")[0] || n.toLowerCase());
+      if (!inText && sourceText.trim()) {
+        const scan = scanEntities(sourceText, d);
+        if (scan.contacts.length === 1) return contactBrief(d, fullName(scan.contacts[0]), today);
+        if (!scan.contacts.length && scan.orgs.length) return accountSummary(d, scan.orgs[0]);
+      }
+      return contactBrief(d, n, today);
+    }
     case "accountSummary": { const n = named(a.company) || named(a.name); return n ? accountSummary(d, n) : null; }
     default: return null;
   }

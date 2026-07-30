@@ -3,7 +3,7 @@
 // ("more than once", "warm"), company-scoped meeting recall, and meeting-staleness in the risk ranking.
 import { describe, it, expect } from "vitest";
 import {
-  windowSince, findMeetings, meetingsCount, meetingsWithoutOpp, rankOpportunities, meetingContent, runTool,
+  windowSince, findMeetings, meetingsCount, meetingsWithoutOpp, rankOpportunities, meetingContent, runTool, lastMetQuery,
 } from "./compute";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
@@ -135,5 +135,38 @@ describe("#12 — risk ranking includes meeting-staleness, excludes fresh moment
   it("runTool redirects a quiet-worded findOpportunities call to the risk ranking (14a)", () => {
     const r = runTool({ tool: "findOpportunities", args: { minValue: 20000 } }, d, TODAY, "which deals over £20k have gone quiet?");
     expect(r?.intro).toContain("At risk of stalling");
+  });
+});
+
+describe("#30/#1 — referent carry: consume pronouns, never override typed entities", () => {
+  const d = book({
+    contacts: [contact("p1", "Priya", "OConnor", "ExxonMobil"), contact("m1", "Mary", "Andersson", "ExxonMobil")],
+    meetingRows: [meeting("p1", "Priya OConnor", "ExxonMobil", "2026-07-29", 1, { sentiment: "Neutral" })],
+  });
+  it("'when did I last meet them?' answers from the carried referent (#30)", () => {
+    const r = lastMetQuery("When did I last meet them?", d, TODAY, "Priya OConnor");
+    expect(r?.intro).toContain("You last met Priya OConnor");
+    expect(r?.intro).toContain("2026-07-29");
+  });
+  it("a NAMED contact in the text beats the referent", () => {
+    const r = lastMetQuery("When did I last meet Mary Andersson?", d, TODAY, "Priya OConnor");
+    expect(r?.intro).toContain("Mary Andersson");
+    expect(r?.intro).toContain("haven't met");
+  });
+  it("an unanchored pronoun falls through (null) — no guessing", () => {
+    expect(lastMetQuery("When did I last meet them?", d, TODAY, undefined)).toBeNull();
+  });
+  it("a non-recency question falls through", () => {
+    expect(lastMetQuery("Who do I know at ExxonMobil?", d, TODAY, "Priya OConnor")).toBeNull();
+  });
+  it("runTool contactBrief over-carry guard: a routed stale name yields to the org the user actually typed (#1)", () => {
+    const r = runTool({ tool: "contactBrief", args: { name: "Priya OConnor" } }, d, TODAY, "what's my history with ExxonMobil?");
+    // The user's text names ExxonMobil (an org, no contact) → account footprint, not Priya's brief.
+    expect(r?.intro).toContain("ExxonMobil");
+    expect(r?.intro).not.toContain("Priya OConnor —");
+  });
+  it("runTool contactBrief with the name genuinely in the text stays a brief", () => {
+    const r = runTool({ tool: "contactBrief", args: { name: "Priya OConnor" } }, d, TODAY, "look at Priya OConnor");
+    expect(r?.intro).toContain("Priya OConnor");
   });
 });

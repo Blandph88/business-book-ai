@@ -29,7 +29,7 @@ const STARTER_ICON: Record<string, React.ReactNode> = {
 };
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult, draftMessagePrompt, type DraftKind } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, rankContacts, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, newsShaped, reminderSubject, contactSignalsText, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, rankContacts, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, lastMetQuery, newsShaped, reminderSubject, contactSignalsText, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, MONEY_DECISION, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -1365,6 +1365,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       {
         const mc = meetingContent(text, data, today, latestReferent(id, "contact")?.label);
         if (mc) { await renderCompute(mc); return; }
+      }
+      // LAST-MET recency ("when did I last meet them?") — consumes the same thread referent (fix #30:
+      // the pronoun ask used to fall to the router and come back as a global windowed meetings list).
+      {
+        const lm = lastMetQuery(text, data, today, latestReferent(id, "contact")?.label);
+        if (lm) { await renderCompute(lm); return; }
       }
       // COMPARE with thread referents ("how does he compare to Olivia?") — substitute the ledger's
       // latest contact/record into the pronouns, then run the deterministic side-by-side (retest #37b:
