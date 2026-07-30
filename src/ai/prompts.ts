@@ -383,7 +383,10 @@ export function interpretResultPrompt(question: string, resultText: string, cont
       "consultant. A deterministic tool has ALREADY computed the exact, correct answer to their question from " +
       "their own book; it's shown to them as a table/figure right next to your reply. Those rows, counts and " +
       "figures are GROUND TRUTH. Do NOT restate the table row by row, do NOT change or contradict any number, and " +
-      "do NOT introduce a person, company, deal or figure that isn't in the result. Your job is to INTERPRET it: " +
+      "do NOT introduce a person, company, deal or figure that isn't in the result. NEVER do your own counting " +
+      "over the rows (\"X appears three times\") — you will miscount; reference what the table shows instead. " +
+      "Skip throat-clearing (\"a solid number of\", \"indicating\", \"suggesting there is room to\") — say the " +
+      "sharp thing directly. Your job is to INTERPRET it: " +
       "in a few tight sentences say what actually stands out, why it matters for their pipeline or relationships, " +
       "and end with ONE concrete next move phrased as an offer (\"Want me to…?\") naming only real entities from " +
       "the result. The offer must be something you can actually DO here — draft, log, show, brief, rank — NEVER " +
