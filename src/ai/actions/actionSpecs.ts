@@ -153,7 +153,7 @@ function groundedIn(value: string | undefined, source: string): string {
 // "log a meeting with Adam: discussed pricing" → "discussed pricing", but a bare command → "").
 function stripMeetingCommand(text: string): string {
   return text
-    .replace(/^\s*(log|record|add|create|note|capture|save|had|have)\b[^:.\n]*?\bmeeting\b[^:.\n]*?\b(?:with|for)\s+[\w .'-]+/i, "")
+    .replace(/^\s*(log|record|add|create|note|capture|save|had|have|book|schedule|arrange|set up|plan)\b[^:.\n]*?\bmeeting\b[^:.\n]*?\b(?:with|for)\s+[\w .'-]+/i, "")
     // "Log that I bumped into Karen…" — drop the command verb, keep the substance (retest #29: the raw
     // command text, "Log that" included, landed verbatim in the Notes field).
     .replace(/^\s*(?:log|record|note|capture|save)\s+(?:that\s+|down\s+)?/i, "")
@@ -239,7 +239,7 @@ export function matchOpportunity(query: string, opps: Opportunity[]): Opportunit
 // PERSON-TOKEN GUARD (Gate-0 #16-item): tokens that belong to a person named in the command must never
 // enter the org matcher — "Mary Andersson" used to prefill the unrelated firm "Andersson & Partners", and
 // "for Daniel" used to become organisation="Daniel". Person names resolve to their EMPLOYER instead.
-function extractOrg(text: string, ctx: ActionCtx): string {
+export function extractOrg(text: string, ctx: ActionCtx): string {
   const t = ` ${text.toLowerCase()} `;
   // Tokens belonging to any contact name that appears in the text — excluded from org matching.
   const personToks = new Set<string>();
@@ -250,12 +250,35 @@ function extractOrg(text: string, ctx: ActionCtx): string {
   const known = new Set<string>();
   for (const c of ctx.contacts) if (c.organisation) known.add(c.organisation);
   for (const o of ctx.opps) if (o.organisation) known.add(o.organisation);
-  let best = "";
+  // TIER 1 — the FULL org name typed verbatim wins outright; if several exact names appear ("Accenture"
+  // inside "Accenture Strategy"), the LONGEST exact match is the more specific thing the user typed.
+  // (Fix #17a: the old longest-ORG-wins tie-break resolved a typed "Accenture" to "Accenture Strategy".)
+  let exact = "";
   for (const org of known) {
-    const toks = org.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !personToks.has(w));
-    if (toks.some((w) => t.includes(` ${w} `) || t.includes(` ${w},`) || t.includes(` ${w}.`))) { if (org.length > best.length) best = org; }
+    const ol = ` ${org.toLowerCase()} `;
+    if ((t.includes(ol) || t.includes(ol.trimEnd() + ", ") || t.includes(ol.trimEnd() + ". ")) && org.length > exact.length) exact = org;
   }
-  if (best) return best;
+  if (exact) return exact;
+  // TIER 2 — distinctive-token match. Generic trade words can never carry a match on their own (fix #17b:
+  // "the ExxonMobil STRATEGY work" token-matched "OC&C Strategy Consultants" and beat the exact name).
+  const GENERIC = new Set(["strategy", "consulting", "consultants", "group", "partners", "partner", "advisory", "advisers", "advisors", "solutions", "associates", "capital", "global", "international", "services", "company", "holdings", "ventures"]);
+  type Cand = { org: string; score: number };
+  const cands: Cand[] = [];
+  for (const org of known) {
+    const toks = org.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !personToks.has(w) && !GENERIC.has(w));
+    if (!toks.length) continue;
+    const hit = toks.filter((w) => t.includes(` ${w} `) || t.includes(` ${w},`) || t.includes(` ${w}.`)).length;
+    if (hit) cands.push({ org, score: hit / toks.length });
+  }
+  cands.sort((a, b) => b.score - a.score || a.org.length - b.org.length); // best coverage, then LEAST speculative
+  if (cands.length) {
+    const top = cands[0];
+    const rival = cands[1];
+    // Two DIFFERENT orgs tied on full coverage ("Ashcroft" → Group AND Advisers): guessing files the deal
+    // against the wrong client — leave the field empty for the card's picker instead.
+    if (rival && rival.score === top.score && top.score >= 1 && !rival.org.toLowerCase().includes(top.org.toLowerCase()) && !top.org.toLowerCase().includes(rival.org.toLowerCase())) return "";
+    return top.org;
+  }
   const m = text.match(/\b(?:at|with|for|from)\s+([A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,3})/);
   if (m) {
     const cand = m[1].replace(/\s+(worth|valued|deal|opportunity|on|about|re)\b.*$/i, "").trim();
@@ -346,12 +369,18 @@ const meetingSpec: EntitySpec = {
     // NEXT MONTH" is a HELD meeting with a future follow-up — the future clause must not flip the stage.
     const past = /\b(bumped into|ran into|met|saw|had (?:a )?(?:meeting|coffee|call|chat|catch[- ]?up)|caught up with|spoke (?:with|to)|just met)\b/i.test(ctx.text)
       || /\b(this morning|this afternoon|earlier today|yesterday|just now)\b/i.test(ctx.text);
-    const future = !past && /\b(i'?m meeting|i am meeting|will meet|going to meet|next (week|month|tuesday|monday|wednesday|thursday|friday)|upcoming|schedule|set up|seeing .* (on|next))\b/i.test(ctx.text);
+    const future = !past && /\b(i'?m meeting|i am meeting|will meet|going to meet|next (week|month|tuesday|monday|wednesday|thursday|friday)|upcoming|schedule|book(?:ing)?|arrange|set up|plan (?:a|to)|seeing .* (on|next))\b/i.test(ctx.text);
     // Notes default to any REAL content the user typed (the bare "log a meeting with X" command is stripped,
     // not echoed into the field) — they'll usually fill this from notes/a transcript.
     const v: Record<string, string> = { meeting_stage: future ? "Scheduled" : "Held", notes: stripMeetingCommand(ctx.text) };
     if (!future) v.date_held = relativeDate(ctx.today, ctx.text) || ctx.today;
+    else { const when = relativeDate(ctx.today, ctx.text) || namedMonthDate(ctx.today, ctx.text); if (when) v.date_scheduled = when; }
     if (ctx.skipModel) return v; // deterministic-only (on-device, short command) — open the form fast
+    // NO MODEL EXTRACTION for a future meeting or a bare command (fix #32: "Book a meeting with them" came
+    // back with a fabricated "Very Positive" sentiment + "Opportunity spotted: Yes" for a meeting that
+    // hasn't happened, and the raw command echoed into Notes/My-actions). Nothing has been discussed yet —
+    // there is no sentiment, no actions, no opportunity to extract.
+    if (future || v.notes.length < 12) { if (future) v.notes = ""; return v; }
     try {
       if (ctx.text.length > 600) {
         const ex = await aiJson<TranscriptExtract>(transcriptPrompt(ctx.text));
@@ -464,6 +493,12 @@ const contactSpec: EntitySpec = {
     }
     const t = ctx.text; const v: Record<string, string> = {};
     const rel = matchEnum(t, RELATIONSHIP_STRENGTH); if (rel) v.relationship_strength = rel;
+    // ROLE / TITLE (fix #26: "Priya got promoted to Partner — update her" and "Update Priya's role to
+    // Partner" both opened an EMPTY card — the one stated fact never landed in a field).
+    const promo = t.match(/\b(?:promoted to|made|now (?:a|the)\s+|moved up to)\s+([A-Z][\w /&'-]{2,40}?)(?=\s*(?:[—–\-,.!]|at\b|in\b|$))/)
+      || t.match(/\b(?:role|title|position)\s+(?:to|is now|changed to|updated to)\s+([A-Z]?[\w /&'-]{2,40}?)(?=\s*(?:[—–\-,.!]|at\b|$))/i)
+      || t.match(/\bnew (?:role|title|position)\b[:\s]+([A-Z]?[\w /&'-]{2,40}?)(?=\s*(?:[—–\-,.!]|at\b|$))/i);
+    if (promo) v.position = promo[1].trim();
     if (/\bhigh priority\b/i.test(t)) v.priority = "High"; else if (/\b(medium|med)\s+priority\b/i.test(t)) v.priority = "Medium"; else if (/\blow priority\b/i.test(t)) v.priority = "Low";
     if (/\bdecision[- ]?maker\b/i.test(t)) v.decision_role = "Decision Maker"; else if (/\binfluencer\b/i.test(t)) v.decision_role = "Influencer"; else if (/\bgatekeeper\b/i.test(t)) v.decision_role = "Gatekeeper";
     const based = t.match(/\bbased in\s+([\w ,.'-]+)/i); if (based) v.based_in = based[1].trim().replace(/[.,]$/, "");
@@ -471,6 +506,9 @@ const contactSpec: EntitySpec = {
     const moving = t.match(/\b(?:switch(?:ing)?|mov(?:e|ing)|relocat(?:e|ing)|transferr?(?:ing)?)\s+to\s+(?:the\s+)?([A-Z][\w .'-]+?)\s+office\b/i);
     if (moving && !v.based_in) v.based_in = moving[1].trim();
     const note = t.match(/\bnote(?:\s+(?:to|on|for|about)\s+[\w ]+?)?[:]\s*(.+)/i); if (note) v.notes = note[1].trim();
+    // "Add a note THAT <substance>" / "note saying <substance>" — the colon-less phrasing people actually
+    // type (fix #26: "Add a note that Emma prefers email" opened an empty card).
+    if (!v.notes) { const n3 = t.match(/\bnote\s+(?:that|saying)\s+(.+)$/i); if (n3) v.notes = n3[1].trim().replace(/[.?!]+$/, ""); }
     // "Note on X: <substance>" without a colon variant — keep the substance as the note, never the command.
     if (!v.notes) { const n2 = t.match(/^\s*note\s+(?:on|about|for)\s+[A-Za-z .'-]+?\s*[—–-]\s*(.+)$/i); if (n2) v.notes = n2[1].trim(); }
     return v;

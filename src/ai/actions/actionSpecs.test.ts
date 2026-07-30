@@ -79,3 +79,65 @@ describe("namedMonthDate (R-I #34)", () => {
     expect(namedMonthDate("2026-07-09", "reconnect soon")).toBe("");
   });
 });
+
+// ── WS4 battery fixes (#17 #26 #32 #19-adjacent) ────────────────────────────────────────────────
+import { extractOrg } from "./actionSpecs";
+import type { Contact } from "../../data/contacts";
+
+const mkContact = (first: string, last: string, organisation: string, url: string): Contact =>
+  ({ first, last, organisation, position: "", sector_detail: "", sector_group: "", sub_group: "", seniority: "",
+     function: "", messaged: false, responded: false, two_way: false, agreed_to_meet: false, met: false, url, phone: "" } as Contact);
+
+describe("#17 — extractOrg: exact beats superstring; generic tokens never carry a match", () => {
+  const ctx = baseCtx({ contacts: [
+    mkContact("A", "One", "Accenture", "u1"),
+    mkContact("B", "Two", "Accenture Strategy", "u2"),
+    mkContact("C", "Three", "ExxonMobil", "u3"),
+    mkContact("D", "Four", "OC&C Strategy Consultants", "u4"),
+    mkContact("E", "Five", "Ashcroft Group", "u5"),
+    mkContact("F", "Six", "Ashcroft Advisers", "u6"),
+  ]});
+  it("a typed exact org wins over its superstring ('Accenture' ≠ 'Accenture Strategy')", () => {
+    expect(extractOrg("start a new deal with Accenture", ctx)).toBe("Accenture");
+  });
+  it("the fully-typed superstring still wins when that IS what was typed", () => {
+    expect(extractOrg("start a new deal with Accenture Strategy", ctx)).toBe("Accenture Strategy");
+  });
+  it("a service keyword cannot beat an exact org name ('the ExxonMobil strategy work' → ExxonMobil)", () => {
+    expect(extractOrg("open an opportunity for the ExxonMobil strategy work", ctx)).toBe("ExxonMobil");
+  });
+  it("a genuinely ambiguous token ('Ashcroft') stays EMPTY rather than guessing a firm", () => {
+    expect(extractOrg("start a deal with Ashcroft", ctx)).toBe("");
+  });
+});
+
+describe("#32 — 'book a meeting' is future intent with NOTHING fabricated", () => {
+  it("book → Scheduled, no date_held, no sentiment, no opportunity_spotted, no command junk in notes", async () => {
+    const v = await SPECS.meeting.extract(baseCtx({ text: "Book a meeting with them", skipModel: true }));
+    expect(v.meeting_stage).toBe("Scheduled");
+    expect(v.date_held).toBeUndefined();
+    expect(v.sentiment).toBeUndefined();
+    expect(v.opportunity_spotted).toBeUndefined();
+    expect(v.notes || "").not.toContain("Book a meeting");
+  });
+  it("a past-tense log still defaults Held + today", async () => {
+    const v = await SPECS.meeting.extract(baseCtx({ text: "Log a meeting with Priya OConnor this morning", today: "2026-07-29", skipModel: true }));
+    expect(v.meeting_stage).toBe("Held");
+    expect(v.date_held).toBe("2026-07-29");
+  });
+});
+
+describe("#26 — contact-update extraction actually populates the card", () => {
+  it("'promoted to Partner' lands in Role/title", async () => {
+    const v = await SPECS.contact.extract(baseCtx({ op: "update", text: "Priya got promoted to Partner — update her" }));
+    expect(v.position).toBe("Partner");
+  });
+  it("'role to Partner' lands too", async () => {
+    const v = await SPECS.contact.extract(baseCtx({ op: "update", text: "Update Priya OConnor's role to Partner" }));
+    expect(v.position).toBe("Partner");
+  });
+  it("'add a note that …' captures the substance without a colon", async () => {
+    const v = await SPECS.contact.extract(baseCtx({ op: "update", text: "Add a note that Emma prefers email" }));
+    expect(v.notes).toBe("Emma prefers email");
+  });
+});

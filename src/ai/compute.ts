@@ -1379,11 +1379,25 @@ export function resolveCompareDeixis(text: string, personLabel?: string, recordL
 export function compareEntities(text: string, d: BookData, today: string, recent: string[] = []): ComputeResult | null {
   const m = text.match(/\bcompare\s+(.+?)\s+(?:to|with|vs\.?|versus|against|and)\s+(.+?)(?:\?|$)/i)
     || text.match(/\bhow (?:do|does)\s+(.+?)\s+(?:compare|stack up|measure up)\s+(?:to|with|against)\s+(.+?)(?:\?|$)/i)
+    // "Who's the stronger relationship, Priya or Patricia Miller?" — the judgment phrasing (fix #29: it
+    // slipped past to the model, which surname-distributed the ellipsis and silently compared the wrong Priya).
+    || text.match(/\b(?:who(?:'s| is)|which is)\s+(?:the\s+)?(?:strong|warm|clos|better|bigger|deeper)\w*\s*(?:relationship|contact|lead|connection)?\s*[,—–-]?\s+(.+?)\s+or\s+(.+?)\s*\??\s*$/i)
     || text.match(/^\s*(.+?)\s+(?:vs\.?|versus)\s+(.+?)\s*\??\s*$/i);
   if (!m) return null;
   const clean = (s: string) => s.trim().replace(/^(?:my|the)\s+/i, "").replace(/[?.,!]+$/, "");
   const a = clean(m[1]), b = clean(m[2]);
   if (!a || !b) return null;
+  // A bare first name matching SEVERAL different people, with no thread referent, must ASK — never
+  // silently pick one (fix #29: "Priya" resolved to Priya Miller, not the salient Priya OConnor).
+  const ambiguous = (ref: string): boolean => {
+    if (/\s/.test(ref)) return false;
+    if (recent.some((label) => foldAccents((label.split(/\s+/)[0] || "")) === foldAccents(ref))) return false;
+    const names = new Set(d.contacts.filter((c) => foldAccents(c.first) === foldAccents(ref)).map((c) => c.url));
+    return names.size > 1;
+  };
+  for (const side of [a, b]) {
+    if (ambiguous(side)) return contactBrief(d, side, today); // emits the which-one-did-you-mean picker
+  }
   const profile = (ref: string): ComputeResult | null => {
     if (/^(?:them|him|her|it|that|this|they|he|she)$/i.test(ref)) return null; // deixis — needs thread context
     // LEDGER-FIRST bare first names (re-verify item 14): "how does he compare to Olivia?" straight
@@ -2014,10 +2028,16 @@ export function changeCardIntent(text: string): boolean {
 // reminder is about: a named contact, or a deal/org reference ("the JPMorgan proposal") via the
 // opportunity's primary contact. Ambiguous → null, and the legacy contact card handles it.
 export function reminderSubject(text: string, d: BookData, today: string): Contact | null {
-  if (!/\bremind me to\b/i.test(text)) return null;
+  if (!/\bremind me to\b|\b(?:set|add|create)\s+a\s+task\b|\btask me to\b|\bremember to\b/i.test(text)) return null;
   const scan = scanEntities(text, d);
   if (scan.contacts.length === 1) return scan.contacts[0];
-  if (scan.contacts.length > 1) return null;
+  if (scan.contacts.length > 1) {
+    // Same-name twins ("Priya OConnor at ExxonMobil" scans BOTH Priya OConnors): an org qualifier in the
+    // text narrows them — the fully-qualified ask must resolve, not loop back to "name the person" (#19).
+    const byOrg = scan.orgs.length ? scan.contacts.filter((c) => scan.orgs.some((o) => orgMatches(c.organisation, o))) : [];
+    if (byOrg.length === 1) return byOrg[0];
+    return null;
+  }
   // Org reference, tolerant of partial names ("JPMorgan" for "JPMorgan Chase"): match on the org's
   // first distinctive token (≥4 chars). Ordinary-word org names are the trap — "next Friday" matched
   // the retailer "Next" and made the real JPMorgan reference look ambiguous (live run). Two

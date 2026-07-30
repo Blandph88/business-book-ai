@@ -3,7 +3,7 @@
 // ("more than once", "warm"), company-scoped meeting recall, and meeting-staleness in the risk ranking.
 import { describe, it, expect } from "vitest";
 import {
-  windowSince, findMeetings, meetingsCount, meetingsWithoutOpp, rankOpportunities, meetingContent, runTool, lastMetQuery,
+  windowSince, findMeetings, meetingsCount, meetingsWithoutOpp, rankOpportunities, meetingContent, runTool, lastMetQuery, compareEntities,
 } from "./compute";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
@@ -168,5 +168,21 @@ describe("#30/#1 — referent carry: consume pronouns, never override typed enti
   it("runTool contactBrief with the name genuinely in the text stays a brief", () => {
     const r = runTool({ tool: "contactBrief", args: { name: "Priya OConnor" } }, d, TODAY, "look at Priya OConnor");
     expect(r?.intro).toContain("Priya OConnor");
+  });
+});
+
+describe("#29 — comparative first-name ambiguity asks instead of silently picking", () => {
+  const d = book({ contacts: [
+    contact("pm1", "Priya", "OConnor", "ExxonMobil"),
+    contact("pm2", "Priya", "Miller", "City National Bank"),
+    contact("pat", "Patricia", "Miller", "ExxonMobil"),
+  ]});
+  it("'who's the stronger relationship, Priya or Patricia Miller?' → the which-Priya picker", () => {
+    const r = compareEntities("Who's the stronger relationship, Priya or Patricia Miller?", d, TODAY);
+    expect(r?.intro.toLowerCase()).toContain("which one");
+  });
+  it("full names on both sides still compare side-by-side", () => {
+    const r = compareEntities("Compare Priya OConnor and Patricia Miller", d, TODAY);
+    expect(r?.intro).toContain("Side by side");
   });
 });

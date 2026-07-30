@@ -9,7 +9,7 @@
 // Read/query only — no bulk or destructive writes (9a). Opens from the top bar (Search or Chats).
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { LOCATIONS } from "../data/vocab";
+import { LOCATIONS, OPPORTUNITY_STEPS } from "../data/vocab";
 import { loadContacts, type Contact } from "../data/contacts";
 import { loadAllMeetings } from "../storage/meetings";
 import { buildMeetingRows, foldHeldMeetings, type MeetingRow } from "../data/meetings";
@@ -1393,7 +1393,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // followup_date — contact next_action is legacy ("Actions live on meetings/opportunities").
       // Resolve the subject (named contact, or deal/org → the opp's primary contact) and update their
       // latest meeting; no resolvable subject or no meeting → the dictionary contact card still runs.
-      if (/\bremind me to\b/i.test(text) && !questionBlocksAction(text)) {
+      if (/\bremind me to\b|\b(?:set|add|create)\s+a\s+task\b|\btask me to\b|\bremember to\b/i.test(text) && !questionBlocksAction(text)) {
         const rs = reminderSubject(text, data, today);
         if (rs && data.meetingRows.some((m) => m.contact_url === rs.url)) {
           await startAction("meeting", "update", `${rs.first} ${rs.last}`.trim(), text, prior, id, text);
@@ -1401,9 +1401,12 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         }
         // Contact-level reminders were removed (actions live on meetings) — no meeting to pin it to
         // gets an honest explanation, never a card with nowhere to put the reminder.
+        const amb = !rs && scanEntities(text, data).contacts.length > 1;
         const msg = rs
           ? `Reminders live on meeting follow-ups, and you haven't logged a meeting with ${rs.first} ${rs.last} yet — log one ("log a meeting with ${rs.first} ${rs.last}") and I'll set the follow-up on it.`
-          : `Reminders live on meeting follow-ups, so I need to know who this is about — name the person or deal ("remind me to chase the JPMorgan proposal next Friday") and I'll set it on your latest meeting with them.`;
+          : amb
+            ? `A few people in your book match that name — add their company so I know which one ("remind me to follow up with Priya OConnor at ExxonMobil next week").`
+            : `Reminders live on meeting follow-ups, so I need to know who this is about — name the person or deal ("remind me to chase the JPMorgan proposal next Friday") and I'll set it on your latest meeting with them.`;
         persistTo(id, [...history, { role: "you", text }, { role: "ai", text: msg }]);
         if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: msg }]);
         setAsking(false); markDone(id);
@@ -1640,7 +1643,11 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     if (kind === "opportunity") {
       // Newest-first (the state array is insertion-ordered with fresh saves appended) so a just-created
       // deal is ALWAYS offered — the old head-slice dropped it past position 6 (Gate-0 #35/#36).
-      const pool = oppCandidates.length ? oppCandidates : [...opps].reverse().filter((o) => !o.lost);
+      // OPEN deals only (fix #18: the fallback offered WON deals in delivery — picking one would stage-
+      // regress a signed engagement). Won = current_step at/past contracting.
+      const wonAt = OPPORTUNITY_STEPS.findIndex((st) => st.id === "contracting");
+      const isOpen = (o: Opportunity) => !o.lost && OPPORTUNITY_STEPS.findIndex((st) => st.id === o.current_step) < wonAt;
+      const pool = oppCandidates.length ? oppCandidates : [...opps].reverse().filter(isOpen);
       const chips: Chip[] = pool.slice(0, CAP).map((o) => {
         const name = o.opportunity_name || o.organisation || "opportunity";
         return { label: name, prompt: `Update the "${name}" opportunity` };
@@ -1648,7 +1655,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       chips.push({ label: "+ New opportunity", prompt: `Log a new opportunity${target ? ` for ${target}` : ""}` });
       const text = oppCandidates.length
         ? "A few deals could match — which one?"
-        : opps.length ? "I couldn't tell which deal you meant. Which one?"
+        : pool.length ? `There's no ${target ? `"${target}" ` : ""}deal on your books${target ? "" : " matching that"} — did you mean one of these open ones, or start a new one?`
+        : opps.length ? "No OPEN deal matches — your existing ones are already won or lost. Want to start a new opportunity?"
         : "You don't have any opportunities yet — want to log one?";
       return { role: "ai", text, chips };
     }
