@@ -55,6 +55,18 @@ export function meetingId(contactUrl: string, meetingNo: number): string {
   return `${contactUrl}#${meetingNo}`;
 }
 
+// Fold Held meetings into the contacts' funnel flags — the SHARED "effective met" rule. The pipeline's
+// stored `met` is an import-time heuristic; a meeting logged in-app (copilot or form) must ALSO count.
+// ContactsTab/MetricsTab already fold inline; this is the one helper every other surface (the copilot's
+// BookData, briefs, compare, stage labels) uses so no surface can disagree about whether someone was met.
+// Returns new Contact objects only where the flag actually changes (cheap; stable identities otherwise).
+export function foldHeldMeetings(contacts: Contact[], meetings: Pick<Meeting, "contact_url" | "meeting_stage" | "date_held">[]): Contact[] {
+  const held = new Set<string>();
+  for (const m of meetings) if (m.meeting_stage === "Held" && m.date_held && m.contact_url) held.add(m.contact_url);
+  if (!held.size) return contacts;
+  return contacts.map((c) => (!c.met && held.has(c.url) ? { ...c, met: true, agreed_to_meet: true } : c));
+}
+
 // Pull the read-only contact facts off a contact. Falls back gracefully if a saved
 // meeting points at a contact no longer in the CSV (e.g. the pipeline was re-run).
 export function deriveContactInfo(contact: Contact | undefined): ContactInfo {

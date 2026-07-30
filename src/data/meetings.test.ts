@@ -9,6 +9,7 @@ import {
   lastMetByUrl,
   nextMeetingNo,
   type MeetingRow,
+  foldHeldMeetings,
 } from "./meetings";
 import type { Contact } from "./contacts";
 import type { Meeting } from "../storage/meetings";
@@ -288,5 +289,31 @@ describe("nextMeetingNo", () => {
   it("is highest-existing + 1 for the contact", () => {
     const rows = [row("u1", 1), row("u1", 3), row("u2", 9)];
     expect(nextMeetingNo("u1", rows)).toBe(4);
+  });
+});
+
+describe("foldHeldMeetings (the shared effective-met rule)", () => {
+  const c = (url: string, over: Partial<Contact> = {}): Contact =>
+    ({ first: "A", last: "B", organisation: "Org", position: "", sector_detail: "", sector_group: "",
+       sub_group: "", seniority: "", function: "", messaged: true, responded: false, two_way: false,
+       agreed_to_meet: false, met: false, url, phone: "", ...over } as Contact);
+  const held = (url: string) => ({ contact_url: url, meeting_stage: "Held" as const, date_held: "2026-07-29" });
+
+  it("folds a Held meeting into met + agreed_to_meet", () => {
+    const out = foldHeldMeetings([c("u1"), c("u2")], [held("u1")]);
+    expect(out[0].met).toBe(true);
+    expect(out[0].agreed_to_meet).toBe(true);
+    expect(out[1].met).toBe(false);
+  });
+  it("ignores Scheduled / dateless meetings and keeps identities stable when nothing changes", () => {
+    const contacts = [c("u1")];
+    const out = foldHeldMeetings(contacts, [{ contact_url: "u1", meeting_stage: "Scheduled" as const, date_held: undefined }]);
+    expect(out[0].met).toBe(false);
+    expect(out).toBe(contacts); // no held → same array back
+  });
+  it("leaves an already-met contact untouched (same object)", () => {
+    const already = c("u1", { met: true });
+    const out = foldHeldMeetings([already], [held("u1")]);
+    expect(out[0]).toBe(already);
   });
 });

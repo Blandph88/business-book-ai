@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { LOCATIONS } from "../data/vocab";
 import { loadContacts, type Contact } from "../data/contacts";
 import { loadAllMeetings } from "../storage/meetings";
-import { buildMeetingRows, type MeetingRow } from "../data/meetings";
+import { buildMeetingRows, foldHeldMeetings, type MeetingRow } from "../data/meetings";
 import { loadAllOpportunities, type Opportunity } from "../storage/opportunities";
 import { loadAllSows, type Sow } from "../storage/revenue";
 import { todayISO } from "../data/agenda";
@@ -774,7 +774,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     });
   }), []);
 
-  const data: BookData = useMemo(() => ({ contacts, meetingRows, opps, sows }), [contacts, meetingRows, opps, sows]);
+  // Fold Held meetings into the funnel flags (shared rule) so every copilot surface — stage labels,
+  // briefs, compare — agrees with the tabs about who has actually been met (in-app logged meetings included).
+  const data: BookData = useMemo(() => ({ contacts: foldHeldMeetings(contacts, meetingRows), meetingRows, opps, sows }), [contacts, meetingRows, opps, sows]);
   const today = useMemo(() => todayISO(), []);
   // The education cards, resolved once per mount: the warmest contact's name (guaranteed real — it
   // comes from the ranked book) is injected into the person-naming cards; empty book → generic.
