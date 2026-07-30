@@ -243,7 +243,17 @@ export const CONSULTING_FIRMS = [
 ] as const;
 
 // The owner's name — defaulted into "attendees (ours)" on the meeting form.
-export const OWNER_NAME = "Phil Bland";
+// The owner's display name for attendee prefills + draft grounding. NOT hardcoded to a person (#20 —
+// every buyer's meeting form used to prefill "Phil Bland"): resolved from the owner profile when set,
+// else a neutral "Me". setOwnerName is called from settings/profile surfaces.
+function loadOwnerName(): string {
+  try { return localStorage.getItem("bob.ownerName.v1") || "Me"; } catch { return "Me"; }
+}
+export let OWNER_NAME = loadOwnerName();
+export function setOwnerName(name: string): void {
+  try { localStorage.setItem("bob.ownerName.v1", name.trim()); } catch { /* ignore */ }
+  OWNER_NAME = name.trim() || "Me";
+}
 
 // Win probability, as fixed values. Stored as a NUMBER so the weighted value
 // (= est_value × probability) is a plain multiplication. 0.85 and 1.0 were added so the

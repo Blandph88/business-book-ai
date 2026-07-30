@@ -32,6 +32,8 @@ export type OwnerEdits = {
   // is auto-extracted from messages) so the owner can add a number for any contact.
   // Left unset (not "") when blank, so it never clobbers the pipeline number on merge.
   phone?: string;
+  // Email address (owner-entered — LinkedIn exports rarely carry one, but consultants live in email; #21).
+  email?: string;
 };
 
 // A map of contact url → that contact's edits. We store the whole map under one

@@ -17,7 +17,7 @@ import { ContactLinks } from "../components/BrandIcons";
 import { useAiAvailable } from "../ai/ai";
 
 // Default home country until an org→country mapping is wired up.
-const DEFAULT_BASED_IN = "Saudi Arabia";
+const DEFAULT_BASED_IN = ""; // no geo default (#20)
 
 // The slide-in detail/edit panel for a single contact (CLAUDE.md §4), built on the
 // SAME buffer-and-save model as MeetingForm / OpportunityForm: the read-only pipeline
@@ -42,6 +42,7 @@ function draftFromRow(row: ContactRow): OwnerEdits {
     decision_role: row.decision_role,
     last_contact_date: row.last_contact_date,
     notes: row.notes,
+    email: row.email,
   };
 }
 
@@ -121,6 +122,7 @@ export function ContactForm({
     const cleaned: OwnerEdits = {
       ...draft,
       phone: draft.phone?.trim() ? draft.phone.trim() : undefined,
+      email: draft.email?.trim() ? draft.email.trim() : undefined,
     };
     onSave(contact.url, cleaned);
   }
@@ -357,7 +359,14 @@ export function ContactForm({
                 <TextField
                   value={draft.phone}
                   onChange={(v) => set("phone", v)}
-                  placeholder={pipelinePhone || "e.g. +966 5X XXX XXXX"}
+                  placeholder={pipelinePhone || "e.g. +44 7X XXXX XXXX"}
+                />
+              </Field>
+              <Field label="Email">
+                <TextField
+                  value={draft.email}
+                  onChange={(v) => set("email", v)}
+                  placeholder="name@company.com"
                 />
               </Field>
               <Field label="Relationship">

@@ -1283,6 +1283,19 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // drafts normally. Deliberately narrow, so we don't false-fire the canned crisis response.
       const farewellDraft = /\b(?:draft|write|compose|help me (?:to )?write|prepare|pen)\b[^.?!]*\b(?:goodbye|good-?bye|farewell|final|last)\s+(?:note|letter|message|email|text|word)s?\b/i.test(text);
       const distressNear = crisisSignal(text) || heavyDistress(text) || crisisSignal(prevUserText0) || heavyDistress(prevUserText0);
+      // A BARE farewell ask ("write a goodbye note") with no recipient and no context deserves one gentle
+      // question before drafting (#33 residual): the benign reading is common, but this exact phrasing is
+      // also the canary the crisis floor exists for. A named recipient / leaving-context drafts normally.
+      const bareFarewell = farewellDraft && !distressNear && text.trim().length < 60
+        && !/\b(?:to|for)\s+(?:my\s+)?\w/i.test(text.replace(/\b(?:goodbye|good-?bye|farewell|final|last)\s+(?:note|letter|message|email|text|word)s?\b/i, ""))
+        && !/\b(retir|leav|last day|new job|moving on|colleague|team|client|role|farewell party)\b/i.test(text);
+      if (bareFarewell) {
+        const msg = "Happy to help — who's it for, and what's the occasion (someone leaving, wrapping up a project, your own move)? I'll draft it properly. And if this is a heavier kind of goodbye, I'm here for that conversation too.";
+        persistTo(id, [...history, { role: "you", text }, { role: "ai", text: msg }]);
+        if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: msg }]);
+        setAsking(false); markDone(id);
+        return;
+      }
       if (conversationPath(text, data, prevComp0) === "crisis" || (farewellDraft && distressNear)) {
         persistTo(id, [...history, { role: "you", text }, { role: "ai", text: CRISIS_RESPONSE }]);
         if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: CRISIS_RESPONSE }]);
@@ -1482,7 +1495,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       if (routed?.route === "help") {
         // Capability/meta question → the canonical capabilities answer (code, not the model), tailored to the
         // domain the question names (and varied across general asks so it doesn't read identically each time).
-        await renderCompute(capabilitiesResult(text));
+        await renderCompute(capabilitiesResult(text, avail.backend === "democloud"));
         return;
       } else if (routed?.route === "action" && routed.entity && !questionBlocksAction(text)) {
         // The model says the user is recording data → open the propose→confirm card (fields extracted by the
@@ -1530,7 +1543,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         // skip to a generic book answer, so we run the deterministic regex router (old behaviour), which also
         // covers ACTIONS (regex action-intent → the same card) and capability questions. NOTE: route:"book" is a
         // DELIBERATE model choice and is deliberately excluded here — it falls through to the grounded book answer.
-        const cap = capabilitiesResponse(text);
+        const cap = capabilitiesResponse(text, avail.backend === "democloud");
         if (cap) { await renderCompute(cap); return; }
         const rgx = routeIntent(text, { hasDoc: false });
         if (isActionIntent(rgx) && rgx.entity && !questionBlocksAction(text)) {
@@ -2063,7 +2076,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
                 onEnter={() => ask()}
               />
               <div className="copilot-field-foot">
-                {aiReady && <button type="button" className="copilot-plus" onClick={() => docInputRef.current?.click()} title="Add meeting notes, proposals, contracts and more" aria-label="Add meeting notes, proposals, contracts and more">+</button>}
+                {/* DOC-UPLOAD HIDDEN for the pilot (decided 2026-07-29): untested, tier-dependent quality — a visible feature that might fail in front of a prospect. Plumbing kept; re-enable deliberately post-validation. */}
+                {false && aiReady && <button type="button" className="copilot-plus" onClick={() => docInputRef.current?.click()} title="Add meeting notes, proposals, contracts and more" aria-label="Add meeting notes, proposals, contracts and more">+</button>}
                 <span className="copilot-field-spacer" />
                 {aiReady && <TierLabel />}
                 {(q.trim() || doc) && <button type="button" className="copilot-clear" onClick={() => { setQ(""); setDoc(null); inputRef.current?.focus(); }} aria-label="Clear" title="Clear">✕</button>}
@@ -2226,7 +2240,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
               </div>
             )}
             <div className="copilot-composer">
-              <button type="button" className="copilot-attach" onClick={() => docInputRef.current?.click()} title="Add meeting notes, proposals, contracts and more" aria-label="Add meeting notes, proposals, contracts and more">+</button>
+              {/* doc-upload hidden for the pilot — see note above */}
+              {false && <button type="button" className="copilot-attach" onClick={() => docInputRef.current?.click()} title="Add meeting notes, proposals, contracts and more" aria-label="Add meeting notes, proposals, contracts and more">+</button>}
               <GrowTextarea
                 className="copilot-composer-input"
                 autoFocus

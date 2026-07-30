@@ -26,6 +26,7 @@ export function NewContactForm({
   const [position, setPosition] = useState("");
   const [linkedin, setLinkedin] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [relationship, setRelationship] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -43,10 +44,11 @@ export function NewContactForm({
     const enriched = classifyContact({ first: first.trim(), last: last.trim(), company: organisation.trim(), title: position.trim(), url });
     const contact: Contact = { ...enriched, phone: phone.trim(), messaged: false, responded: false, two_way: false, agreed_to_meet: false, met: false };
     saveOwnedContact(contact);
-    if (relationship || notes.trim()) {
+    if (relationship || notes.trim() || email.trim()) {
       saveEdits(url, {
         ...(relationship ? { relationship_strength: relationship as RelationshipStrength } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        ...(email.trim() ? { email: email.trim() } : {}),
       });
     }
     onSaved(url);
@@ -83,6 +85,7 @@ export function NewContactForm({
             </Field>
             <div className="mform-grid">
               <Field label="Phone"><TextField value={phone} onChange={setPhone} /></Field>
+              <Field label="Email"><TextField value={email} onChange={setEmail} placeholder="name@company.com" /></Field>
               <Field label="Relationship"><Select value={relationship} options={RELATIONSHIP_STRENGTH} onChange={setRelationship} /></Field>
             </div>
             <Field label="Notes"><TextArea value={notes} onChange={setNotes} /></Field>

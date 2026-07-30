@@ -116,7 +116,7 @@ export function calendarMeetings(t: string, d: BookData, today: string): Compute
   if (wantsFirst) return single(held[held.length - 1], "first");
   return {
     intro: `Meetings you held in ${win.label} (${held.length}):`,
-    columns: ["Date", "Contact", "Company", "Sentiment"],
+    columns: ["Date", "Contact", "Organisation", "Sentiment"],
     rows: held.slice(0, 40).map((m) => ({ cells: [m.date_held || "—", m.contactInfo?.name || "—", m.contactInfo?.organisation || "—", m.sentiment || "—"], record: { tab: "meetings", id: m.id } })),
   };
 }
@@ -130,7 +130,7 @@ export function calendarOpps(t: string, d: BookData, today: string): ComputeResu
   if (!started.length) return { intro: `No opportunities started in ${win.label} (dated by first recorded activity).`, columns: [], rows: [] };
   return {
     intro: `Opportunities that started in ${win.label} (${started.length}, dated by first recorded activity):`,
-    columns: ["Opportunity", "Company", "Stage", "Est. value"],
+    columns: ["Opportunity", "Organisation", "Step", "Est. value"],
     rows: started.slice(0, 30).map((o) => ({ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), money(o.est_value)], record: { tab: "opportunities", id: o.id } })),
   };
 }
@@ -285,7 +285,7 @@ export function findContacts(d: BookData, filter: ContactFilter): ComputeResult 
   const shown = list.slice(0, 40);
   const res: ComputeResult = {
     intro: `${total} ${what}${total > shown.length ? ` (showing ${shown.length})` : ""}:`,
-    columns: ["Name", "Role", "Company", "Stage"],
+    columns: ["Name", "Position", "Organisation", "Stage"],
     rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
   };
   if (total > shown.length) res.more = { count: total, ...contactsNav(filter) };
@@ -337,7 +337,7 @@ export function findMeetings(d: BookData, today: string, t: string): ComputeResu
       : allTime
         ? `All meetings you've held (${rows.length} total${rows.length > shown.length ? `, showing the most recent ${shown.length}` : ""}):`
         : `Meetings you held ${sinceWin ? label : `in the last ${label}`} (${rows.length})${windowNote}:`,
-    columns: ["Date", "Contact", "Company", upcoming ? "Stage" : "Sentiment"],
+    columns: ["Date", "Contact", "Organisation", upcoming ? "Stage" : "Sentiment"],
     rows: shown.map((m) => ({ cells: [(upcoming ? m.date_scheduled : m.date_held) || "—", m.contactInfo.name, m.contactInfo.organisation || "—", upcoming ? m.meeting_stage : (m.sentiment || "—")], record: { tab: "meetings", id: m.id } })),
   };
   if (rows.length > shown.length) res.more = { count: rows.length, tab: "meetings", intent: {} };
@@ -378,7 +378,7 @@ export function findOpportunities(d: BookData, filter: OppFilter): ComputeResult
   const totalVal = list.reduce((s, o) => s + (o.est_value ?? 0), 0);
   const res: ComputeResult = {
     intro: `${n} ${what}${n > shown.length ? ` (showing ${shown.length})` : ""} — total est. value ${money(totalVal)}:`,
-    columns: ["Opportunity", "Company", "Stage", "Est. value"],
+    columns: ["Opportunity", "Organisation", "Step", "Est. value"],
     rows: shown.map((o) => ({ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), money(o.est_value)], record: { tab: "opportunities", id: o.id } })),
   };
   if (n > shown.length) res.more = { count: n, tab: "opportunities", intent: {} };
@@ -400,7 +400,7 @@ export function findContracts(d: BookData, filter: { status?: string; company?: 
     intro: filter.byValue
       ? `Your engagements by value (highest first)${n > shown.length ? ` — top ${shown.length} of ${n}` : ` (${n})`}:`
       : `${n} engagement${n === 1 ? "" : "s"}${n > shown.length ? ` (showing ${shown.length})` : ""}:`,
-    columns: ["Engagement", "Company", "Status", "Recognised"],
+    columns: ["Engagement", "Organisation", "Status", "Recognised"],
     rows: shown.map((s) => ({ cells: [s.engagement_name || "(unnamed)", s.organisation || "—", s.status || "—", money(s.recognised_to_date)], record: { tab: "revenue", id: s.id } })),
   };
   if (n > shown.length) res.more = { count: n, tab: "revenue", intent: {} };
@@ -424,7 +424,7 @@ export function rankContacts(d: BookData, by: "warmth" | "cold", today: string):
       return false;
     }).sort((a, b) => warmth(b, lm, today) - warmth(a, lm, today)).slice(0, 10);
     if (!cold.length) return { intro: "Good news — no one's gone cold right now: everyone who engaged is either progressing or recently in touch.", columns: [], rows: [] };
-    return { intro: `Worth re-engaging — they were warm but have gone quiet (replied with no meeting, or met 45+ days ago with nothing booked) (${cold.length}):`, columns: ["Name", "Role", "Company"], rows: cold.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—"], record: { tab: "contacts", id: c.url } })) };
+    return { intro: `Worth re-engaging — they were warm but have gone quiet (replied with no meeting, or met 45+ days ago with nothing booked) (${cold.length}):`, columns: ["Name", "Position", "Organisation"], rows: cold.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—"], record: { tab: "contacts", id: c.url } })) };
   }
   let ranked = d.contacts.map((c) => ({ c, s: warmth(c, lm, today) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 8);
   if (!ranked.length) return { intro: "I can't see anyone with engagement logged yet — once you've messaged or met people, they'll rank here.", columns: [], rows: [] };
@@ -438,9 +438,9 @@ export function rankContacts(d: BookData, by: "warmth" | "cold", today: string):
   // Once the sentiment pass has run, show the model's WARMTH read so you can see WHY each lead ranks here —
   // not just the funnel stage. Before any scoring, keep the original stage-only table.
   if (anyScored) {
-    return { intro: "Your warmest leads right now — ranked by engagement and the tone of their messages:", columns: ["Name", "Company", "Role", "Warmth"], rows: ranked.map(({ c }) => ({ cells: [fullName(c), c.organisation || "—", c.position || "—", warmthCell(c)], record: { tab: "contacts", id: c.url } })) };
+    return { intro: "Your warmest leads right now — ranked by engagement and the tone of their messages:", columns: ["Name", "Organisation", "Position", "Warmth"], rows: ranked.map(({ c }) => ({ cells: [fullName(c), c.organisation || "—", c.position || "—", warmthCell(c)], record: { tab: "contacts", id: c.url } })) };
   }
-  return { intro: "Your warmest leads right now — ranked by engagement, plus how recent and positive your last meeting was:", columns: ["Name", "Company", "Role", "Engagement"], rows: ranked.map(({ c }) => ({ cells: [fullName(c), c.organisation || "—", c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })) };
+  return { intro: "Your warmest leads right now — ranked by engagement, plus how recent and positive your last meeting was:", columns: ["Name", "Organisation", "Position", "Engagement"], rows: ranked.map(({ c }) => ({ cells: [fullName(c), c.organisation || "—", c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })) };
 }
 
 // 6. rankOpportunities — value | probability | risk(stale early-stage). Optional minValue filter so
@@ -484,7 +484,7 @@ export function rankOpportunities(d: BookData, by: "value" | "probability" | "ri
   if (!list.length) return { intro: "Good news — nothing's obviously stalling (no big early-stage deals sitting quiet on you). Want your biggest deals by value, or the ones closest to closing?", columns: [], rows: [] };
   return {
     intro,
-    columns: riskLastMet ? ["Opportunity", "Company", "Stage", lastCol, "Last met"] : ["Opportunity", "Company", "Stage", lastCol],
+    columns: riskLastMet ? ["Opportunity", "Organisation", "Step", lastCol, "Last met"] : ["Opportunity", "Organisation", "Step", lastCol],
     rows: list.map((o) => ({ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), by === "probability" ? `${Math.round((o.probability ?? 0) * 100)}%` : money(o.est_value), ...(riskLastMet ? [riskLastMet(o)] : [])], record: { tab: "opportunities", id: o.id } })),
   };
 }
@@ -591,7 +591,7 @@ export function contactsMetAtLeast(d: BookData, min: number, noOpp = false): Com
   const shown = list.slice(0, 40);
   const res: ComputeResult = {
     intro: `People you've met ${label} (${list.length}):`,
-    columns: ["Name", "Role", "Company", "Times met"],
+    columns: ["Name", "Position", "Organisation", "Times met"],
     rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", String(count.get(c.url) || 0)], record: { tab: "contacts", id: c.url } })),
   };
   if (list.length > shown.length) res.more = { count: list.length, tab: "contacts", intent: { filter: { key: "met", value: "Yes" } } };
@@ -617,7 +617,7 @@ export function openOppsWithoutMeeting(d: BookData, today: string): ComputeResul
   const shown = naked.slice(0, 30);
   const res: ComputeResult = {
     intro: `Open opportunities with NO next meeting booked (${naked.length} of ${open.length} open) — the follow-up-debt list, biggest first:`,
-    columns: ["Opportunity", "Company", "Stage", "Est. value", "Last met"],
+    columns: ["Opportunity", "Organisation", "Step", "Est. value", "Last met"],
     rows: shown.map((o) => ({ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), money(o.est_value), lastHeld(o)], record: { tab: "opportunities", id: o.id } })),
   };
   if (naked.length > shown.length) res.more = { count: naked.length, tab: "opportunities", intent: {} };
@@ -642,7 +642,7 @@ export function oppsWithRecentMeeting(d: BookData, today: string, t: string): Co
   if (!hits.length) return { intro: `None of your ${open.length} open opportunities' contacts have had a meeting in the last ${label} — the whole open pipeline is overdue a conversation. Want the follow-up-debt list (open deals with no next meeting booked)?`, columns: [], rows: [] };
   return {
     intro: `Open opportunities where you HAVE met the client in the last ${label} (${hits.length} of ${open.length} open):`,
-    columns: ["Opportunity", "Company", "Stage", "Est. value", "Last met"],
+    columns: ["Opportunity", "Organisation", "Step", "Est. value", "Last met"],
     rows: hits.slice(0, 30).map(({ o, m }) => ({ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), money(o.est_value), m!.date_held || "—"], record: { tab: "opportunities", id: o.id } })),
   };
 }
@@ -692,7 +692,7 @@ export function meetingsWithoutOpp(d: BookData, t = ""): ComputeResult {
   const shown = naked.slice(0, 30);
   const res: ComputeResult = {
     intro: `Contacts ${applied} but logged NO opportunity for yet — worth deciding if there's a deal there (${naked.length}):`,
-    columns: ["Last met", "Contact", "Company", "Sentiment"],
+    columns: ["Last met", "Contact", "Organisation", "Sentiment"],
     rows: shown.map((m) => ({ cells: [m.date_held || "—", m.contactInfo.name, m.contactInfo.organisation || "—", m.sentiment || "—"], record: { tab: "meetings", id: m.id } })),
   };
   if (naked.length > shown.length) res.more = { count: naked.length, tab: "meetings", intent: {} };
@@ -716,7 +716,7 @@ export function companiesWithOppAndContacts(d: BookData, min = 2): ComputeResult
   if (!rows.length) return { intro: `No companies where you have both an open opportunity and at least ${min} contacts right now.`, columns: [], rows: [] };
   return {
     intro: `Companies where you have both an open opportunity and ${min}+ contacts — your strongest expansion footholds (${rows.length}):`,
-    columns: ["Company", "Contacts", "Open opps"],
+    columns: ["Organisation", "Contacts", "Open opps"],
     rows: rows.map((x) => ({ cells: [x.e!.org, String(x.e!.contacts), String(x.opps)] })),
   };
 }
@@ -826,7 +826,7 @@ export function sectorContacts(d: BookData, field: "sector_group" | "function", 
   const shown = list.slice(0, 40);
   const res: ComputeResult = {
     intro: `Your most senior contacts in ${label} (${list.length}${list.length > shown.length ? `, showing ${shown.length}` : ""}):`,
-    columns: ["Name", "Role", "Company", "Seniority"],
+    columns: ["Name", "Position", "Organisation", "Seniority"],
     rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", (c as unknown as Record<string, string>).seniority || "—"], record: { tab: "contacts", id: c.url } })),
   };
   if (list.length > shown.length) res.more = { count: list.length, tab: "contacts", intent: {} };
@@ -846,7 +846,7 @@ export function opportunitiesBySector(d: BookData, value: string): ComputeResult
   const total = open.reduce((s, o) => s + (o.est_value ?? 0), 0);
   return {
     intro: `Your open opportunities in ${value} (${open.length}) — ${money(total)} total:`,
-    columns: ["Opportunity", "Company", "Stage", "Est. value"],
+    columns: ["Opportunity", "Organisation", "Step", "Est. value"],
     rows: open.slice(0, 30).map((o) => ({ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), money(o.est_value)], record: { tab: "opportunities", id: o.id } })),
   };
 }
@@ -879,7 +879,7 @@ export function warmNoDeal(d: BookData, today: string): ComputeResult {
   if (!list.length) return { intro: "No warm contacts without a deal right now — everyone rated Warm or Keen already has an open opportunity at their company.", columns: [], rows: [] };
   return {
     intro: `Warm contacts with no open deal yet (${list.length}) — your likeliest new opportunities:`,
-    columns: ["Name", "Role", "Company", "Warmth"],
+    columns: ["Name", "Position", "Organisation", "Warmth"],
     rows: list.slice(0, 30).map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", warmthCell(c) !== "—" ? warmthCell(c) : rel(c) || "—"], record: { tab: "contacts", id: c.url } })),
   };
 }
@@ -953,7 +953,7 @@ export function contactBrief(d: BookData, ref: string, today: string): ComputeRe
     const sameFirst = d.contacts.filter((c) => foldAccents(c.first) === bare);
     if (sameFirst.length > 1) return {
       intro: `You know ${sameFirst.length} people called ${sameFirst[0].first} — which one did you mean?`,
-      columns: ["Name", "Role", "Company"],
+      columns: ["Name", "Position", "Organisation"],
       rows: sameFirst.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—"], record: { tab: "contacts", id: c.url } })),
     };
   }
@@ -1008,7 +1008,7 @@ export function owedReplies(d: BookData, today: string): ComputeResult {
   const shown = owed.slice(0, 25);
   return {
     intro: `You owe a reply — they messaged last and you haven't come back${owed.length > shown.length ? ` (showing ${shown.length} of ${owed.length})` : ` (${owed.length})`}, warmest first:`,
-    columns: ["Name", "Company", "Last heard", "Warmth"],
+    columns: ["Name", "Organisation", "Last heard", "Warmth"],
     rows: shown.map((c) => ({ cells: [fullName(c), c.organisation || "—", c.thread!.lastDate || "—", warmthCell(c)], record: { tab: "contacts", id: c.url } })),
   };
 }
@@ -1029,7 +1029,7 @@ export function latentOpportunities(d: BookData): ComputeResult {
   const shown = withOpp.slice(0, 25);
   return {
     intro: `Possible opportunities spotted in your messages${withOpp.length > shown.length ? ` (showing ${shown.length} of ${withOpp.length})` : ` (${withOpp.length})`}:`,
-    columns: ["Name", "Company", "Opportunity"],
+    columns: ["Name", "Organisation", "Opportunity"],
     rows: shown.map((c) => ({ cells: [fullName(c), c.organisation || "—", c.latentOpp!.text], record: { tab: "contacts", id: c.url } })),
   };
 }
@@ -1057,7 +1057,7 @@ export function accountSummary(d: BookData, company: string): ComputeResult {
   const res: ComputeResult = {
     subject: { kind: "org", id: org, label: org },
     intro: `${org}: ${people.length} contact${people.length === 1 ? "" : "s"}, ${meetings} meeting${meetings === 1 ? "" : "s"} held, ${opps.length} open opportunit${opps.length === 1 ? "y" : "ies"}${openVal ? ` (${money(openVal)})` : ""}${pastOpps ? ` + ${pastLabel(allOpps)}` : ""}.${sigBits.length ? `\nRelationship read: ${sigBits.join(" · ")}.` : ""}`,
-    columns: ["Name", "Role", "Stage"],
+    columns: ["Name", "Position", "Stage"],
     rows: people.slice(0, 20).map((c) => ({ cells: [fullName(c), c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
     // Hint to the caller: blend in what this organisation actually DOES (a brokered web/entity lookup),
     // so "tell me about JPMorgan" gives the network picture AND a factual description, not just the table.
@@ -1340,13 +1340,13 @@ export function exactRecordLookup(text: string, d: BookData): ComputeResult | nu
     const st = oppStatus(o);
     return {
       intro: `${oppDisplayName(o)} at ${o.organisation || "—"} — ${st}${o.lost ? "" : ` · ${stepLabel(o.current_step)}`} · est. value ${money(o.est_value)}${typeof o.probability === "number" ? ` · ${Math.round((o.probability ?? 0) * 100)}% probability` : ""}.`,
-      columns: ["Opportunity", "Company", "Stage", "Status", "Est. value"],
+      columns: ["Opportunity", "Organisation", "Step", "Status", "Est. value"],
       rows: [{ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), st, money(o.est_value)], record: { tab: "opportunities", id: o.id } }],
     };
   }
   if (oppHits.length > 1) return {
     intro: `You have ${oppHits.length} opportunities matching that name — which one?`,
-    columns: ["Opportunity", "Company", "Stage", "Status", "Est. value"],
+    columns: ["Opportunity", "Organisation", "Step", "Status", "Est. value"],
     rows: oppHits.map((o) => ({ cells: [oppDisplayName(o), o.organisation || "—", stepLabel(o.current_step), oppStatus(o), money(o.est_value)], record: { tab: "opportunities", id: o.id } })),
   };
   const sowHits = d.sows.filter((s) => {
@@ -1357,7 +1357,7 @@ export function exactRecordLookup(text: string, d: BookData): ComputeResult | nu
     const s = sowHits[0];
     return {
       intro: `${s.engagement_name || "(unnamed engagement)"} at ${s.organisation || "—"} — ${s.status || "—"} · recognised ${money(s.recognised_to_date)}.`,
-      columns: ["Engagement", "Company", "Status", "Recognised"],
+      columns: ["Engagement", "Organisation", "Status", "Recognised"],
       rows: [{ cells: [s.engagement_name || "(unnamed)", s.organisation || "—", s.status || "—", money(s.recognised_to_date)], record: { tab: "revenue", id: s.id } }],
     };
   }
@@ -1810,7 +1810,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
       if (cands.length === 1) return contactBrief(d, fullName(cands[0]), today);
       if (cands.length > 1) return {
         intro: `You know ${cands.length} people called ${fc[1]} at ${cands[0].organisation} — which one?`,
-        columns: ["Name", "Role", "Stage"],
+        columns: ["Name", "Position", "Stage"],
         rows: cands.map((c) => ({ cells: [fullName(c), c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
       };
     }
@@ -1956,7 +1956,10 @@ export function lastMetQuery(text: string, d: BookData, today: string, referentN
 export function meetingContent(text: string, d: BookData, today: string, referentName?: string): ComputeResult | null {
   const asksContent = /\bwhat\s+(?:was|were)\b[^?]*\b(?:meeting|call|catch[- ]?up)s?\b[^?]*\babout\b/i.test(text)
     || /\bwhat did\b[^?]*\b(?:we|and i)\b[^?]*\b(?:talk|discuss|cover|chat|speak)\b/i.test(text)
-    || /\bwhat did (?:i|we) (?:talk|discuss|chat|speak) (?:about )?with\b/i.test(text);
+    || /\bwhat did (?:i|we) (?:talk|discuss|chat|speak) (?:about )?with\b/i.test(text)
+    // "Remind me what Priya and I discussed" (#11: the did-less phrasing fell to a generic deflection
+    // instead of the grounded "no meeting logged with X yet").
+    || /\bremind me (?:what|about what)\b[^?]*\b(?:and i|we)\b[^?]*\b(?:talk|discuss|cover|chat|spoke|said)/i.test(text);
   if (!asksContent) return null;
   const scan = scanEntities(text, d);
   let c: Contact | null = scan.contacts[0] ?? null;
@@ -2004,7 +2007,7 @@ export function namesakeSuperlative(text: string, d: BookData, today: string): C
   const others = held.slice(1, 6);
   return {
     intro: `${top.contactInfo?.name || m[1]}${top.contactInfo?.organisation ? ` (${top.contactInfo.organisation})` : ""} — you met on ${top.date_held}${top.sentiment ? ` (${top.sentiment})` : ""}${others.length ? `. ${others.length} other ${m[1]}${others.length === 1 ? "" : "s"} met earlier:` : `.${namesakes.size > 1 ? ` The other ${namesakes.size - 1} ${m[1]}${namesakes.size === 2 ? "" : "s"} you know, you haven't met.` : ""}`}`,
-    columns: others.length ? ["Date", "Contact", "Company", "Sentiment"] : [],
+    columns: others.length ? ["Date", "Contact", "Organisation", "Sentiment"] : [],
     rows: [top, ...others].map((x) => ({ cells: [x.date_held || "—", x.contactInfo?.name || "—", x.contactInfo?.organisation || "—", x.sentiment || "—"], record: { tab: "meetings", id: x.id } })),
     subject: undefined,
   };
@@ -2296,7 +2299,7 @@ export function coldAtActiveAccounts(d: BookData, today: string): ComputeResult 
   const shown = hits.slice(0, 30);
   const res: ComputeResult = {
     intro: `Cold contacts inside companies where you ALSO have live work — warm-account, cold-person openings (${hits.length}):`,
-    columns: ["Contact", "Role", "Company", "Live work"],
+    columns: ["Contact", "Position", "Organisation", "Live work"],
     rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", work.get(norm(c.organisation)) || "—"], record: { tab: "contacts", id: c.url } })),
   };
   if (hits.length > shown.length) res.more = { count: hits.length, tab: "contacts", intent: {} };
@@ -2318,7 +2321,9 @@ type Availability = { backend?: string; byok?: boolean; onDevice?: string };
 // do with meetings?"), and (b) varies its opener across general asks so a user probing a few times doesn't get
 // the identical wall of text each time. Deterministic (opener chosen by a stable hash of the question, not
 // RNG) so it stays testable. `text` optional — the eval / no-arg callers still get the full menu.
-export function capabilitiesResult(text?: string): ComputeResult {
+export function capabilitiesResult(text?: string, hosted = false): ComputeResult {
+  // `hosted` = the DEMO tier (Freehold-hosted model): the "all on your machine" privacy line is FALSE
+  // there (#34) — the menu must carry the same honest note the privacy answer does.
   const q = (text || "").toLowerCase();
   const AREAS: { key: RegExp; line: string }[] = [
     { key: /\b(meeting|meetings|call|calls|catch[- ]?up|spoke|speak|diary|calendar|schedule)\b/, line: "your **meetings & diary** — \"meetings last month\", \"who did I speak to\", \"what's in my diary\", \"log a meeting with Tom\"" },
@@ -2329,9 +2334,11 @@ export function capabilitiesResult(text?: string): ComputeResult {
   ];
   const hit = AREAS.find((a) => a.key.test(q));
   if (hit) {
-    return { intro: `Yes — I can help with ${hit.line}.\nThat's one of a few things I do across your contacts, meetings, pipeline and messages (all on your machine). Want me to run one?`, columns: [], rows: [] };
+    return { intro: `Yes — I can help with ${hit.line}.\nThat's one of a few things I do across your contacts, meetings, pipeline and messages${hosted ? " (this demo runs on a Freehold-hosted model — don't paste real client data; the app you own runs on your machine)" : " (all on your machine)"}. Want me to run one?`, columns: [], rows: [] };
   }
-  const openers = [
+  const openers = hosted ? [
+    "I'm your book-of-business assistant — I work over the sample book here: contacts, meetings, opportunities and messages. (This demo runs on a Freehold-hosted model, so don't paste real client data — the app you own runs privately on your machine.) Here's what I can do:",
+  ] : [
     "I'm your book-of-business assistant — I work over your own contacts, meetings, opportunities and messages, all on your machine. Here's what I can do:",
     "Happy to help. I work entirely over your own book — contacts, meetings, pipeline and messages, on your machine. A few of the things I can do:",
     "Here's how I can help — all grounded in your own book, nothing leaves your machine:",
@@ -2370,10 +2377,10 @@ export function capabilitiesResult(text?: string): ComputeResult {
 }
 // Regex-gated wrapper — used ONLY on the error-fallback path (when the LLM router call failed), so a
 // capability question still gets the right answer with no model available. Not a pre-router gate.
-const CAPABILITY_Q = /\b(what can (?:you|it) (?:do|help)|what (?:do|can) you do|how (?:can|do) you help|what can you help (?:me )?with|what are you (?:able|capable)|what do you do|what('?s| is) your (?:job|purpose|role|function)|work[\s-]?wise)\b/i;
-export function capabilitiesResponse(text: string): ComputeResult | null {
+const CAPABILITY_Q = /\b(what can (?:you|it) (?:do|help)|what (?:do|can) you do|how (?:can|do) you help|what can you help (?:me )?with|what are you (?:able|capable)|what do you do|what('?s| is) your (?:job|purpose|role|function)|work[\s-]?wise|how do you (?:work|function)|how does this (?:work|thing work)|how are you (?:built|set up))\b/i;
+export function capabilitiesResponse(text: string, hosted = false): ComputeResult | null {
   if (!CAPABILITY_Q.test(text) || text.trim().split(/\s+/).length > 14) return null;
-  return capabilitiesResult(text);
+  return capabilitiesResult(text, hosted);
 }
 
 // Which-model META answer (Gate-0 #48): "what AI model are you running?" is a trust question every

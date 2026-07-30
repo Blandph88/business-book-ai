@@ -445,6 +445,8 @@ const CONTACT_CREATE_FIELDS: FieldSpec[] = [
   { key: "organisation", label: "Organisation", type: "text", required: true },
   { key: "position", label: "Role / title", type: "text" },
   { key: "linkedin_url", label: "LinkedIn URL (links a future refresh, avoids duplicates)", type: "text" },
+  { key: "email", label: "Email", type: "text" },
+  { key: "phone", label: "Phone", type: "text" },
   { key: "relationship_strength", label: "Relationship", type: "enum", options: RELATIONSHIP_STRENGTH },
   { key: "notes", label: "Note", type: "textarea" },
 ];
@@ -454,6 +456,8 @@ const CONTACT_UPDATE_FIELDS: FieldSpec[] = [
   { key: "priority", label: "Priority", type: "enum", options: PRIORITY },
   { key: "decision_role", label: "Decision role", type: "enum", options: DECISION_ROLE },
   { key: "based_in", label: "Based in", type: "text" },
+  { key: "email", label: "Email", type: "text" },
+  { key: "phone", label: "Phone", type: "text" },
   { key: "notes", label: "Add note", type: "textarea" },
 ];
 
@@ -505,6 +509,8 @@ const contactSpec: EntitySpec = {
     // A location MOVE ("switching to the Madrid office in October") → based_in, with the note kept.
     const moving = t.match(/\b(?:switch(?:ing)?|mov(?:e|ing)|relocat(?:e|ing)|transferr?(?:ing)?)\s+to\s+(?:the\s+)?([A-Z][\w .'-]+?)\s+office\b/i);
     if (moving && !v.based_in) v.based_in = moving[1].trim();
+    const em = t.match(/\b([\w.+-]+@[\w-]+\.[\w.]{2,})\b/); if (em) v.email = em[1];
+    const ph = t.match(/(?:\bphone|\bnumber|\bwhatsapp)[^+\d]{0,12}(\+?[\d][\d ()-]{6,18}\d)/i); if (ph) v.phone = ph[1].trim();
     const note = t.match(/\bnote(?:\s+(?:to|on|for|about)\s+[\w ]+?)?[:]\s*(.+)/i); if (note) v.notes = note[1].trim();
     // "Add a note THAT <substance>" / "note saying <substance>" — the colon-less phrasing people actually
     // type (fix #26: "Add a note that Emma prefers email" opened an empty card).
@@ -523,6 +529,8 @@ const contactSpec: EntitySpec = {
       const edits: OwnerEdits = {};
       if (values.relationship_strength) edits.relationship_strength = values.relationship_strength as RelationshipStrength;
       if (values.notes) edits.notes = values.notes;
+      if (values.email) edits.email = values.email;
+      if (values.phone) edits.phone = values.phone;
       if (Object.keys(edits).length) saveEdits(url, edits);
       const name = `${values.first ?? ""} ${values.last ?? ""}`.trim() || "the contact";
       return { id: url, summary: `Added ${name}${values.organisation ? ` (${values.organisation})` : ""} to your contacts.`, undo: () => { deleteOwnedContact(url); saveEdits(url, {}); } };
@@ -535,6 +543,8 @@ const contactSpec: EntitySpec = {
     if (values.decision_role) next.decision_role = values.decision_role as DecisionRole;
     if (values.based_in) next.based_in = values.based_in;
     if (values.position) next.position = values.position;
+    if (values.email) next.email = values.email;
+    if (values.phone) next.phone = values.phone;
     if (values.notes) next.notes = prior.notes ? `${prior.notes}\n${values.notes}` : values.notes;
     saveEdits(url, next);
     return { id: url, summary: `Updated ${contactName(ctx, url)}.`, undo: () => saveEdits(url, prior) };
@@ -547,6 +557,13 @@ const WON_STEP: OpportunityStep = "contracting";
 // Visible outcome control on an UPDATE card, so "mark as won / lost" is explicit and reversible (Open) rather
 // than an invisible flag — the user sees and can change it before confirming.
 const OPP_OUTCOME = ["Open", "Won", "Lost"] as const;
+// "0.5" and "50" both mean 50% (#23: the card's raw number field invited percent-style input, which the
+// old clamp turned into 100%). >1 reads as a percentage; the result is always clamped to 0–1.
+function normProb(v: string): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(1, n > 1 ? n / 100 : n);
+}
 function stepProb(step: string): number {
   return OPPORTUNITY_STEPS.find((s) => s.id === step)?.prob ?? 0.1;
 }
@@ -557,7 +574,7 @@ const OPP_FIELDS: FieldSpec[] = [
   { key: "service_line", label: "Service line", type: "enum", options: SERVICE_LINE },
   { key: "current_step", label: "Stage", type: "enum", options: STEP_IDS },
   { key: "est_value", label: "Est. value", type: "number" },
-  { key: "probability", label: "Probability (0–1)", type: "number" },
+  { key: "probability", label: "Probability (0–1, or a % like 50)", type: "number" },
   { key: "description", label: "Description", type: "textarea" },
 ];
 const opportunitySpec: EntitySpec = {
@@ -702,10 +719,11 @@ const opportunitySpec: EntitySpec = {
         opportunity_name: values.opportunity_name || existing.opportunity_name,
         organisation: values.organisation || existing.organisation,
         primary_contact: values.primary_contact || existing.primary_contact,
+        primary_contact_url: (() => { const q = values.primary_contact || existing.primary_contact; if (!q) return existing.primary_contact_url; const m = matchContacts(q, ctx.contacts); return m.length === 1 ? m[0].url : existing.primary_contact_url; })(),
         service_line: (norm(values.service_line, SERVICE_LINE) as ServiceLine) || existing.service_line,
         current_step: finalStep,
         est_value: values.est_value ? Number(values.est_value) : existing.est_value,
-        probability: values.probability ? Math.min(1, Math.max(0, Number(values.probability))) : stepProb(finalStep),
+        probability: values.probability ? normProb(values.probability) : stepProb(finalStep),
         description: values.description || existing.description,
         lost,
       };
@@ -728,10 +746,11 @@ const opportunitySpec: EntitySpec = {
       opportunity_name: values.opportunity_name || `${values.organisation || "New"} opportunity`,
       organisation: values.organisation || "",
       primary_contact: values.primary_contact || "",
+      primary_contact_url: (() => { const q = values.primary_contact; if (!q) return undefined; const m = matchContacts(q, ctx.contacts); return m.length === 1 ? m[0].url : undefined; })(),
       service_line: (norm(values.service_line, SERVICE_LINE) as ServiceLine) || "Strategy",
       current_step: step,
       est_value: values.est_value ? Number(values.est_value) : undefined,
-      probability: values.probability ? Math.min(1, Math.max(0, Number(values.probability))) : stepProb(step),
+      probability: values.probability ? normProb(values.probability) : stepProb(step),
       description: values.description || undefined,
       contact_url: ctx.subjectUrl || undefined,
     };

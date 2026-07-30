@@ -29,6 +29,9 @@ export type Opportunity = {
   opportunity_name: string;
   organisation: string;
   primary_contact: string;
+  // The stable contact KEY behind primary_contact (display names collide — 2× "Priya OConnor" in the demo
+  // seed alone; #8). Optional + additive: set when the contact resolved at write time; prefer it in joins.
+  primary_contact_url?: string;
   service_line: ServiceLine;
   // The furthest workflow step the opportunity has reached (the source of truth for
   // where it is). Rolls up to a phase for the funnels — see ../data/opportunities.ts

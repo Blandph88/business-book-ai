@@ -17,11 +17,11 @@ beforeEach(() => {
 
 // ── MODULE-LOAD CONSTANTS (default state, no stored setting) ────────────────────────────────
 describe("currency defaults", () => {
-  it("defaults to USD when nothing is persisted", () => {
+  it("defaults to GBP when nothing is persisted (UK pilot cohort — #4/#6)", () => {
     // The test suite starts with no stored currency, so the module-level
-    // constants reflect the USD default.
-    expect(CURRENCY_CODE).toBe("USD");
-    expect(CURRENCY_SYMBOL).toBe("$");
+    // constants reflect the GBP default.
+    expect(CURRENCY_CODE).toBe("GBP");
+    expect(CURRENCY_SYMBOL).toBe("£");
   });
 
   it("exposes the supported currency codes", () => {
@@ -31,42 +31,42 @@ describe("currency defaults", () => {
 
 // ── formatMoney ─────────────────────────────────────────────────────────────────────────────
 describe("formatMoney", () => {
-  it("prefixes the default $ symbol", () => {
-    expect(formatMoney(100)).toBe("$100");
+  it("prefixes the default £ symbol", () => {
+    expect(formatMoney(100)).toBe("£100");
   });
 
   it("adds thousand separators with no decimals", () => {
-    expect(formatMoney(1000)).toBe("$1,000");
-    expect(formatMoney(1234567)).toBe("$1,234,567");
+    expect(formatMoney(1000)).toBe("£1,000");
+    expect(formatMoney(1234567)).toBe("£1,234,567");
   });
 
   it("rounds to whole numbers (half-up)", () => {
-    expect(formatMoney(42.7)).toBe("$43");
-    expect(formatMoney(42.4)).toBe("$42");
-    expect(formatMoney(0.5)).toBe("$1"); // Math.round rounds .5 up
-    expect(formatMoney(2.5)).toBe("$3");
+    expect(formatMoney(42.7)).toBe("£43");
+    expect(formatMoney(42.4)).toBe("£42");
+    expect(formatMoney(0.5)).toBe("£1"); // Math.round rounds .5 up
+    expect(formatMoney(2.5)).toBe("£3");
   });
 
   it("handles zero", () => {
-    expect(formatMoney(0)).toBe("$0");
+    expect(formatMoney(0)).toBe("£0");
   });
 
   it("handles negatives", () => {
-    expect(formatMoney(-1234)).toBe("$-1,234");
-    expect(formatMoney(-2.5)).toBe("$-2"); // Math.round(-2.5) === -2 (rounds toward +∞)
+    expect(formatMoney(-1234)).toBe("£-1,234");
+    expect(formatMoney(-2.5)).toBe("£-2"); // Math.round(-2.5) === -2 (rounds toward +∞)
     // Math.round(-0.4) === -0, and (-0).toLocaleString() === "-0" → "$-0".
-    expect(formatMoney(-0.4)).toBe("$-0");
+    expect(formatMoney(-0.4)).toBe("£-0");
   });
 
   it("handles very large numbers", () => {
-    expect(formatMoney(1000000000)).toBe("$1,000,000,000");
+    expect(formatMoney(1000000000)).toBe("£1,000,000,000");
   });
 
   it("treats undefined / NaN / Infinity as 0", () => {
-    expect(formatMoney(undefined)).toBe("$0");
-    expect(formatMoney(NaN)).toBe("$0");
-    expect(formatMoney(Infinity)).toBe("$0");
-    expect(formatMoney(-Infinity)).toBe("$0");
+    expect(formatMoney(undefined)).toBe("£0");
+    expect(formatMoney(NaN)).toBe("£0");
+    expect(formatMoney(Infinity)).toBe("£0");
+    expect(formatMoney(-Infinity)).toBe("£0");
   });
 });
 
@@ -114,7 +114,7 @@ describe("setCurrency", () => {
   it("persists any code but falls back to a safe symbol on an unknown one", () => {
     setCurrency("ZZZ");
     expect(localStorage.getItem(CURRENCY_STORAGE_KEY)).toBe("ZZZ"); // validation happens on read
-    expect(formatMoney(1000)).toBe("$1,000"); // unknown → USD symbol, never undefined
+    expect(formatMoney(1000)).toBe("£1,000"); // unknown → USD symbol, never undefined
   });
 });
 
@@ -141,11 +141,11 @@ describe("persisted currency round-trip", () => {
     expect(mod.formatMoney(2500)).toBe("AED 2,500");
   });
 
-  it("falls back to USD when the stored code is not a known currency", async () => {
+  it("falls back to GBP when the stored code is not a known currency", async () => {
     localStorage.setItem(CURRENCY_STORAGE_KEY, "ZZZ");
     vi.resetModules();
     const mod = await import("./format");
-    expect(mod.CURRENCY_CODE).toBe("USD");
-    expect(mod.CURRENCY_SYMBOL).toBe("$");
+    expect(mod.CURRENCY_CODE).toBe("GBP");
+    expect(mod.CURRENCY_SYMBOL).toBe("£");
   });
 });

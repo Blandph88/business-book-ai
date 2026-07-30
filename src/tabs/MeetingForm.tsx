@@ -21,7 +21,7 @@ import { logFailure } from "../ai/failureLog";
 
 // Defaults filled into an empty meeting so the owner isn't retyping the obvious: us =
 // the owner, them = the contact, location = the usual city. All stay editable.
-const DEFAULT_LOCATION = "Riyadh, Saudi Arabia";
+const DEFAULT_LOCATION = ""; // no geo default (#20 — "Riyadh" prefilled for every buyer)
 function withDefaults(draft: MeetingDraft, clientName?: string): MeetingDraft {
   return {
     ...draft,

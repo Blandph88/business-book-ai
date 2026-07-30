@@ -9,9 +9,9 @@ export const CURRENCY_OPTIONS = Object.keys(CURRENCIES);
 function loadCurrencyCode(): string {
   try {
     const c = localStorage.getItem(CURRENCY_STORAGE_KEY);
-    return c && CURRENCIES[c] ? c : "USD";
+    return c && CURRENCIES[c] ? c : "GBP";
   } catch {
-    return "USD";
+    return "GBP";
   }
 }
 
