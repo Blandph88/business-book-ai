@@ -80,7 +80,15 @@ const STORAGE_KEY = scopedKey("bob.revenue.v1");
 
 // Read every saved SoW. Empty map if nothing stored or the value is corrupt.
 export function loadAllSows(): SowsById {
-  return readJsonSafe<SowsById>(STORAGE_KEY, {});
+  const all = readJsonSafe<SowsById>(STORAGE_KEY, {});
+  // Heal string fields type-mangled by the older vault CSV round-trip (F6 class) — lossless String() repair.
+  for (const s of Object.values(all)) {
+    for (const f of ["organisation", "engagement_name"] as const) {
+      const v = s[f] as unknown;
+      if (v != null && typeof v !== "string") s[f] = String(v);
+    }
+  }
+  return all;
 }
 
 // Save one SoW, merged into the map, returning the new map.

@@ -16,6 +16,7 @@ import { Brand, FreeholdBadge } from "./components/Brand";
 import { ImportModal } from "./components/ImportModal";
 import { track } from "./lib/analytics";
 import { CopilotBar } from "./components/CopilotBar";
+import { TabErrorBoundary } from "./components/TabErrorBoundary";
 import { SideNav } from "./components/SideNav";
 import { WarmthBanner } from "./components/WarmthBanner";
 import { CURRENCY_CODE, CURRENCY_OPTIONS, setCurrency, subscribeCurrency } from "./data/format";
@@ -351,6 +352,8 @@ export default function App() {
         )}
 
         <main className="app-main" key={dataNonce}>
+          {/* key={activeTab}: switching tab discards a caught error, so one broken view never wedges the rest. */}
+          <TabErrorBoundary area="this tab" key={activeTab}>
           {activeTab === "dashboard" && <DashboardTab onNavigate={navigate} onDraft={askInChat} />}
           {activeTab === "metrics" && <MetricsTab onNavigate={navigate} onOpenAccount={openAccount} />}
           {activeTab === "contacts" && <ContactsTab intent={intent} onNavigate={navigate} onOpenAccount={openAccount} onAsk={askInChat} onReturn={returnToOrigin} onImport={openImport} />}
@@ -370,6 +373,7 @@ export default function App() {
               onOpenAccount={openAccount}
             />
           )}
+          </TabErrorBoundary>
         </main>
       </div>
 
@@ -392,7 +396,11 @@ export default function App() {
 
       {/* Global "Import your LinkedIn" modal (opened from the top bar / side nav / Contacts). */}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}
-      {copilotOpen && <CopilotBar initialView={copilotView} onAsk={askInChat} onChatsChanged={refreshChats} onNavigate={navigate} onOpenAccount={openAccount} onClose={() => setCopilotOpen(false)} />}
+      {copilotOpen && (
+        <TabErrorBoundary area="the copilot">
+          <CopilotBar initialView={copilotView} onAsk={askInChat} onChatsChanged={refreshChats} onNavigate={navigate} onOpenAccount={openAccount} onClose={() => setCopilotOpen(false)} />
+        </TabErrorBoundary>
+      )}
     </div>
   );
 }

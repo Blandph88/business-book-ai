@@ -5,6 +5,7 @@
 import type { ActionCardData } from "../components/ActionCard";
 import type { ComputeResult } from "../ai/compute";
 import { persistLocal, scopedKey } from "./persist";
+import { healStr } from "./safeRead";
 
 // The persisted turn shape. A superset of the model-facing ChatTurn: it also carries an unconfirmed DRAFT
 // action card (`action`) so a propose→confirm card survives the user leaving and returning to the thread
@@ -43,7 +44,14 @@ export function listChats(): SavedChat[] {
   try {
     const raw = localStorage.getItem(KEY);
     const all = raw ? (JSON.parse(raw) as SavedChat[]) : [];
-    return Array.isArray(all) ? all.slice().sort((a, b) => b.updatedAt - a.updatedAt) : [];
+    if (!Array.isArray(all)) return [];
+    // Heal text fields type-mangled by the older vault CSV round-trip (a message that was just
+    // "42" reloaded as a number and crashed text?.trim() — F6 class). Lossless String() repair.
+    for (const c of all) {
+      c.title = healStr(c.title);
+      if (Array.isArray(c.turns)) for (const t of c.turns) t.text = healStr(t.text);
+    }
+    return all.slice().sort((a, b) => b.updatedAt - a.updatedAt);
   } catch {
     return [];
   }

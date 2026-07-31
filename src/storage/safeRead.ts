@@ -16,6 +16,21 @@ export function readJsonSafe<T>(key: string, fallback: T): T {
   }
 }
 
+// ── Type healing for the vault CSV round-trip ─────────────────────────────────────────────
+// Older Freehold builds round-tripped an owned book through CSV with blind type coercion: a
+// STRING that merely looks numeric/boolean reloaded as a number/boolean (a company literally
+// named "54", every digits-only phone, a note saying "true") and then crashed any render that
+// called a string method on it (F6). String() restores the original text exactly, so healing
+// at read time is lossless. Freehold now guard-quotes such strings on write; these helpers
+// heal books that were saved by the older code.
+export function healStr(v: unknown): string {
+  return v == null ? "" : typeof v === "string" ? v : String(v);
+}
+// For optional fields: preserves absent-ness (undefined) instead of inventing "".
+export function healOptStr(v: unknown): string | undefined {
+  return v == null ? undefined : typeof v === "string" ? v : String(v);
+}
+
 // Set when any store hit corrupt data this session; the UI can read it to warn the owner + point at the
 // ".corrupt" backup, instead of the data appearing to have vanished.
 export const STORE_CORRUPT_FLAG = "bb.storeCorrupt.v1";

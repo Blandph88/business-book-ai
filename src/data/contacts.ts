@@ -116,9 +116,32 @@ function parseContactRows(text: string): Contact[] {
 // label was renamed (old "Other Industries" → "Other / Smaller firms") — by folding it into
 // the catch-all. Keeps already-imported books showing correctly without forcing a re-import.
 const KNOWN_GROUPS = new Set<string>(SECTOR_GROUPS);
+
+// Every declared-string column on Contact. Used by healContactStrings to repair rows whose
+// fields were type-mangled by the older Freehold vault CSV round-trip (a company literally
+// named "54" reloaded as the number 54 and crashed every organisation?.trim() — F6).
+const CONTACT_STRING_FIELDS = [
+  "first", "last", "organisation", "position", "sector_detail", "sector_group",
+  "sub_group", "seniority", "function", "url", "phone",
+] as const;
+
+// Lossless repair: String() restores the original text exactly. Returns the SAME reference
+// for clean rows so a 26k-contact book pays nothing when nothing needs healing.
+export function healContactStrings(c: Contact): Contact {
+  let healed: Contact | null = null;
+  for (const f of CONTACT_STRING_FIELDS) {
+    const v = (c as unknown as Record<string, unknown>)[f];
+    if (v != null && typeof v !== "string") {
+      if (!healed) healed = { ...c };
+      (healed as unknown as Record<string, unknown>)[f] = String(v);
+    }
+  }
+  return healed ?? c;
+}
+
 function normalizeGroups(contacts: Contact[]): Contact[] {
   return contacts.map((c) => {
-    let n = c;
+    let n = healContactStrings(c);
     if (n.sector_group && !KNOWN_GROUPS.has(n.sector_group))
       n = { ...n, sector_group: OTHER_INDUSTRY_LABEL };
     // Heal the "Head of" → "Head of / Director" seniority-band rename for data imported earlier.
@@ -158,7 +181,7 @@ async function loadDemoCsv(): Promise<string> {
 // Funnel flags aren't in this file, so they default false — only name/org/sector/
 // seniority are used. Returns [] if the file isn't present yet.
 export async function loadConnections(): Promise<Contact[]> {
-  if (getAppMode() === "owned") return loadImportedContacts();
+  if (getAppMode() === "owned") return (await loadImportedContacts()).map(healContactStrings);
   const response = await fetch("connections_enriched.csv");
   if (!response.ok) return [];
   return parseContactRows(await response.text());

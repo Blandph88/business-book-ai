@@ -358,3 +358,40 @@ html.is-mobile .app-currency > span { display: none; }
 }
 html.is-mobile .topbar-search { max-width: none; }
 html.is-mobile .topbar-search-text, html.is-mobile .topbar-search-kbd { display: none; }
+
+/* Error-boundary card (TabErrorBoundary): a render crash shows THIS instead of a silent blank
+   panel (F6). Styled like the first-run card so it reads as the app speaking, not a browser error. */
+.tab-error-card {
+  max-width: 560px;
+  margin: 48px auto;
+  padding: 24px;
+  background: var(--card, #fff);
+  border: 1px solid var(--line, #e3e7ee);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.tab-error-card h2 { margin: 0 0 8px; font-size: 18px; color: var(--ink, #1a2230); }
+.tab-error-card p { margin: 0 0 12px; font-size: 14px; line-height: 1.6; color: var(--ink-2, #55606e); }
+.tab-error-detail {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-2, #55606e);
+  background: var(--bg, #f6f7f9);
+  border: 1px solid var(--line, #e3e7ee);
+  border-radius: 8px;
+}
+.tab-error-retry {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--primary, #1f3b63);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.tab-error-retry:hover { filter: brightness(1.08); }

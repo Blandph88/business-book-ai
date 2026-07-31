@@ -79,7 +79,17 @@ const STORAGE_KEY = scopedKey("bob.meetings.v2");
 // stored value is corrupt — we fail safe rather than crash the tab.
 export function loadAllMeetings(): MeetingsById {
   // readJsonSafe backs up corrupt bytes to a sibling key so the next save can't clobber recoverable data.
-  return readJsonSafe<MeetingsById>(STORAGE_KEY, {});
+  const all = readJsonSafe<MeetingsById>(STORAGE_KEY, {});
+  // Heal free-text fields type-mangled by the older vault CSV round-trip (notes that were just
+  // "42" reloaded as a number and crashed ?.trim() call sites — F6 class). Lossless String() repair.
+  for (const m of Object.values(all)) {
+    for (const f of ["location", "attendees_ours", "attendees_client", "purpose", "notes",
+      "org_insights", "pain_points", "actions_mine", "actions_theirs", "followup"] as const) {
+      const v = m[f] as unknown;
+      if (v != null && typeof v !== "string") m[f] = String(v);
+    }
+  }
+  return all;
 }
 
 // Replace the whole meetings map in one write. Used by the minutes importer, which

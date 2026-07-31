@@ -13,7 +13,7 @@ import type {
   DecisionRole,
 } from "../data/vocab";
 import { persistLocal, scopedKey } from "./persist";
-import { readJsonSafe } from "./safeRead";
+import { healOptStr, readJsonSafe } from "./safeRead";
 
 // The eight owner-editable fields (CLAUDE.md §4). All optional: a brand-new contact
 // has none of these set yet. Dropdown fields use the vocab union types; free-text and
@@ -63,7 +63,18 @@ export function editsFor(
 // Read every saved edit. Returns an empty map if nothing is stored yet or if the
 // stored value is somehow corrupt (we fail safe rather than crash the tab).
 export function loadAllEdits(): EditsByUrl {
-  return readJsonSafe<EditsByUrl>(STORAGE_KEY, {});
+  const all = readJsonSafe<EditsByUrl>(STORAGE_KEY, {});
+  // Heal fields type-mangled by the older vault CSV round-trip (an owner-entered phone is digits —
+  // it reloaded as a NUMBER and crashed phone?.trim() call sites). Lossless; see safeRead.healOptStr.
+  for (const e of Object.values(all)) {
+    if (e.phone !== undefined) e.phone = healOptStr(e.phone);
+    if (e.notes !== undefined) e.notes = healOptStr(e.notes);
+    if (e.email !== undefined) e.email = healOptStr(e.email);
+    if (e.based_in !== undefined) e.based_in = healOptStr(e.based_in);
+    if (e.position !== undefined) e.position = healOptStr(e.position);
+    if (e.last_contact_date !== undefined) e.last_contact_date = healOptStr(e.last_contact_date);
+  }
+  return all;
 }
 
 // Save one contact's edits, merged into the existing map, and return the new map so

@@ -154,8 +154,19 @@ function migrateOpportunity(raw: LegacyOpp): Opportunity {
 export function loadAllOpportunities(): OpportunitiesById {
   const parsed = readJsonSafe<Record<string, LegacyOpp>>(STORAGE_KEY, {});
   const out: OpportunitiesById = {};
-  for (const [id, o] of Object.entries(parsed)) out[id] = migrateOpportunity(o);
+  for (const [id, o] of Object.entries(parsed)) out[id] = healOppStrings(migrateOpportunity(o));
   return out;
+}
+
+// Heal string fields type-mangled by the older vault CSV round-trip (an organisation named
+// "54" reloaded as a number and crashed organisation?.trim() — F6 class). Lossless String() repair.
+function healOppStrings(o: Opportunity): Opportunity {
+  for (const f of ["opportunity_name", "organisation", "primary_contact", "primary_contact_url",
+    "origination_credit", "description", "competitors"] as const) {
+    const v = o[f] as unknown;
+    if (v != null && typeof v !== "string") (o as unknown as Record<string, unknown>)[f] = String(v);
+  }
+  return o;
 }
 
 // Replace the whole opportunities map in one write. Used by the minutes importer,
