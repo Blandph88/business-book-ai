@@ -7,7 +7,7 @@ import type { StaleContact } from "../data/dashboard";
 
 // AI OFF: the whole point of the deterministic brief is that it renders with no working model.
 // Mock the ai module so useAiAvailable() returns false (aiPrompt is never reached on this path).
-vi.mock("../ai/ai", () => ({ useAiAvailable: () => false, aiPrompt: vi.fn() }));
+vi.mock("../ai/ai", () => ({ useAiAvailable: () => false, useAiBackend: () => ({ label: "AI" }), aiPrompt: vi.fn() }));
 
 import { YourDay, parseSectionedBrief } from "./YourDay";
 

@@ -238,7 +238,26 @@ function oppStatus(o: Opportunity): "Open" | "Won" | "Lost" { if (o.lost) return
 function oppWeighted(o: Opportunity): number { return (o.est_value ?? 0) * (o.probability ?? 0); }
 const stepLabel = (id: string) => id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 // Loose company match: an org "contains" the query as a word-ish substring (case-insensitive).
+// F4: brand aliases the word-boundary matcher can't bridge — "EY" cannot reach "Ernst & Young…"
+// (164 rows missed in a real Big-4 book), "PwC" cannot reach "PricewaterhouseCoopers…". A tiny
+// curated table, applied in BOTH directions (querying either name finds the whole group). Keep it
+// to genuinely different names — spacing/punctuation variants are already handled by the squish tier.
+const ORG_ALIAS_GROUPS: string[][] = [
+  ["ey", "ernst & young", "ernst and young"],
+  ["pwc", "pricewaterhousecoopers", "price waterhouse coopers"],
+];
+
 export function orgMatches(org: string | undefined, q: string): boolean {
+  if (orgMatchesDirect(org, q)) return true;
+  const s = q.trim().toLowerCase();
+  const group = ORG_ALIAS_GROUPS.find((g) => g.includes(s));
+  if (group) {
+    for (const alt of group) if (alt !== s && orgMatchesDirect(org, alt)) return true;
+  }
+  return false;
+}
+
+function orgMatchesDirect(org: string | undefined, q: string): boolean {
   if (!org) return false;
   const o = org.toLowerCase(), s = q.trim().toLowerCase();
   if (!s) return false;
@@ -268,6 +287,21 @@ export function orgMatches(org: string | undefined, q: string): boolean {
 
 // ── TOOLS ───────────────────────────────────────────────────────────────────────────────────────
 
+// F5: relationship-first ordering for contact tables. Lists used to render in book/import order, so
+// the visible slice — which is ALSO all the narrator reasons over — could bury every engaged contact
+// (real book, "warm intro at Riyad Bank": 10 of 21 two-way+ contacts sat below the fold, including
+// the deepest thread at the whole bank). Funnel stage first, thread depth then warmth as tiebreaks,
+// so "who can vouch for me" answers lead with the people who actually can.
+function engageRank(c: Contact): number {
+  return c.met ? 5 : c.agreed_to_meet ? 4 : c.two_way ? 3 : c.responded ? 2 : c.messaged ? 1 : 0;
+}
+export function sortByEngagement(list: Contact[]): Contact[] {
+  return list.slice().sort((a, b) =>
+    engageRank(b) - engageRank(a) ||
+    (b.thread?.inboundCount || 0) - (a.thread?.inboundCount || 0) ||
+    (b.warmthSentiment?.score || 0) - (a.warmthSentiment?.score || 0));
+}
+
 // 1. findContacts — filter the network. `filter`: company, stage (funnel), decisionRole, notContactedNote.
 export type ContactFilter = { company?: string; stage?: "messaged" | "responded" | "two_way" | "agreed_to_meet" | "met" | "agreed_not_met" | "not_responded" | "not_met"; decisionRole?: boolean };
 export function findContacts(d: BookData, filter: ContactFilter): ComputeResult {
@@ -282,9 +316,9 @@ export function findContacts(d: BookData, filter: ContactFilter): ComputeResult 
   if (filter.decisionRole) { list = list.filter((c) => /decision/i.test(c.position || "") || /chief|ceo|cfo|coo|cto|head of|director|vp|vice president|partner/i.test(c.position || "")); what = "senior / decision-maker " + what; }
   const total = list.length;
   if (!total) return { intro: `Hmm, nothing matched — no ${what} in your book right now.`, columns: [], rows: [] };
-  const shown = list.slice(0, 40);
+  const shown = sortByEngagement(list).slice(0, 40);
   const res: ComputeResult = {
-    intro: `${total} ${what}${total > shown.length ? ` (showing ${shown.length})` : ""}:`,
+    intro: `${total} ${what}${total > shown.length ? ` (showing ${shown.length}, most engaged first)` : ""}:`,
     columns: ["Name", "Position", "Organisation", "Stage"],
     rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
   };
@@ -1040,7 +1074,18 @@ export function latentOpportunities(d: BookData): ComputeResult {
 export function accountSummary(d: BookData, company: string): ComputeResult {
   const people = d.contacts.filter((c) => orgMatches(c.organisation, company));
   if (!people.length) return { intro: `Drew a blank on "${company}" — no one from there is in your book yet. Want me to keep an eye out as you add contacts?`, columns: [], rows: [] };
-  const org = people[0].organisation;
+  // F3: matches can span several DISTINCT company values (a real book: "Al Rajhi" → bank, capital,
+  // takaful… 5 spellings). Labelling the aggregate with the FIRST row's value presented 78 contacts
+  // as "Al Rajhi Takaful" — an entity holding 4 of them. One entity → its canonical casing; a group
+  // → the buyer's own query as the label, plus a per-entity breakdown so the coverage is legible.
+  const orgNames = new Map<string, number>();
+  for (const c of people) orgNames.set(c.organisation, (orgNames.get(c.organisation) ?? 0) + 1);
+  const multi = orgNames.size > 1;
+  const org = multi ? company : people[0].organisation;
+  const topEntities = [...orgNames.entries()].sort((a, b) => b[1] - a[1]);
+  const entityLine = multi
+    ? `\nAcross ${orgNames.size} entities: ${topEntities.slice(0, 5).map(([n, k]) => `${n} ${k}`).join(" · ")}${orgNames.size > 5 ? ` · +${orgNames.size - 5} more` : ""}.`
+    : "";
   const meetings = d.meetingRows.filter((m) => orgMatches(m.contactInfo.organisation, company) && m.meeting_stage === "Held").length;
   const allOpps = d.opps.filter((o) => orgMatches(o.organisation, company));
   const opps = allOpps.filter((o) => oppStatus(o) === "Open");
@@ -1058,9 +1103,10 @@ export function accountSummary(d: BookData, company: string): ComputeResult {
   ].filter(Boolean);
   const res: ComputeResult = {
     subject: { kind: "org", id: org, label: org },
-    intro: `${org}: ${people.length} contact${people.length === 1 ? "" : "s"}, ${meetings} meeting${meetings === 1 ? "" : "s"} held, ${opps.length} open opportunit${opps.length === 1 ? "y" : "ies"}${openVal ? ` (${money(openVal)})` : ""}${pastOpps ? ` + ${pastLabel(allOpps)}` : ""}.${sigBits.length ? `\nRelationship read: ${sigBits.join(" · ")}.` : ""}`,
+    intro: `${org}: ${people.length} contact${people.length === 1 ? "" : "s"}, ${meetings} meeting${meetings === 1 ? "" : "s"} held, ${opps.length} open opportunit${opps.length === 1 ? "y" : "ies"}${openVal ? ` (${money(openVal)})` : ""}${pastOpps ? ` + ${pastLabel(allOpps)}` : ""}.${entityLine}${sigBits.length ? `\nRelationship read: ${sigBits.join(" · ")}.` : ""}`,
     columns: ["Name", "Position", "Stage"],
-    rows: people.slice(0, 20).map((c) => ({ cells: [fullName(c), c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
+    // F5 here too: 20 visible rows of a possibly-large account — engaged contacts must lead the slice.
+    rows: sortByEngagement(people).slice(0, 20).map((c) => ({ cells: [fullName(c), c.position || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
     // Hint to the caller: blend in what this organisation actually DOES (a brokered web/entity lookup),
     // so "tell me about JPMorgan" gives the network picture AND a factual description, not just the table.
     enrich: org ? { kind: "company", name: org } : undefined,
