@@ -18,6 +18,9 @@ const VOICE =
   "\"[Your Company Name]\") — write the full message from the facts given, and simply write around anything " +
   "you don't know. Never mention the sender's internal pipeline — opportunity names, deal values, or " +
   "colleagues' names — in the outbound text unless the instruction explicitly asked for it. " +
+  "When you reference a past exchange, be honest about HOW LONG AGO it was: if it's more than about six " +
+  "months old, say when it happened (month and year, e.g. \"back in June last year\") — never imply a " +
+  "13-month-old message was recent (\"the summer shuffle\" for a different year's summer misleads the reader). " +
   "Output only the message text.";
 
 function meetingNotes(meetings: MeetingRow[]): string {
@@ -461,7 +464,7 @@ export type RouteResult = {
 
 // JSON schema handed to the backend for constrained decoding — the model literally cannot emit an invalid
 // route, tool, or entity. Args are left loose (runTool tolerates partial/typed args defensively).
-export const TOOL_NAMES = ["findContacts", "findMeetings", "findOpportunities", "findContracts", "rankContacts", "rankOpportunities", "pipelineStats", "pipelineAggregate", "revenueAggregate", "funnelBreakdown", "contactBrief", "accountSummary", "weeklyFocus", "owedReplies", "latentOpportunities", "oppsWithoutMeeting", "oppsWithRecentMeeting", "meetingsWithoutOpp", "accountsWithOppAndContacts", "coldAtActiveAccounts", "contactsMetAtLeast", "personalSnapshot", "compareEntities", "stageBreakdown"] as const;
+export const TOOL_NAMES = ["findContacts", "findMeetings", "findOpportunities", "findContracts", "rankContacts", "rankOpportunities", "pipelineStats", "pipelineAggregate", "revenueAggregate", "funnelBreakdown", "contactBrief", "accountSummary", "weeklyFocus", "owedReplies", "awaitingTheirReply", "latentOpportunities", "oppsWithoutMeeting", "oppsWithRecentMeeting", "meetingsWithoutOpp", "accountsWithOppAndContacts", "coldAtActiveAccounts", "contactsMetAtLeast", "personalSnapshot", "compareEntities", "stageBreakdown"] as const;
 
 export const ROUTER_SCHEMA = {
   type: "object",
@@ -553,6 +556,7 @@ export function routerPrompt(text: string, history: ChatTurn[] = []): PromptArgs
       "   - rankOpportunities {by} — by ∈ value|probability|risk. (\"which am I kidding myself about\"→risk)\n" +
       "   - rankContacts {by} — by ∈ warmth|cold. (\"who's gone quiet\"→cold)\n" +
       "   - owedReplies {} — people I owe a reply to (\"am I ghosting anyone\").\n" +
+      "   - awaitingTheirReply {} — the MIRROR: threads where I wrote last and THEY haven't come back (\"what am I waiting on\", \"who hasn't got back to me\"). Direction matters — never confuse with owedReplies.\n" +
       "   - oppsWithoutMeeting {} — open deals with NO next meeting booked (anti-join).\n" +
       "   - oppsWithRecentMeeting {window?} — open deals whose client HAS met me inside the window (join).\n" +
       "   - meetingsWithoutOpp {} — met contacts with NO opportunity (\"meetings that went nowhere\").\n" +

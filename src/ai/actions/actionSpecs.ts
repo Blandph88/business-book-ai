@@ -153,9 +153,12 @@ function groundedIn(value: string | undefined, source: string): string {
 }
 // Strip a leading "log/record a meeting with <name>" command, keeping any REAL notes typed after it (so
 // "log a meeting with Adam: discussed pricing" → "discussed pricing", but a bare command → "").
-function stripMeetingCommand(text: string): string {
+export function stripMeetingCommand(text: string): string {
   return text
-    .replace(/^\s*(log|record|add|create|note|capture|save|had|have|book|schedule|arrange|set up|plan)\b[^:.\n]*?\bmeeting\b[^:.\n]*?\b(?:with|for)\s+[\w .'-]+/i, "")
+    // F15: the noun class covers every meeting word the PAST-detector accepts — "log a COFFEE with X this
+    // morning" wasn't stripped (only "meeting" was), so the raw command echoed into Notes and, being ≥12
+    // chars, triggered model extraction that invented a Neutral sentiment for a contentless log.
+    .replace(/^\s*(log|record|add|create|note|capture|save|had|have|book|schedule|arrange|set up|plan)\b[^:.\n]*?\b(?:meeting|coffee|call|chat|catch[- ]?up|lunch|dinner|drinks?|breakfast)\b[^:.\n]*?\b(?:with|for)\s+[\w .'-]+/i, "")
     // "Log that I bumped into Karen…" — drop the command verb, keep the substance (retest #29: the raw
     // command text, "Log that" included, landed verbatim in the Notes field).
     .replace(/^\s*(?:log|record|note|capture|save)\s+(?:that\s+|down\s+)?/i, "")

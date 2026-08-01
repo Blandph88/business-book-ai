@@ -29,7 +29,7 @@ const STARTER_ICON: Record<string, React.ReactNode> = {
 };
 import { askBookPrompt, suggestionsPrompt, routerPrompt, distilMemoryPrompt, interpretResultPrompt, companionPrompt, normalizeRoute, CRISIS_RESPONSE, type ChatTurn, type RouteResult, draftMessagePrompt, type DraftKind } from "../ai/prompts";
 import { type BookData } from "../ai/bookContext";
-import { computeForQuery, computeExact, computeText, runTool, rankContacts, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, lastMetQuery, newsShaped, reminderSubject, owedReplies, orgMatches, contactSignalsText, type ComputeResult } from "../ai/compute";
+import { computeForQuery, computeExact, computeText, runTool, rankContacts, shouldInterpretResult, privacyResponse, modelResponse, capabilitiesResponse, capabilitiesResult, frontDoorBrief, questionBlocksAction, noteOnContact, cancelIntent, changeCardIntent, bookShapedText, revenueVocabOk, scanEntities, deicticRecordRef, resolveCompareDeixis, compareEntities, meetingContent, lastMetQuery, newsShaped, reminderSubject, orgMatches, contactSignalsText, type ComputeResult } from "../ai/compute";
 import { searchBook, assembleGrounding, conversationPath, clearlyPersonal, MONEY_DECISION, type Groups, type Hit } from "../ai/grounding";
 import { formatTokens } from "../data/format";
 import { subscribeWarmth, getWarmthState, isAnalysisRunning, pauseWarmthAnalysis } from "../ai/warmthTask";
@@ -318,8 +318,14 @@ function chipDomain(contextText: string): keyof typeof GENERAL_CHIP_POOL {
   if (/contact|lead|warm|cold|network|people|repl/.test(t)) return "contacts";
   return "agenda";
 }
-function buildChipSet(specific: Chip[], contextText: string, question: string): Chip[] {
-  const pool = GENERAL_CHIP_POOL[chipDomain(contextText)].filter((c) => !echoesQuestion(c.prompt, question));
+function buildChipSet(specific: Chip[], contextText: string, question: string, d?: BookData): Chip[] {
+  let pool = GENERAL_CHIP_POOL[chipDomain(contextText)].filter((c) => !echoesQuestion(c.prompt, question));
+  // Offer-conditioning: on a book with NO opportunities, deal-flavoured general chips are guaranteed
+  // dead ends ("average deal size?" over 0 deals — live-run wart ×3). Swap to relationship chips.
+  if (d && !d.opps.length) {
+    const dealFree = pool.filter((c) => !/deal|pipeline|opportunit/i.test(c.prompt + c.label));
+    pool = dealFree.length ? dealFree : GENERAL_CHIP_POOL.contacts.filter((c) => !echoesQuestion(c.prompt, question));
+  }
   const generals: Chip[] = [];
   for (let i = 0; i < pool.length && generals.length < 2; i++) {
     const c = pool[(chipRotation + i) % pool.length];
@@ -344,7 +350,12 @@ function chipsFromAnswer(answer: string, d: BookData): Chip[] {
   ];
   const chips: Chip[] = [];
   people.slice(0, 3).forEach((n, i) => chips.push(verbs[i % verbs.length](n)));
-  if (chips.length < 3 && orgs.length) chips.push({ label: `Who else do I know at ${orgs[0]}?`, prompt: `Who do I know at ${orgs[0]}?` });
+  // Offer-conditioning (live-run wart): "who ELSE" needs a second person at that org — a 1-contact
+  // org makes the chip a guaranteed dead end. Prefer the first org with company.
+  if (chips.length < 3 && orgs.length) {
+    const orgWithCompany = orgs.find((o) => d.contacts.filter((c) => orgMatches(c.organisation, o)).length > 1);
+    if (orgWithCompany) chips.push({ label: `Who else do I know at ${orgWithCompany}?`, prompt: `Who do I know at ${orgWithCompany}?` });
+  }
   return chips.slice(0, 3);
 }
 
@@ -659,6 +670,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   // last meeting" after a brief lost its subject and fell back to the latest meeting overall). The
   // ledger now survives reloads within the tab; a fresh session starts clean, which is correct.
   const REFS_KEY = "bob.referents.v1";
+  // F20: a live "we're composing a draft — pick who for" state per chat. A bare NAME typed after the
+  // candidate chips used to re-route as a fresh query (the picker invited typing, then briefed instead
+  // of drafting). One-shot: consumed by the next message whatever it is.
+  const pendingDraftRef = useRef<Map<string, { mode: "reconnect" | "first-touch" }>>(new Map());
   const referentsRef = useRef<Map<string, Referent[]> | null>(null);
   const refsMap = (): Map<string, Referent[]> => {
     if (!referentsRef.current) {
@@ -1095,6 +1110,21 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // Demo analytics (no-op in the owned/sealed copy; content-free — category + counts only, never the text).
     // A cheap regex prior labels the intent for analytics only — the REAL routing is the unified LLM router
     // inside answer() (which decides action/tool/chat/book in one schema-constrained call, on every tier).
+    // F20: a pending draft picker + a name-shaped reply → continue the DRAFT for that person, don't
+    // re-route the bare name as a new question (live run: typing "Husnain Akhtar" after the reconnect
+    // chips returned his brief and the draft intent died). One-shot either way.
+    {
+      const pend = pendingDraftRef.current.get(id);
+      if (pend) {
+        pendingDraftRef.current.delete(id);
+        const namey = text.replace(/[.?!]+$/, "").trim();
+        if (namey && /^[A-Za-zÀ-ſ][\wÀ-ſ.'\- ]{1,60}$/.test(namey) && matchContacts(namey, data.contacts).length >= 1) {
+          const one = matchContacts(namey, data.contacts);
+          const target = one.length === 1 ? `${one[0].first} ${one[0].last}`.trim() + (one[0].organisation ? ` at ${one[0].organisation}` : "") : namey;
+          return ask(`${pend.mode === "reconnect" ? "Draft a reconnect message to" : "Write a first-touch intro to"} ${target}`);
+        }
+      }
+    }
     const priorIntent = routeIntent(text || "summarise this document", { hasDoc: !!attached });
     if (freshChat) track("conversation_start", { backend: activeBackend || "unknown" });
     track("ai_prompt", { intent: priorIntent.kind, action: isActionIntent(priorIntent), hasDoc: !!attached, len: lenBucket(text.length), backend: activeBackend || "unknown" });
@@ -1167,6 +1197,8 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
           prompt: c.organisation ? `${text.replace(/[.?!]+$/, "")} at ${c.organisation}` : text,
         }));
         const msg = `${dc.length} people called ${`${dc[0].first} ${dc[0].last}`.trim()} — which one is this for?`;
+        // F20: keep the draft intent alive for a typed reply too (chips are optional, not the only way in).
+        pendingDraftRef.current.set(id, { mode: /\breconnect|re-?engage\b/i.test(text) ? "reconnect" : "first-touch" });
         persistTo(id, [...history, { role: "you", text }, { role: "ai", text: msg }]);
         if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: msg, chips }]);
         setAsking(false); markDone(id);
@@ -1191,13 +1223,29 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // <Org> contact" describe a set a TOOL can resolve; offer real candidates instead of a [Name] template.
       if (!dc.length) {
         const goneQuiet = /\b(?:gone (?:quiet|cold)|lost touch|haven'?t (?:spoken|talked)|quiet with)\b/i.test(text);
-        const orgForNew = /\b(?:new|cold)\b[^?]*\bcontact\b|\bfirst[- ]?touch\b/i.test(text) ? scanEntities(text, data).orgs[0] : "";
+        // F19: the org qualifier applies to BOTH branches — "someone AT EY I've gone quiet with" used to
+        // offer the GLOBAL owed top-5 (zero EY in the chips while the EY subset was far from empty).
+        const orgAny = scanEntities(text, data).orgs[0] || "";
+        const orgForNew = /\b(?:new|cold)\b[^?]*\bcontact\b|\bfirst[- ]?touch\b/i.test(text) ? orgAny : "";
+        // F21: a seniority word in the set-description filters candidates ("a KPMG PARTNER I've never
+        // spoken to" offered 1 partner + a recruiter + directors while dozens of true partners sat cold).
+        // Exact-role titles rank first, so "Partner" beats "Talent Sourcing Partner".
+        const senWant = text.match(/\b(managing director|vice president|head of|partner|director|chief|ceo|cfo|coo|vp)\b/i)?.[1]?.toLowerCase() || "";
+        const senRe = senWant ? new RegExp(`\\b${senWant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i") : null;
+        const senFilter = (c: Contact) => !senRe || senRe.test(c.position || "");
+        const senRank = (c: Contact) => !senRe ? 0 : (c.position || "").trim().toLowerCase().startsWith(senWant) ? 0 : 1;
         let cands: { name: string; org: string }[] = [];
         if (goneQuiet) {
-          const owed = owedReplies(data, today);
-          cands = owed.rows.slice(0, 5).map((r) => ({ name: String(r.cells[0]), org: String(r.cells[1] || "") }));
+          let pool = data.contacts.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0);
+          if (orgAny) pool = pool.filter((c) => orgMatches(c.organisation, orgAny));
+          pool = pool.filter(senFilter).sort((a, b) =>
+            (senRank(a) - senRank(b)) ||
+            ((b.warmthSentiment?.score || 0) - (a.warmthSentiment?.score || 0)) ||
+            (b.thread!.lastDate || "").localeCompare(a.thread!.lastDate || ""));
+          cands = pool.slice(0, 5).map((c) => ({ name: `${c.first} ${c.last}`.trim(), org: c.organisation }));
         } else if (orgForNew) {
-          cands = data.contacts.filter((c) => !c.messaged && orgMatches(c.organisation, orgForNew)).slice(0, 5)
+          cands = data.contacts.filter((c) => !c.messaged && orgMatches(c.organisation, orgForNew)).filter(senFilter)
+            .sort((a, b) => senRank(a) - senRank(b)).slice(0, 5)
             .map((c) => ({ name: `${c.first} ${c.last}`.trim(), org: c.organisation }));
         }
         if (cands.length) {
@@ -1206,8 +1254,10 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
             prompt: `${goneQuiet ? "Draft a reconnect message to" : "Write a first-touch intro to"} ${x.name}${x.org ? ` at ${x.org}` : ""}`,
           }));
           const msg = goneQuiet
-            ? "Worth re-engaging — pick who this is for:"
-            : `Here are people at ${orgForNew} you haven't contacted yet — pick who this is for:`;
+            ? `Worth re-engaging${orgAny ? ` at ${orgAny}` : ""} — pick who this is for:`
+            : `Here are people at ${orgForNew} you haven't contacted yet${senWant ? ` (${senWant}s first)` : ""} — pick who this is for:`;
+          // F20: remember we're mid-draft so a typed name continues the draft instead of re-routing.
+          pendingDraftRef.current.set(id, { mode: goneQuiet ? "reconnect" : "first-touch" });
           persistTo(id, [...history, { role: "you", text }, { role: "ai", text: msg }]);
           if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: msg, chips }]);
           setAsking(false); markDone(id);
@@ -1224,7 +1274,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // entities worth anchoring to, and deriving them produces non-sequiturs (a stray "Smith" → "DS Smith").
       // …and NEVER on a which-one disambiguation (a "Draft a follow-up to Sarah Singh" chip presumes
       // a pick the user hasn't made — live-run nit).
-      const chips = computed.rows.length && !isDisambiguation(computed.intro) ? buildChipSet(chipsFromAnswer(md, data), md, text) : [];
+      const chips = computed.rows.length && !isDisambiguation(computed.intro) ? buildChipSet(chipsFromAnswer(md, data), md, text, data) : [];
       const base: UITurn[] = [...prior, { role: "you", text }];
       const tableTurn: UITurn = { role: "ai", text: md, compute: computed, chips: chips.length ? chips : undefined };
       const persisted: ChatTurn[] = [...history, { role: "you", text }];
@@ -1653,7 +1703,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // Chips come ONLY from who the answer actually names (accurate on every tier). If the answer named
       // nobody recognisable (e.g. a purely analytical reply), show no chips here rather than inventing a
       // random book contact/company — the model-generated, answer-validated chips below may still add some.
-      const answerChips = buildChipSet(chipsFromAnswer(aiText, data), aiText, text);
+      const answerChips = buildChipSet(chipsFromAnswer(aiText, data), aiText, text, data);
       const baseOrUndef = answerChips.length ? answerChips : undefined;
       persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText, chips: baseOrUndef }]);
       // Finalise the rendered turn (with chips + related) now the stream is complete.
@@ -1663,7 +1713,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // On the cloud tier only: upgrade to chips generated FROM the answer (more varied phrasing), validated
       // so they can't name anyone outside the answer/book. On-device tiers keep the deterministic chips above.
       if (canGenChips) {
-        const generated = buildChipSet(chipNamesInAnswer(await generateChips(text, aiText.slice(0, 1600), grounding.slice(0, 2400)), aiText, data), aiText, text);
+        const generated = buildChipSet(chipNamesInAnswer(await generateChips(text, aiText.slice(0, 1600), grounding.slice(0, 2400)), aiText, data), aiText, text, data);
         if (generated.length && chatIdRef.current === id) {
           setChat([...prior, { role: "you", text }, { role: "ai", text: aiText, related: relatedOrUndef, chips: generated }]);
           persistTo(id, [...history, { role: "you", text }, { role: "ai", text: aiText, chips: generated }]);
@@ -1770,7 +1820,17 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // ANY create with an ambiguously-named person asks — not just contact-requiring kinds: the
       // opportunity spec has needsContact=false, which let "an opportunity for Sarah" (37 Sarahs)
       // open a bare card instead of the picker (re-verify item 29).
-      if (!subjectUrl && op === "create" && matches.length > 1 && matches.length <= 60 && span && !pronounOnly) {
+      // F17: the span may name an ORG, not a person ("Start an opportunity with Saudi Central Bank"
+      // matched 6 SAMA people and asked "6 people CALLED Saudi Central Bank"). An org-level OPPORTUNITY
+      // proceeds straight to the card (the extractor prefills organisation; contact stays optional);
+      // kinds that genuinely need a person keep the picker, but the copy says "at", not "called".
+      const spanLow = (span || "").toLowerCase();
+      const spanIsOrg = !!span
+        && !contacts.some((c) => `${c.first} ${c.last}`.toLowerCase().includes(spanLow))
+        && contacts.some((c) => orgMatches(c.organisation, span!));
+      if (!subjectUrl && op === "create" && kind === "opportunity" && spanIsOrg) {
+        // fall through — no person pick required for an org-level opportunity
+      } else if (!subjectUrl && op === "create" && matches.length > 1 && matches.length <= 60 && span && !pronounOnly) {
         const CAPC = 6;
         // Two contacts can share the FULL name (live run: two Sarah Evanses) — a chip that re-issues
         // just the name loops forever. Append "at <org>" whenever the full name isn't unique.
@@ -1789,7 +1849,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         // "6 people called Sarah" when the book holds 37 (honesty nit from the live run).
         const spanLow = span.toLowerCase();
         const realCount = /\s/.test(span) ? matches.length : Math.max(matches.length, contacts.filter((c) => (c.first || "").toLowerCase() === spanLow).length);
-        const turn: UITurn = { role: "ai", text: `${realCount} people called ${span} — here ${matches.length === 1 ? "is the closest match" : `are the ${matches.length} closest`}; which one did you mean? (Type the full name if yours isn't here.)`, chips };
+        const turn: UITurn = { role: "ai", text: `${realCount} people ${spanIsOrg ? "at" : "called"} ${span} — here ${matches.length === 1 ? "is the closest match" : `are the ${matches.length} closest`}; which one did you mean? (Type the full name if yours isn't here.)`, chips };
         setActionBusy(false);
         if (chatIdRef.current === id) setChat([...prior, { role: "you", text: display }, turn]);
         persistTo(id, [...prior.filter((tt) => tt.role !== "action").map((tt) => ({ role: tt.role as "you" | "ai", text: tt.text })), { role: "you", text: display }, { role: "ai", text: turn.text, chips }]);
@@ -1954,7 +2014,16 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
   function undoAction(idx: number) {
     chat[idx]?.undo?.();
     reloadData();
-    const next = chat.map((t, i) => (i === idx ? { role: "ai", text: "Undone — I removed that change." } as UITurn : t));
+    // F18: the save APPENDED a "Done — …" follow-up below the card, so replacing only the card left the
+    // transcript reading "Undone" then "Done — it's in your pipeline now" — the opposite of the truth
+    // (the undo DID work; users read it as failed and re-save a duplicate). Neutralise the follow-up and
+    // put the undo receipt at the END so the transcript stays chronological.
+    const followIdx = chat.findIndex((t, i) => i > idx && t.role === "ai" && !!t.related);
+    const next = chat
+      .map((t, i) => (i === idx ? ({ role: "ai", text: "(You saved this, then undid it below.)" } as UITurn)
+        : i === followIdx ? null : t))
+      .filter((t): t is UITurn => t !== null);
+    next.push({ role: "ai", text: "Undone — I removed that change." });
     setChat(next);
     if (chatIdRef.current) persistTo(chatIdRef.current, serializeForPersist(next));
   }

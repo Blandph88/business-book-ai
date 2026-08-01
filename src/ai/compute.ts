@@ -303,7 +303,7 @@ export function sortByEngagement(list: Contact[]): Contact[] {
 }
 
 // 1. findContacts — filter the network. `filter`: company, stage (funnel), decisionRole, notContactedNote.
-export type ContactFilter = { company?: string; stage?: "messaged" | "responded" | "two_way" | "agreed_to_meet" | "met" | "agreed_not_met" | "not_responded" | "not_met"; decisionRole?: boolean };
+export type ContactFilter = { company?: string; stage?: "messaged" | "responded" | "two_way" | "agreed_to_meet" | "met" | "agreed_not_met" | "not_responded" | "not_met" | "not_messaged"; decisionRole?: boolean };
 export function findContacts(d: BookData, filter: ContactFilter): ComputeResult {
   let list = d.contacts;
   let what = "contacts";
@@ -311,16 +311,22 @@ export function findContacts(d: BookData, filter: ContactFilter): ComputeResult 
   if (filter.stage === "agreed_not_met") { list = list.filter((c) => c.agreed_to_meet && !c.met); what = "people you've agreed to meet but not met"; }
   else if (filter.stage === "not_met") { list = list.filter((c) => !c.met); what = "people you've never met"; }
   else if (filter.stage === "not_responded") { list = list.filter((c) => c.messaged && !c.responded); what = "people who haven't responded"; }
+  // F14: the never-MESSAGED cut ("which of my EY contacts have I never actually messaged?") didn't exist —
+  // the org filter held but the whole footprint came back. The most common prospecting anti-join.
+  else if (filter.stage === "not_messaged") { list = list.filter((c) => !c.messaged); what = "people you've never messaged"; }
   else if (filter.stage === "met") { list = list.filter((c) => c.met); what = "people you've met"; }
   else if (filter.stage) { list = list.filter((c) => (c as unknown as Record<string, boolean>)[filter.stage!]); what = `${filter.stage} contacts`; }
   if (filter.decisionRole) { list = list.filter((c) => /decision/i.test(c.position || "") || /chief|ceo|cfo|coo|cto|head of|director|vp|vice president|partner/i.test(c.position || "")); what = "senior / decision-maker " + what; }
   const total = list.length;
   if (!total) return { intro: `Hmm, nothing matched — no ${what} in your book right now.`, columns: [], rows: [] };
   const shown = sortByEngagement(list).slice(0, 40);
+  // F8: show WHEN each relationship last moved. Stage alone let a 2019 thread read like a live one —
+  // the recency column is what makes "engaged first" auditable by the user (and the narrator).
+  const anyHeard = shown.some((c) => c.thread?.lastDate);
   const res: ComputeResult = {
     intro: `${total} ${what}${total > shown.length ? ` (showing ${shown.length}, most engaged first)` : ""}:`,
-    columns: ["Name", "Position", "Organisation", "Stage"],
-    rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
+    columns: anyHeard ? ["Name", "Position", "Organisation", "Stage", "Last heard"] : ["Name", "Position", "Organisation", "Stage"],
+    rows: shown.map((c) => ({ cells: anyHeard ? [fullName(c), c.position || "—", c.organisation || "—", stageLabel(c), (c.thread?.lastDate || "—").slice(0, 10)] : [fullName(c), c.position || "—", c.organisation || "—", stageLabel(c)], record: { tab: "contacts", id: c.url } })),
   };
   if (total > shown.length) res.more = { count: total, ...contactsNav(filter) };
   return res;
@@ -483,7 +489,19 @@ export function rankOpportunities(d: BookData, by: "value" | "probability" | "ri
   let open = d.opps.filter((o) => oppStatus(o) === "Open");
   const valNote = minValue ? ` over ${money(minValue)}` : "";
   if (minValue) open = open.filter((o) => (o.est_value ?? 0) >= minValue);
-  if (!open.length) return { intro: minValue ? `No open opportunities${valNote} right now.` : "You've no open opportunities right now. Want to see your won deals, or which contacts you've met but haven't turned into a deal yet?", columns: [], rows: [] };
+  if (!open.length) {
+    if (minValue) return { intro: `No open opportunities${valNote} right now.`, columns: [], rows: [] };
+    // Offer-conditioning (live-run wart ×3): never offer a view whose result set is EMPTY on this book.
+    const wonCount = d.opps.filter((o) => oppStatus(o) === "Won").length;
+    const metCount = d.contacts.filter((c) => c.met).length;
+    const offers = [
+      wonCount ? "see your won deals" : "",
+      metCount ? "see which contacts you've met but haven't turned into a deal yet" : "",
+    ].filter(Boolean);
+    const tail = offers.length ? ` Want to ${offers.join(", or ")}?`
+      : " Nothing's logged yet — log your first deal (or a meeting that might become one) and this becomes useful.";
+    return { intro: `You've no open opportunities right now.${tail}`, columns: [], rows: [] };
+  }
   let list = open, intro = "", lastCol = "Est. value";
   // Risk mode surfaces the staleness evidence in its own column (below).
   let riskLastMet: ((o: Opportunity) => string) | null = null;
@@ -980,6 +998,13 @@ function ownerWarmthLine(c: Contact): string {
   return "";
 }
 
+// F8/F16 helper: whole months between two ISO dates (0 when either is missing/invalid).
+function monthsBetween(fromIso: string, toIso: string): number {
+  if (!/^\d{4}-\d{2}/.test(fromIso) || !/^\d{4}-\d{2}/.test(toIso)) return 0;
+  const months = (Number(toIso.slice(0, 4)) - Number(fromIso.slice(0, 4))) * 12 + (Number(toIso.slice(5, 7)) - Number(fromIso.slice(5, 7)));
+  return Math.max(0, months);
+}
+
 export function contactBrief(d: BookData, ref: string, today: string): ComputeResult {
   // Bare SHARED first name → DISAMBIGUATE rather than silently briefing the warmest match. Picking one
   // unverified builds every later turn (a drafted email!) on the wrong person — confidentiality-grade. Only
@@ -993,6 +1018,29 @@ export function contactBrief(d: BookData, ref: string, today: string): ComputeRe
       rows: sameFirst.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—"], record: { tab: "contacts", id: c.url } })),
     };
   }
+  // F12: a FULL name shared by ≥2 contacts must ALSO ask (live run: two Mark McLoughlins — HSBC vs a
+  // Gresham Executive PARTNER — silently briefed the first). The gate keys on CANDIDATE COUNT, never on
+  // how many words the user typed. An "at <org>" qualifier in the ref narrows before asking.
+  {
+    let nameRef = String(ref ?? "").trim();
+    let orgHint = "";
+    const atM = nameRef.match(/^(.+?)\s+(?:at|from)\s+(.+)$/i);
+    if (atM && d.contacts.some((x) => foldAccents(fullName(x)) === foldAccents(atM[1].trim()))) {
+      nameRef = atM[1].trim();
+      orgHint = atM[2].trim();
+    }
+    const fullRef = foldAccents(nameRef);
+    if (/\s/.test(fullRef)) {
+      const sameFull = d.contacts.filter((x) => foldAccents(fullName(x)) === fullRef);
+      const narrowed = orgHint ? sameFull.filter((x) => orgMatches(x.organisation, orgHint)) : sameFull;
+      if (narrowed.length > 1) return {
+        intro: `You know ${narrowed.length} people called ${fullName(narrowed[0])} — which one did you mean?`,
+        columns: ["Name", "Position", "Organisation"],
+        rows: narrowed.map((x) => ({ cells: [fullName(x), x.position || "—", x.organisation || "—"], record: { tab: "contacts", id: x.url } })),
+      };
+      if (narrowed.length === 1 && sameFull.length > 1) return contactBriefFor(d, narrowed[0], today);
+    }
+  }
   const c = resolveContact(d, ref, today);
   if (!c) {
     // ENTITY-TYPE SWEEP before any "not in your book" verdict (Gate-0 #23): the ref may be a COMPANY
@@ -1004,14 +1052,33 @@ export function contactBrief(d: BookData, ref: string, today: string): ComputeRe
     const echo = ref === ref.toLowerCase() ? ref.replace(/(^|[\s\-&/])([a-z])/g, (_, b, ch) => b + ch.toUpperCase()) : ref;
     return { intro: `Hmm, I've had a good rummage and there's no "${echo}" in your book — no contact or company by that name yet. Want me to add them, or did you maybe mean someone else?`, columns: [], rows: [] };
   }
+  return contactBriefFor(d, c, today);
+}
+
+// The brief for a RESOLVED contact — split out so the F12 org-narrowed path can brief an exact person
+// without re-running (and possibly re-fumbling) name resolution.
+function contactBriefFor(d: BookData, c: Contact, today: string): ComputeResult {
   const meetings = d.meetingRows.filter((m) => m.contact_url === c.url && m.meeting_stage === "Held").sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
   const allOpps = d.opps.filter((o) => o.contact_url === c.url || orgMatches(o.organisation, c.organisation));
   const opps = allOpps.filter((o) => oppStatus(o) === "Open");
   const pastOpps = allOpps.length - opps.length;
-  // Deterministic thread read: who owes the next reply, from the last message's direction.
-  const owed = c.thread && !c.thread.lastFromOwner
-    ? `You owe them a reply — they messaged last${c.thread.lastDate ? ` on ${c.thread.lastDate}` : ""}.`
-    : c.thread?.lastFromOwner ? `Ball's in their court — you messaged last${c.thread.lastDate ? ` on ${c.thread.lastDate}` : ""}.` : "";
+  // Deterministic thread read: who owes the next reply. F16: last contact = max(messages, MEETINGS) —
+  // after a logged meeting, the message-thread direction line is stale ("ball's in their court since
+  // 2025" right under a meeting held today; live run: Ateeq — the narration had to correct the copy).
+  // F8: state older than ~6 months carries its age, so a 2024 "you messaged last" reads as what it is.
+  const owed = (() => {
+    const threadDate = (c.thread?.lastDate || "").slice(0, 10);
+    const meetDate = meetings[0]?.date_held || "";
+    if (meetDate && meetDate >= threadDate) {
+      return c.thread ? `Last contact: your meeting on ${meetDate} — the next move is yours.` : "";
+    }
+    if (!c.thread) return "";
+    const age = monthsBetween(threadDate, today);
+    const ageNote = age >= 6 ? ` — ${age} months ago, so treat a nudge as a re-introduction` : "";
+    return !c.thread.lastFromOwner
+      ? `You owe them a reply — they messaged last${threadDate ? ` on ${threadDate}` : ""}${ageNote}.`
+      : `Ball's in their court — you messaged last${threadDate ? ` on ${threadDate}` : ""}${ageNote}.`;
+  })();
   const lines = [
     `${fullName(c)} — ${c.position || "—"} at ${c.organisation || "—"}.`,
     `Stage: ${stageLabel(c)}.${meetings.length ? ` ${meetings.length} meeting${meetings.length === 1 ? "" : "s"}, last on ${meetings[0].date_held} (${meetings[0].sentiment || "—"}).` : " No meetings logged yet."}`,
@@ -1043,9 +1110,28 @@ export function owedReplies(d: BookData, today: string): ComputeResult {
   if (!owed.length) return { intro: "You're all square — no one's waiting on a reply from you right now.", columns: [], rows: [] };
   const shown = owed.slice(0, 25);
   return {
-    intro: `You owe a reply — they messaged last and you haven't come back${owed.length > shown.length ? ` (showing ${shown.length} of ${owed.length})` : ` (${owed.length})`}, warmest first:`,
+    // F11: the sort is the COMPOSITE warmth (tone + funnel + recency), not the raw tone score shown in the
+    // Warmth column — so the old "warmest first" label read as a broken sort. Name the actual ordering.
+    intro: `You owe a reply — they messaged last and you haven't come back${owed.length > shown.length ? ` (showing ${shown.length} of ${owed.length})` : ` (${owed.length})`}, most promising first:`,
     columns: ["Name", "Organisation", "Last heard", "Warmth"],
     rows: shown.map((c) => ({ cells: [fullName(c), c.organisation || "—", c.thread!.lastDate || "—", warmthCell(c)], record: { tab: "contacts", id: c.url } })),
+  };
+}
+
+// F10: the MIRROR of owedReplies — two-way threads where the OWNER sent last and the contact hasn't come
+// back. "Which conversations am I waiting on?" used to fall to the never-replied list; these 1,400+ live
+// threads quietly going stale were unreachable by any phrasing, though ThreadMeta held the answer all along.
+export function awaitingTheirReply(d: BookData): ComputeResult {
+  const list = d.contacts
+    .filter((c) => c.thread && c.thread.lastFromOwner && c.thread.inboundCount > 0)
+    .sort((a, b) => (b.thread!.lastDate || "").localeCompare(a.thread!.lastDate || ""));
+  if (!list.length) return { intro: "No live threads are waiting on them — you have no two-way conversations where you spoke last.", columns: [], rows: [] };
+  const shown = list.slice(0, 25);
+  return {
+    intro: `Waiting on them — you messaged last and they haven't come back${list.length > shown.length ? ` (showing ${shown.length} of ${list.length})` : ` (${list.length})`}, most recent first:`,
+    columns: ["Name", "Organisation", "You sent", "Warmth"],
+    rows: shown.map((c) => ({ cells: [fullName(c), c.organisation || "—", (c.thread!.lastDate || "—").slice(0, 10), warmthCell(c)], record: { tab: "contacts", id: c.url } })),
+    more: { count: list.length, tab: "contacts", intent: {} },
   };
 }
 
@@ -1073,7 +1159,7 @@ export function latentOpportunities(d: BookData): ComputeResult {
 // 10. accountSummary — a company's whole footprint.
 export function accountSummary(d: BookData, company: string): ComputeResult {
   const people = d.contacts.filter((c) => orgMatches(c.organisation, company));
-  if (!people.length) return { intro: `Drew a blank on "${company}" — no one from there is in your book yet. Want me to keep an eye out as you add contacts?`, columns: [], rows: [] };
+  if (!people.length) return { intro: `Drew a blank on "${company}" — no one from there is in your book yet. Want me to check a different spelling, or look at who you know at similar firms?`, columns: [], rows: [] };
   // F3: matches can span several DISTINCT company values (a real book: "Al Rajhi" → bank, capital,
   // takaful… 5 spellings). Labelling the aggregate with the FIRST row's value presented 78 contacts
   // as "Al Rajhi Takaful" — an entity holding 4 of them. One entity → its canonical casing; a group
@@ -1478,7 +1564,9 @@ export function compareEntities(text: string, d: BookData, today: string, recent
 // not answered with a capabilities menu (Gate-0 #46).
 export function destructiveAskResponse(text: string): ComputeResult | null {
   if (!/\b(delete|wipe|erase|clear|destroy|remove)\b[^?]*\b(?:my )?(?:entire |whole )?(book|all (?:my )?(?:data|contacts)|everything|database|all of it)\b/i.test(text)) return null;
-  return { intro: "I can't delete your book from chat — deliberately: one stray message should never be able to destroy your data. Exporting or clearing your data lives in the app's data settings, where it takes a considered click. If something's wrong with the book itself, tell me what and I'll help you sort it.", columns: [], rows: [] };
+  // F22: the old copy pointed at "the app's data settings" — a screen that doesn't exist. Only name paths
+  // that are real: re-import (replaces the book), export (the host's Your-data menu), manual deletion.
+  return { intro: "I can't delete your book from chat — deliberately: one stray message should never be able to destroy your data. What does exist: re-importing your LinkedIn export replaces the contact book (your meetings, deals and notes are kept), and Freehold's \"Your data\" menu lets you download a copy. To erase everything, delete the app's data file (or this site's browser data) — that part is manual by design. If something's wrong with the book itself, tell me what and I'll help you sort it.", columns: [], rows: [] };
 }
 
 // DEIXIS GATE (Gate-0 #16/#29/#30 unified fix): a personal pronoun with NO explicit entity in the message
@@ -1543,7 +1631,7 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
     if (cp) {
       const org = cp[1].trim().replace(/^(?:anyone|anybody|someone|people)\s+(?:at|from)\s+/i, "");
       const hits = d.contacts.filter((c) => orgMatches(c.organisation, org));
-      if (!hits.length) return { intro: `No — no one from ${org} in your book yet. Want me to keep an eye out as you add contacts?`, columns: [], rows: [] };
+      if (!hits.length) return { intro: `No — no one from ${org} in your book yet. Want me to check a different spelling, or look at who you know at similar firms?`, columns: [], rows: [] };
       return findContacts(d, { company: org });
     }
   }
@@ -1558,7 +1646,9 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
     }
     if (/\bby (?:funnel )?stage\b|\bper stage\b|\bat each stage\b|\beach stage\b/.test(t)) return stageBreakdown(d);
     if ((/\bmeetings?\b/.test(t) || /\btimes\b[^?]*\bmet\b|\bmet\b[^?]*\btimes\b/.test(t)) && !/\bopportunit|\bdeals?\b/.test(t) && !negated) return meetingsCount(d, today, t);
-    if (/\b(contacts?|people|connections?|network)\b/.test(t) && !/\bopportunit|\bdeals?\b|\bmeeting|\bwarm|\bcold/.test(t) && !negated) return contactsCount(d);
+    // F9: the "at <org>" guard this block was missing (its twin below had it — the two drifted): without
+    // it "how many people do I know at PwC?" swallowed the org and returned the GLOBAL book count.
+    if (/\b(contacts?|people|connections?|network)\b/.test(t) && !/\bopportunit|\bdeals?\b|\bmeeting|\bwarm|\bcold|\bat\s+[a-z]/.test(t) && !negated) return contactsCount(d);
     if ((/\bopportunit/.test(t) || /\bdeals?\b/.test(t)) && !/\bmeeting/.test(t) && !negated) return oppsCount(d);
   }
   // Pipeline aggregate MATHS — average / weighted / total / raw-vs-weighted gap. Computed, never the model.
@@ -1582,8 +1672,14 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
   // Reverse ANTI-JOIN: meetings/met-contacts with NO opportunity logged (requires the opp/deal word, so
   // "contacts I haven't met" — which has no deal word — falls through to the normal not-met filter).
   if ((/\bmeetings?\b/.test(t) || /\b(?:people|contacts?|who)\b[^?]*\bmet\b/.test(t)) && /\b(no|without|zero|haven'?t|hasn'?t|don'?t|doesn'?t|didn'?t|not|never)\b[^?]*\b(opportunit|deals?|pipeline)/.test(t)) return meetingsWithoutOpp(d, t);
+  // F14: NEVER-MESSAGED anti-join ("which of my EY contacts have I never actually messaged?") — checked
+  // BEFORE never-met (the verbs are messaging verbs), org scope preserved via scanEntities.
+  if (/\b(?:never|haven'?t|not yet|yet to)\b[^?]*\b(?:messaged|contacted|reached out|touched base|written to|spoken to|talked to|dm'?e?d)\b/.test(t) && /\b(contacts?|people|who|anyone|connections?)\b/.test(t) && !/\bmet\b|\bmeeting/.test(t)) {
+    return findContacts(d, { stage: "not_messaged", company: scanEntities(text, d).orgs[0] || undefined });
+  }
   // NEVER-MET anti-join over contacts ("who have I never met?") — the negation the plain met-filter missed.
-  if (/\b(?:never|haven'?t|not yet|yet to)\b[^?]*\b(?:met|(?:had|have) (?:a )?meetings?|meeting)\b/.test(t) && /\b(contacts?|people|who|anyone|connections?)\b/.test(t) && !/\b(opportunit|deals?|respond|repl)/.test(t)) return findContacts(d, { stage: "not_met" });
+  // (F14 sweep: org scope preserved here too — "EY contacts I've never met" used to drop the org.)
+  if (/\b(?:never|haven'?t|not yet|yet to)\b[^?]*\b(?:met|(?:had|have) (?:a )?meetings?|meeting)\b/.test(t) && /\b(contacts?|people|who|anyone|connections?)\b/.test(t) && !/\b(opportunit|deals?|respond|repl)/.test(t)) return findContacts(d, { stage: "not_met", company: scanEntities(text, d).orgs[0] || undefined });
   // Open opps by SECTOR.
   if (/\b(deals?|opportunit|pipeline)/.test(t)) {
     const inm = t.match(/\b(?:in|within)\s+([a-z& ]+?)(?:\?|$|\s+(?:sector|space|industry|right now))/);
@@ -1632,7 +1728,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
     if (cp) {
       const org = cp[1].trim().replace(/^(?:anyone|anybody|someone|people)\s+(?:at|from)\s+/i, "");
       const hits = d.contacts.filter((c) => orgMatches(c.organisation, org));
-      if (!hits.length) return { intro: `No — no one from ${org} in your book yet. Want me to keep an eye out as you add contacts?`, columns: [], rows: [] };
+      if (!hits.length) return { intro: `No — no one from ${org} in your book yet. Want me to check a different spelling, or look at who you know at similar firms?`, columns: [], rows: [] };
       return findContacts(d, { company: org });
     }
   }
@@ -1679,9 +1775,16 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // NEVER-MET contacts ("who have I never met?", "contacts I haven't met yet") — the negation the plain
   // met-filter dropped, returning the whole book as if everyone qualified (Gate-0 #7).
   if (/\b(?:never|haven'?t|not yet|yet to)\b[^?]*\b(?:met|(?:had|have) (?:a )?meetings?|meeting)\b/.test(t) && /\b(contacts?|people|who|anyone|connections?)\b/.test(t) && !/\b(opportunit|deals?|respond|repl|agreed)/.test(t))
-    return findContacts(d, { stage: "not_met" });
+    return findContacts(d, { stage: "not_met", company: scanEntities(text, d).orgs[0] || undefined });
+  // F14 (this router's copy): the never-MESSAGED cut, org-scoped.
+  if (/\b(?:never|haven'?t|not yet|yet to)\b[^?]*\b(?:messaged|contacted|reached out|touched base|written to|spoken to|talked to|dm'?e?d)\b/.test(t) && /\b(contacts?|people|who|anyone|connections?)\b/.test(t) && !/\bmet\b|\bmeeting/.test(t))
+    return findContacts(d, { stage: "not_messaged", company: scanEntities(text, d).orgs[0] || undefined });
   if (/\b(?:am i |who am i )?ghosting\b|\bwho am i (?:ignoring|not (?:getting|responding))\b|\bleft (?:on read|hanging)\b|\bwho'?s waiting on me\b|\bhaven'?t (?:got|gotten) back to\b/.test(t))
     return owedReplies(d, today);
+  // F10: the OTHER direction — the user is waiting on THEM. Must be checked near the owed route so the
+  // two mirrored phrasings can't collapse into one tool ("waiting on a reply" used to fall to never-replied).
+  if (/\b(?:waiting (?:on|for)|awaiting)\b[^?]*\brepl|\bhaven'?t heard back\b|\bwaiting to hear (?:back|from)\b|\bwho owes me a reply\b|\bowes? me a reply\b|\bstill waiting on\b[^?]*\b(?:them|him|her|an? (?:answer|response))\b/.test(t))
+    return awaitingTheirReply(d);
   if (/\b(?:fattest|biggest|chunkiest|largest|single biggest|most valuable|highest[- ]?value|top) engagement\b/.test(t))
     return contractsAggregate(d, t, "largest");
   if (/\bpipeline\b[^?]*\b(?:in |as )?(?:one|a single|1) (?:number|figure)\b|\b(?:one|a single) (?:number|figure)\b[^?]*\bpipeline\b|\bbottom line\b[^?]*\bpipeline\b/.test(t))
@@ -1913,6 +2016,10 @@ export type ToolCall = { tool: string; args?: Record<string, unknown> };
 
 // Entities the message NAMES, scanned deterministically. Exact full-name contact matches + orgs.
 export type EntityScan = { contacts: Contact[]; orgs: string[] };
+// 2-char tokens that are ordinary English words — a company named "IT" or "SO" must not hijack every
+// sentence containing "it"/"so". EY/GS/BP-class acronyms pass.
+const SHORT_ORG_STOPWORDS = new Set(["it", "at", "in", "on", "an", "of", "to", "by", "or", "so", "no", "up", "us", "me", "my", "we", "he", "if", "is", "as", "am", "do", "go", "hi", "ok"]);
+
 export function scanEntities(text: string, d: BookData): EntityScan {
   const t = " " + foldAccents(text).replace(/[^a-z0-9']+/g, " ").replace(/\s+/g, " ").trim() + " ";
   const contacts: Contact[] = [];
@@ -1926,7 +2033,17 @@ export function scanEntities(text: string, d: BookData): EntityScan {
   for (const c of d.contacts) {
     const o = (c.organisation || "").trim();
     const key = foldAccents(o).replace(/[^a-z0-9']+/g, " ").trim();
-    if (!o || key.length < 3 || orgSeen.has(key)) continue;
+    if (!o || orgSeen.has(key)) continue;
+    // Short org names: the old `< 3` skip made "EY" INVISIBLE to entity scanning — every fix that
+    // relied on scanEntities silently dropped the single most-queried org in a Big-4 book. Allow a
+    // 2-char org when it's a stored ACRONYM (all-caps) appearing as an exact token, minus the few
+    // acronym-shaped English words that would false-positive in ordinary sentences.
+    if (key.length < 3) {
+      if (o !== o.toUpperCase() || SHORT_ORG_STOPWORDS.has(key)) continue;
+      orgSeen.add(key);
+      if (t.includes(" " + key + " ")) orgs.push(o);
+      continue;
+    }
     orgSeen.add(key);
     if (t.includes(" " + key + " ")) orgs.push(o);
   }
@@ -1990,12 +2107,35 @@ export function lastMetQuery(text: string, d: BookData, today: string, referentN
   if (!/\bwhen\s+(?:did|have)\s+(?:i|we)\s+last\s+(?:meet|met|see|seen|speak|spoke|talk|catch(?:ed)? up)\b|\bwhen\s+was\s+(?:my|our)\s+last\s+(?:meeting|call|catch[- ]?up)\b/i.test(text)) return null;
   const scan = scanEntities(text, d);
   let c: Contact | null = scan.contacts[0] ?? null;
-  if (!c && referentName) c = resolveContact(d, referentName, today);
-  if (!c) return null;
+  // F13: an explicit ORG in the ask beats a carried person referent ("last meeting with EY" straight after
+  // an Ateeq brief must NOT recall Ateeq). The referent only fills in when the text names nothing.
+  const orgScope = !c && scan.orgs.length ? scan.orgs[0] : "";
+  if (!c && !orgScope && referentName) c = resolveContact(d, referentName, today);
+  if (!c && !orgScope) return null;
+  if (!c && orgScope) {
+    const held = d.meetingRows
+      .filter((m) => m.meeting_stage === "Held" && m.date_held && orgMatches(m.contactInfo.organisation, orgScope))
+      .sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
+    if (!held.length) return { intro: `You haven't met anyone at ${orgScope} yet — no held meeting is logged there.`, columns: [], rows: [] };
+    const m = held[0];
+    return {
+      intro: `You last met ${orgScope} on ${m.date_held} — ${m.contactInfo.name}${m.sentiment ? ` (${m.sentiment})` : ""}.`,
+      columns: [], rows: [{ cells: [m.date_held || "—", m.contactInfo.name, m.contactInfo.organisation || "—", m.sentiment || "—"], record: { tab: "meetings", id: m.id } }],
+    };
+  }
+  if (!c) return null; // narrowed: the org branch returned above; only the contact path remains
   const held = d.meetingRows
-    .filter((m) => m.meeting_stage === "Held" && m.date_held && m.contact_url === c!.url)
+    .filter((m) => m.meeting_stage === "Held" && m.date_held && m.contact_url === c.url)
     .sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
-  if (!held.length) return { intro: `You haven't met ${fullName(c)} yet — no held meeting is logged. Their stage: ${stageLabel(c)}.`, subject: { kind: "contact", id: c.url, label: fullName(c) }, columns: [], rows: [] };
+  if (!held.length) {
+    // F16 extension: "when did we last SPEAK" is answerable from the message thread even with no meetings —
+    // answering "you haven't met" alone dodged a question the data could answer (live run: Taruna).
+    const spoke = /\b(?:speak|spoke|talk|talked)\b/i.test(text) && c.thread?.lastDate;
+    const threadLine = spoke
+      ? ` Your last message exchange was ${c.thread!.lastDate.slice(0, 10)} — ${c.thread!.lastFromOwner ? "you wrote last" : "they wrote last"}.`
+      : "";
+    return { intro: `You haven't met ${fullName(c)} yet — no held meeting is logged. Their stage: ${stageLabel(c)}.${threadLine}`, subject: { kind: "contact", id: c.url, label: fullName(c) }, columns: [], rows: [] };
+  }
   const m = held[0];
   return {
     intro: `You last met ${fullName(c)}${c.organisation ? ` (${c.organisation})` : ""} on ${m.date_held}${m.sentiment ? ` — ${m.sentiment}` : ""}${held.length > 1 ? ` (${held.length} meetings all time)` : ""}.`,
@@ -2018,10 +2158,12 @@ export function meetingContent(text: string, d: BookData, today: string, referen
   if (!asksContent) return null;
   const scan = scanEntities(text, d);
   let c: Contact | null = scan.contacts[0] ?? null;
-  if (!c && referentName) c = resolveContact(d, referentName, today);
   // COMPANY scope (fix #10): "my last meeting with ExxonMobil" must recall an ExxonMobil meeting, not the
   // globally most-recent one. A named contact is more specific and wins; else a scanned org filters.
+  // F13: the org check runs BEFORE the referent fallback — an explicit "with EY" must never lose to a
+  // carried person from earlier turns (live run: same-chat "last meeting with EY" recalled Ateeq Ali).
   const orgScope = !c && scan.orgs.length ? scan.orgs[0] : "";
+  if (!c && !orgScope && referentName) c = resolveContact(d, referentName, today);
   const held = d.meetingRows
     .filter((m) => m.meeting_stage === "Held" && m.date_held && (!c || m.contact_url === c.url) && (!orgScope || orgMatches(m.contactInfo.organisation, orgScope)))
     .sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
@@ -2264,6 +2406,7 @@ export function runTool(call: ToolCall, d: BookData, today: string, sourceText =
     }
     case "weeklyFocus": return weeklyFocus(d, today);
     case "owedReplies": return owedReplies(d, today);
+    case "awaitingTheirReply": return awaitingTheirReply(d);
     case "latentOpportunities": return latentOpportunities(d);
     case "funnelBreakdown": {
       const dim = str(a.dimension);
@@ -2487,9 +2630,9 @@ export function privacyResponse(text: string, avail?: Availability): ComputeResu
   const intro = demoHosted
     ? "This is a hosted demo running on sample data. The questions you type here are sent to a Freehold-hosted AI model to answer them — so please don't paste real client details into the demo. In the copy you own, the AI runs privately on your device (or on your own API key) and your book never leaves your machine."
     : onDevice
-    ? "Everything stays on this device. Your book lives in your browser's local storage, and the AI model you're using runs locally too — so your question and your data never leave the machine, aren't sent to any server, and we never see them. Safe to put real client data in. (The one exception: if you ask something that needs a live web lookup, that search term is sent to the web-search provider — nothing else about your book goes with it.)"
+    ? "Everything stays on this device. Your book lives on this device — in your own data file or this browser's storage, whichever you chose — and the AI model you're using runs locally too — so your question and your data never leave the machine, aren't sent to any server, and we never see them. Safe to put real client data in. (The one exception: if you ask something that needs a live web lookup, that search term is sent to the web-search provider — nothing else about your book goes with it.)"
     : cloud
-      ? "Your book itself never leaves this device — it's held in your browser's local storage, never uploaded to us, and we store nothing on our servers. When you ask a question, only the slice needed to answer it (your question plus the relevant records) is sent to the AI model you connected with your own API key, so your own provider processes it under your account — not us, and no one else can see it. If you'd rather nothing leaves the machine at all, switch to an on-device model."
+      ? "Your book itself never leaves this device — it's held on this device (your own data file, or this browser's storage — whichever you chose), never uploaded to us, and we store nothing on our servers. When you ask a question, only the slice needed to answer it (your question plus the relevant records) is sent to the AI model you connected with your own API key, so your own provider processes it under your account — not us, and no one else can see it. If you'd rather nothing leaves the machine at all, switch to an on-device model."
       : "Your book is stored locally in your browser — it's never uploaded to us and we keep nothing on our servers. What happens when you ask a question depends on which AI model you've connected: an on-device model keeps everything on this machine; a cloud model (your own API key) receives only your question plus the relevant records, processed under your own account. Either way we can't see your book, and no one else can.";
   return { intro, columns: [], rows: [] };
 }

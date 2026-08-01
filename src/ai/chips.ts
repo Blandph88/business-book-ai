@@ -16,6 +16,7 @@ import type { BookData } from "./bookContext";
 import { matchContacts } from "./actions/actionSpecs";
 import { isCommonOrgToken } from "../data/orgTokens";
 import { searchBook } from "./grounding";
+import { orgMatches } from "./compute";
 
 export type Chip = { label: string; prompt: string };
 
@@ -139,6 +140,11 @@ export function chipsFromAnswer(answer: string, d: BookData): Chip[] {
   ];
   const chips: Chip[] = [];
   people.slice(0, 3).forEach((n, i) => chips.push(verbs[i % verbs.length](n)));
-  if (chips.length < 3 && orgs.length) chips.push({ label: `Who else do I know at ${orgs[0]}?`, prompt: `Who do I know at ${orgs[0]}?` });
+  // Offer-conditioning (live-run wart): "who ELSE" needs at least a second person at that org — a
+  // 1-contact org makes the chip a guaranteed dead end. Prefer the first org with company.
+  if (chips.length < 3 && orgs.length) {
+    const orgWithCompany = orgs.find((o) => d.contacts.filter((c) => orgMatches(c.organisation, o)).length > 1);
+    if (orgWithCompany) chips.push({ label: `Who else do I know at ${orgWithCompany}?`, prompt: `Who do I know at ${orgWithCompany}?` });
+  }
   return chips.slice(0, 3);
 }
