@@ -6,6 +6,7 @@
 // the row's slide-in form.
 
 import { waLink } from "../data/whatsapp";
+import { openExternalLink } from "../lib/openExternal";
 import "./BrandIcons.css";
 
 export function LinkedInIcon({ size = 16 }: { size?: number }) {
@@ -34,7 +35,7 @@ export function LinkedInCell({ url }: { url?: string }) {
           target="_blank"
           rel="noreferrer"
           title="Open LinkedIn profile"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openExternalLink(url); }}
         >
           <LinkedInIcon />
         </a>
@@ -66,7 +67,7 @@ export function ContactLinks({
           target="_blank"
           rel="noreferrer"
           title="Open LinkedIn profile"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openExternalLink(url); }}
         >
           <LinkedInIcon size={size} />
         </a>
@@ -75,7 +76,7 @@ export function ContactLinks({
         <a
           href={wa}
           title="Message on WhatsApp"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openExternalLink(wa); }}
         >
           <WhatsAppIcon size={size} />
         </a>
@@ -94,7 +95,7 @@ export function WhatsAppCell({ phone }: { phone?: string }) {
         <a
           href={link}
           title="Message on WhatsApp"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openExternalLink(link); }}
         >
           <WhatsAppIcon />
         </a>
