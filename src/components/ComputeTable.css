@@ -3,6 +3,7 @@
 .ctab-intro { margin: 0 0 8px; line-height: 1.55; white-space: pre-wrap; }
 .ctab-wrap {
   overflow: auto;
+  overscroll-behavior: contain;
   max-height: 340px;
   border: 1px solid var(--line);
   border-radius: 10px;

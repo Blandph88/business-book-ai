@@ -68,6 +68,7 @@
 /* ── The summary table ──────────────────────────────────────────────────── */
 .meetings-table-wrap {
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   border: 1px solid var(--line);
   border-radius: 6px;
 }

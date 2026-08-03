@@ -49,6 +49,11 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* Trackpad two-finger horizontal swipe = the browser's back/forward gesture. Inside a table that
+   scrolls sideways, hitting the left edge turned the swipe into "go back" and ejected the buyer out of
+   the running app to the checkout page. Contain horizontal overscroll so the ONLY way out is the app's
+   own back button. */
+html { overscroll-behavior-x: none; }
 
 body {
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

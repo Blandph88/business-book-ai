@@ -88,6 +88,8 @@
 /* Wrap gives us horizontal scroll without breaking the page layout. */
 .contacts-table-wrap {
   overflow-x: auto;
+  /* Keep a sideways trackpad swipe inside the table — never let it chain out to a browser back-nav. */
+  overscroll-behavior-x: contain;
   border: 1px solid var(--line);
   border-radius: 6px;
 }
