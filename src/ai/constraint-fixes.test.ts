@@ -181,9 +181,28 @@ describe("#29 — comparative first-name ambiguity asks instead of silently pick
     const r = compareEntities("Who's the stronger relationship, Priya or Patricia Miller?", d, TODAY);
     expect(r?.intro.toLowerCase()).toContain("which one");
   });
-  it("full names on both sides still compare side-by-side", () => {
+  it("full names on both sides compare in a side-by-side table", () => {
     const r = compareEntities("Compare Priya OConnor and Patricia Miller", d, TODAY);
-    expect(r?.intro).toContain("Side by side");
+    expect(r?.intro).toContain("Comparing");
+    expect(r?.columns).toContain("Priya OConnor");
+    expect(r?.columns).toContain("Patricia Miller");
+    expect(r?.rows.length).toBeGreaterThan(0);
+  });
+  // P3-6 regression: a 3-way compare must include ALL THREE entities, never silently drop the tail.
+  it("three-way org compare includes every entity as a column", () => {
+    const d3 = book({ contacts: [
+      contact("a1", "A", "One", "KPMG"), contact("a2", "A", "Two", "KPMG"),
+      contact("b1", "B", "One", "PwC"),
+      contact("c1", "C", "One", "Deloitte"),
+    ]});
+    const r = compareEntities("compare KPMG vs PwC vs Deloitte", d3, TODAY);
+    expect(r).not.toBeNull();
+    expect(r!.columns).toContain("KPMG");
+    expect(r!.columns).toContain("PwC");
+    expect(r!.columns).toContain("Deloitte");
+    // KPMG row shows 2 contacts, others 1 — the numbers are real, not dropped.
+    const contactsRow = r!.rows.find((x) => String(x.cells[0]) === "Contacts");
+    expect(contactsRow).toBeTruthy();
   });
 });
 

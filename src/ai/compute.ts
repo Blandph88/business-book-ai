@@ -1510,6 +1510,47 @@ export function resolveCompareDeixis(text: string, personLabel?: string, recordL
   return t;
 }
 
+// One comparison column: an entity's label, kind, and its ordered metric map. Org and contact metric
+// sets differ, so a mixed compare (org vs person) falls back to the stacked prose form below.
+type CompareCol = { label: string; kind: "org" | "contact"; metrics: Record<string, string> };
+
+// Org metrics MIRROR accountSummary so a compare column and a footprint show the same numbers.
+function orgCompareCol(d: BookData, company: string): CompareCol | null {
+  const people = d.contacts.filter((c) => orgMatches(c.organisation, company));
+  if (!people.length) return null;
+  const names = new Map<string, number>();
+  for (const c of people) names.set(c.organisation, (names.get(c.organisation) ?? 0) + 1);
+  const label = names.size > 1 ? company : people[0].organisation;
+  const meetings = d.meetingRows.filter((m) => m.meeting_stage === "Held" && orgMatches(m.contactInfo.organisation, company)).length;
+  const allOpps = d.opps.filter((o) => orgMatches(o.organisation, company));
+  const open = allOpps.filter((o) => oppStatus(o) === "Open");
+  const openVal = open.reduce((s, o) => s + (o.est_value ?? 0), 0);
+  const scored = people.filter((c) => typeof c.warmthSentiment?.score === "number");
+  const avgW = scored.length ? Math.round((scored.reduce((s, c) => s + c.warmthSentiment!.score, 0) / scored.length) * 10) / 10 : null;
+  const owed = people.filter((c) => c.thread && !c.thread.lastFromOwner && c.thread.inboundCount > 0).length;
+  return { label, kind: "org", metrics: {
+    "Contacts": people.length.toLocaleString(),
+    "Meetings held": String(meetings),
+    "Open opportunities": open.length ? `${open.length}${openVal ? ` (${money(openVal)})` : ""}` : "0",
+    "Avg warmth": avgW != null ? `${avgW}/10` : "—",
+    "Awaiting your reply": String(owed),
+  } };
+}
+
+// Contact metrics MIRROR contactBrief.
+function contactCompareCol(d: BookData, c: Contact): CompareCol {
+  const meetings = d.meetingRows.filter((m) => m.contact_url === c.url && m.meeting_stage === "Held").sort((a, b) => (b.date_held || "").localeCompare(a.date_held || ""));
+  const allOpps = d.opps.filter((o) => o.contact_url === c.url || orgMatches(o.organisation, c.organisation));
+  const open = allOpps.filter((o) => oppStatus(o) === "Open");
+  return { label: fullName(c), kind: "contact", metrics: {
+    "Organisation": c.organisation || "—",
+    "Stage": stageLabel(c),
+    "Meetings": meetings.length ? `${meetings.length} (last ${meetings[0].date_held})` : "0",
+    "Warmth": c.warmthSentiment ? warmthCell(c) : "—",
+    "Open opportunities": String(open.length),
+  } };
+}
+
 export function compareEntities(text: string, d: BookData, today: string, recent: string[] = []): ComputeResult | null {
   const m = text.match(/\bcompare\s+(.+?)\s+(?:to|with|vs\.?|versus|against|and)\s+(.+?)(?:\?|$)/i)
     || text.match(/\bhow (?:do|does)\s+(.+?)\s+(?:compare|stack up|measure up)\s+(?:to|with|against)\s+(.+?)(?:\?|$)/i)
@@ -1519,8 +1560,16 @@ export function compareEntities(text: string, d: BookData, today: string, recent
     || text.match(/^\s*(.+?)\s+(?:vs\.?|versus)\s+(.+?)\s*\??\s*$/i);
   if (!m) return null;
   const clean = (s: string) => s.trim().replace(/^(?:my|the)\s+/i, "").replace(/[?.,!]+$/, "");
-  const a = clean(m[1]), b = clean(m[2]);
-  if (!a || !b) return null;
+  // N-WAY: the second capture may hold several more entities ("PwC vs Deloitte") — split it so a 3-way
+  // ask compares all three instead of silently dropping the tail (P3-6). Separators: vs / and / or / , / &.
+  const SEP = /\s*(?:,|&|\bvs\.?\b|\bversus\b|\bagainst\b|\band\b|\bor\b)\s*/i;
+  let entities = [clean(m[1]), ...clean(m[2]).split(SEP).map(clean)].filter(Boolean);
+  // Dedupe (case-insensitive) and cap the table width — 4 columns is the readable ceiling.
+  const seen = new Set<string>();
+  entities = entities.filter((e) => { const k = e.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+  const capped = entities.length > 4;
+  entities = entities.slice(0, 4);
+  if (entities.length < 2) return null;
   // A bare first name matching SEVERAL different people, with no thread referent, must ASK — never
   // silently pick one (fix #29: "Priya" resolved to Priya Miller, not the salient Priya OConnor).
   const ambiguous = (ref: string): boolean => {
@@ -1529,7 +1578,7 @@ export function compareEntities(text: string, d: BookData, today: string, recent
     const names = new Set(d.contacts.filter((c) => foldAccents(c.first) === foldAccents(ref)).map((c) => c.url));
     return names.size > 1;
   };
-  for (const side of [a, b]) {
+  for (const side of entities) {
     if (ambiguous(side)) {
       const pick = contactBrief(d, side, today); // emits the which-one-did-you-mean picker
       if (pick && pick.rows.length > 6) {
@@ -1539,24 +1588,35 @@ export function compareEntities(text: string, d: BookData, today: string, recent
       return pick;
     }
   }
-  const profile = (ref: string): ComputeResult | null => {
+  // Resolve each side to a comparison column (contact wins over org on ambiguity, mirroring profile()).
+  const resolveCol = (ref: string): CompareCol | null => {
     if (/^(?:them|him|her|it|that|this|they|he|she)$/i.test(ref)) return null; // deixis — needs thread context
-    // LEDGER-FIRST bare first names (re-verify item 14): "how does he compare to Olivia?" straight
-    // after the Olivia Thomas brief must bind to HER — the recently-touched referent — not fan out
-    // to the 62-way which-Olivia list.
     if (!/\s/.test(ref)) {
       const led = recent.find((label) => foldAccents((label.split(/\s+/)[0] || "")) === foldAccents(ref));
-      if (led && resolveContact(d, led, today)) return contactBrief(d, led, today);
+      if (led) { const lc = resolveContact(d, led, today); if (lc) return contactCompareCol(d, lc); }
     }
-    if (resolveContact(d, ref, today)) return contactBrief(d, ref, today);
-    if (d.contacts.some((c) => orgMatches(c.organisation, ref))) return accountSummary(d, ref);
+    const c = resolveContact(d, ref, today);
+    if (c) return contactCompareCol(d, c);
+    if (d.contacts.some((x) => orgMatches(x.organisation, ref))) return orgCompareCol(d, ref);
     return null;
   };
-  const pa = profile(a), pb = profile(b);
-  if (!pa || !pb) return null; // one side unresolved (pronoun / unknown) → router or grounded path handles it
+  const cols = entities.map(resolveCol);
+  if (cols.some((c) => !c)) return null; // any side unresolved → router / grounded path handles it
+  const resolved = cols as CompareCol[];
+  // Mixed org+contact → the metric rows don't line up; fall back to the readable stacked form.
+  const kinds = new Set(resolved.map((c) => c.kind));
+  const capNote = capped ? " (showing the first 4)" : "";
+  if (kinds.size > 1) {
+    const bullets = resolved.map((c) => `■ ${c.label} — ${Object.entries(c.metrics).map(([k, v]) => `${k}: ${v}`).join(" · ")}`).join("\n\n");
+    return { intro: `Side by side${capNote}:\n\n${bullets}`, columns: [], rows: [] };
+  }
+  // SIDE-BY-SIDE TABLE: metric rows × entity columns. Row order = the metric keys of the first column
+  // (consistent within a kind). Display-only cells (a comparison cell isn't a single record).
+  const metricKeys = Object.keys(resolved[0].metrics);
   return {
-    intro: `Side by side:\n\n■ ${pa.intro}\n\n■ ${pb.intro}`,
-    columns: [], rows: [],
+    intro: `Comparing ${resolved.map((c) => c.label).join(" · ")}${capNote}:`,
+    columns: ["", ...resolved.map((c) => c.label)],
+    rows: metricKeys.map((k) => ({ cells: [k, ...resolved.map((c) => c.metrics[k] ?? "—")] })),
   };
 }
 

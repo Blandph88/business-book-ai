@@ -550,12 +550,15 @@ describe("Batch2-B: compare with thread referents", () => {
     expect(r).toBeTruthy();
     expect(r!.intro).toMatch(/Robert Schmidt/);
     expect(r!.intro).toMatch(/Olivia Thomas/);
-    expect(r!.intro).toMatch(/Side by side/i);
+    expect(r!.intro).toMatch(/Comparing/i);
   });
-  it("'Robert Schmidt vs Olivia Thomas' → side by side", () => {
+  it("'Robert Schmidt vs Olivia Thomas' → side-by-side table", () => {
     const r = compareEntities("Robert Schmidt vs Olivia Thomas", BOOK, TODAY);
     expect(r).toBeTruthy();
-    expect(r!.intro).toMatch(/Side by side/i);
+    expect(r!.intro).toMatch(/Comparing/i);
+    expect(r!.columns).toContain("Robert Schmidt");
+    expect(r!.columns).toContain("Olivia Thomas");
+    expect(r!.rows.length).toBeGreaterThan(0);
   });
   it("unresolvable pronoun (no referent) → null, not a solo brief", () => {
     expect(compareEntities("How does he compare to Olivia?", BOOK, TODAY)).toBeNull();
@@ -833,7 +836,7 @@ describe("Re-verify item 14: compare binds bare first names through the ledger",
   it("a bare shared first name resolves to the recent referent, both profiles render", () => {
     const r = compareEntities("How does Robert Schmidt compare to Olivia?", DC, TODAY, ["Olivia Thomas"]);
     expect(r).not.toBeNull();
-    expect(r!.intro).toMatch(/Side by side/);
+    expect(r!.intro).toMatch(/Comparing/);
     expect(r!.intro).toMatch(/Robert Schmidt/);
     expect(r!.intro).toMatch(/Olivia Thomas/);
     expect(r!.intro).not.toMatch(/which one did you mean/i);
