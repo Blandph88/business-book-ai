@@ -464,7 +464,7 @@ export type RouteResult = {
 
 // JSON schema handed to the backend for constrained decoding — the model literally cannot emit an invalid
 // route, tool, or entity. Args are left loose (runTool tolerates partial/typed args defensively).
-export const TOOL_NAMES = ["findContacts", "findMeetings", "findOpportunities", "findContracts", "rankContacts", "rankOpportunities", "pipelineStats", "pipelineAggregate", "revenueAggregate", "funnelBreakdown", "contactBrief", "accountSummary", "weeklyFocus", "owedReplies", "awaitingTheirReply", "latentOpportunities", "oppsWithoutMeeting", "oppsWithRecentMeeting", "meetingsWithoutOpp", "accountsWithOppAndContacts", "coldAtActiveAccounts", "contactsMetAtLeast", "personalSnapshot", "compareEntities", "stageBreakdown"] as const;
+export const TOOL_NAMES = ["findContacts", "findMeetings", "findOpportunities", "findContracts", "rankContacts", "rankOpportunities", "pipelineStats", "pipelineAggregate", "revenueAggregate", "funnelBreakdown", "contactBrief", "accountSummary", "weeklyFocus", "owedReplies", "awaitingTheirReply", "topBySeniority", "latentOpportunities", "oppsWithoutMeeting", "oppsWithRecentMeeting", "meetingsWithoutOpp", "accountsWithOppAndContacts", "coldAtActiveAccounts", "contactsMetAtLeast", "personalSnapshot", "compareEntities", "stageBreakdown"] as const;
 
 export const ROUTER_SCHEMA = {
   type: "object",
@@ -557,6 +557,7 @@ export function routerPrompt(text: string, history: ChatTurn[] = []): PromptArgs
       "   - rankContacts {by} — by ∈ warmth|cold. (\"who's gone quiet\"→cold)\n" +
       "   - owedReplies {} — people I owe a reply to (\"am I ghosting anyone\").\n" +
       "   - awaitingTheirReply {} — the MIRROR: threads where I wrote last and THEY haven't come back (\"what am I waiting on\", \"who hasn't got back to me\"). Direction matters — never confuse with owedReplies.\n" +
+      "   - topBySeniority {company?} — most SENIOR/important/highest-ranking people, optionally at a company. Use for \"most senior at X\", \"most important people\", \"any way into X\", \"who should I approach\" — SENIORITY, not warmth.\n" +
       "   - oppsWithoutMeeting {} — open deals with NO next meeting booked (anti-join).\n" +
       "   - oppsWithRecentMeeting {window?} — open deals whose client HAS met me inside the window (join).\n" +
       "   - meetingsWithoutOpp {} — met contacts with NO opportunity (\"meetings that went nowhere\").\n" +

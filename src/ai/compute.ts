@@ -879,12 +879,64 @@ export function sectorContacts(d: BookData, field: "sector_group" | "function", 
   if (!list.length) return { intro: `Hmm, no contacts in ${label} in your book right now.`, columns: [], rows: [] };
   const shown = list.slice(0, 40);
   const res: ComputeResult = {
-    intro: `Your most senior contacts in ${label} (${list.length}${list.length > shown.length ? `, showing ${shown.length}` : ""}):`,
+    // P3-18: "most senior CONTACTS (N)" implied all N were senior; it's N contacts shown senior-first.
+    intro: `Your ${label} contacts, most senior first (${list.length}${list.length > shown.length ? `, showing ${shown.length}` : ""}):`,
     columns: ["Name", "Position", "Organisation", "Seniority"],
     rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", (c as unknown as Record<string, string>).seniority || "—"], record: { tab: "contacts", id: c.url } })),
   };
   if (list.length > shown.length) res.more = { count: list.length, tab: "contacts", intent: {} };
   return res;
+}
+
+// 8b-2. topBySeniority — "who are the most senior/important people I know (at <org>)?" and the ACCESS
+// intent "any way into <org>?". P3-7/P3-10/P3-31: these were defaulting to WARMTH, which buried the
+// Group CSO you know lightly beneath junior contacts who happen to reply on LinkedIn. For a seniority/
+// access question the right key is SENIORITY (warmth as the tiebreak), org-scoped when named.
+export function topBySeniority(d: BookData, orgScope: string | undefined, today: string): ComputeResult {
+  const lm = lastMeetingMap(d);
+  const sen = (c: Contact) => SENIORITY_ORDER[(c as unknown as Record<string, string>).seniority] || 0;
+  let list = d.contacts.slice();
+  if (orgScope) list = list.filter((c) => orgMatches(c.organisation, orgScope));
+  if (!list.length) return { intro: orgScope ? `Drew a blank on "${orgScope}" — no one from there is in your book yet.` : "No contacts in your book yet.", columns: [], rows: [] };
+  list.sort((a, b) => sen(b) - sen(a) || warmth(b, lm, today) - warmth(a, lm, today));
+  const shown = list.slice(0, 40);
+  return {
+    intro: `Your most senior contacts${orgScope ? ` at ${orgScope}` : ""} (${list.length}${list.length > shown.length ? `, showing ${shown.length}` : ""}), most senior first:`,
+    columns: ["Name", "Position", "Organisation", "Seniority"],
+    rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—", (c as unknown as Record<string, string>).seniority || "—"], record: { tab: "contacts", id: c.url } })),
+    more: list.length > shown.length ? { count: list.length, tab: "contacts", intent: orgScope ? { search: orgScope } : {} } : undefined,
+  };
+}
+
+// firstNameCount — "how many <first name>s do I know?" P3-19: this dropped the name and returned the whole
+// book. A count question over a first name is a legitimate, cheap query — answer it as a scalar.
+export function firstNameCount(d: BookData, name: string): ComputeResult {
+  const n = foldAccents(name.trim().toLowerCase());
+  const hits = d.contacts.filter((c) => foldAccents((c.first || "").toLowerCase()) === n);
+  if (!hits.length) return { intro: `You don't have anyone called ${name} in your book.`, columns: [], rows: [] };
+  const shown = hits.slice(0, 40);
+  return {
+    intro: `You know ${hits.length} ${hits.length === 1 ? "person" : "people"} called ${name}${hits.length > shown.length ? ` (showing ${shown.length})` : ""}.`,
+    columns: ["Name", "Position", "Organisation"],
+    rows: shown.map((c) => ({ cells: [fullName(c), c.position || "—", c.organisation || "—"], record: { tab: "contacts", id: c.url } })),
+    more: hits.length > shown.length ? { count: hits.length, tab: "contacts", intent: { search: name } } : undefined,
+  };
+}
+
+// talkedNotMet — "people I've been TALKING TO but never met" (P3-14): a compound anti-join = replied
+// (two-way) AND no held meeting. The old routing dropped the "talking to" half and returned the whole
+// never-met book. Engagement-sorted so the warmest live conversations lead.
+export function talkedNotMet(d: BookData): ComputeResult {
+  const list = sortByEngagement(d.contacts.filter((c) => (c.two_way || c.responded) && !c.met));
+  if (!list.length) return { intro: "No one you've had a two-way conversation with is still unmet — you've met everyone who's replied.", columns: [], rows: [] };
+  const shown = list.slice(0, 40);
+  const anyHeard = shown.some((c) => c.thread?.lastDate);
+  return {
+    intro: `People you've been in touch with but never met (${list.length}${list.length > shown.length ? `, showing ${shown.length}, most engaged first` : ""}):`,
+    columns: anyHeard ? ["Name", "Position", "Organisation", "Last heard"] : ["Name", "Position", "Organisation"],
+    rows: shown.map((c) => ({ cells: anyHeard ? [fullName(c), c.position || "—", c.organisation || "—", (c.thread?.lastDate || "—").slice(0, 10)] : [fullName(c), c.position || "—", c.organisation || "—"], record: { tab: "contacts", id: c.url } })),
+    more: list.length > shown.length ? { count: list.length, tab: "contacts", intent: { filter: { key: "responded", value: "Yes" } } } : undefined,
+  };
 }
 
 // 8c. opportunitiesBySector — open opps filtered by the SECTOR of their company. Opps carry no sector field,
@@ -1732,6 +1784,11 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
   // Reverse ANTI-JOIN: meetings/met-contacts with NO opportunity logged (requires the opp/deal word, so
   // "contacts I haven't met" — which has no deal word — falls through to the normal not-met filter).
   if ((/\bmeetings?\b/.test(t) || /\b(?:people|contacts?|who)\b[^?]*\bmet\b/.test(t)) && /\b(no|without|zero|haven'?t|hasn'?t|don'?t|doesn'?t|didn'?t|not|never)\b[^?]*\b(opportunit|deals?|pipeline)/.test(t)) return meetingsWithoutOpp(d, t);
+  // P3-14: "people I've been TALKING TO but never met" = two-way AND not-met. Checked BEFORE the plain
+  // never-met route (which would drop the "talking to" half and return the whole never-met book).
+  if (/\b(?:talk(?:ing|ed)?|spoke|spoken|chatt(?:ing|ed)|in touch|conversation|been dealing|been in contact|corresponded)\b[^?]*\b(?:but|yet|and)\b[^?]*\b(?:never|not|haven'?t|no)\b[^?]*\b(?:met|meeting|in person|face)\b/.test(t)
+    || /\b(?:never|not|haven'?t)\b[^?]*\bmet\b[^?]*\b(?:but|although|though|even though)\b[^?]*\b(?:talk|spoke|chatt|replied|in touch|conversation|corresponded)/.test(t))
+    return talkedNotMet(d);
   // F14: NEVER-MESSAGED anti-join ("which of my EY contacts have I never actually messaged?") — checked
   // BEFORE never-met (the verbs are messaging verbs), org scope preserved via scanEntities.
   if (/\b(?:never|haven'?t|not yet|yet to)\b[^?]*\b(?:messaged|contacted|reached out|touched base|written to|spoken to|talked to|dm'?e?d)\b/.test(t) && /\b(contacts?|people|who|anyone|connections?)\b/.test(t) && !/\bmet\b|\bmeeting/.test(t)) {
@@ -1894,6 +1951,32 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   if (/\b(?:let'?s |i (?:wanna|want to|would like to|need to) )?talk (?:business|shop)\b|\blet'?s (?:get (?:to |down to |cracking|started)|work|do (?:some )?work|crack on)\b|\bcatch me up\b|\bwhere (?:do (?:i|we|things)|are we|things) (?:stand|at)\b|\bgive me (?:a |the )?(?:rundown|run-down|snapshot|overview|update|state of play|lay of the land)\b|\bstate of (?:my |the )?(?:book|business|play|pipeline|things)\b|\bwhat'?s (?:the latest|going on|happening)\b/.test(t)) return weeklyFocus(d, today);
 
   // ── Rankings ──────────────────────────────────────────────────────────────────────────────────
+  // SENIORITY / ACCESS (P3-7/P3-10/P3-31): "most senior / most important / highest-ranking people (at X)"
+  // and "any way into X / who should I approach at X" want SENIORITY, not warmth — the old default buried
+  // the senior contacts. Org-scoped when a company is named. Runs before the warmth/cold routes so those
+  // don't swallow it. "richest/wealthiest" is unknowable from the data → honest note + seniority as proxy.
+  {
+    const richest = /\b(?:rich(?:est)?|wealth(?:iest|y)?|highest[- ]?(?:net[- ]?worth|paid)|most (?:money|affluent))\b/.test(t);
+    const seniorAsk = /\b(?:most senior|highest[- ]?ranking|most important|most influential|top people|biggest hitters?|most powerful|senior[- ]?most|who runs)\b/.test(t)
+      || /\bwho are the (?:key|top|important|senior)\b[^?]*\b(?:people|contacts|players)\b/.test(t);
+    const accessAsk = /\b(?:way (?:in|into)|way to reach|get(?:ting)? (?:in|into|access)|door (?:in|into)|foot in the door|who (?:can|should) (?:get me in|i approach|open doors?)|warm intro)\b/.test(t);
+    if (richest || seniorAsk || accessAsk) {
+      const org = extractCompany(text, d);
+      const base = topBySeniority(d, org ? org : undefined, today);
+      if (richest) base.intro = `I don't track wealth or net worth — that's not in your book. But here are your most senior contacts${org ? ` at ${org}` : ""} as the closest proxy (title, not money):\n${base.intro}`;
+      return base;
+    }
+  }
+  // "how many <first name>s do I know?" (P3-19) — a first-name COUNT, not the whole book. Only when the
+  // capture is a plausible bare first name (single capitalised token) present in the book.
+  {
+    const fn = t.match(/\bhow many\s+([a-z][a-z'’-]{1,20})s?\s+(?:do i know|have i got|are (?:there )?in my (?:book|network))\b/);
+    if (fn) {
+      const cands = [fn[1], fn[1].replace(/s$/i, "")]; // greedy capture eats the plural s (davids → also try david)
+      const hit = cands.find((nm) => nm.length > 1 && d.contacts.some((c) => foldAccents((c.first || "").toLowerCase()) === foldAccents(nm)));
+      if (hit) return firstNameCount(d, hit.charAt(0).toUpperCase() + hit.slice(1));
+    }
+  }
   if (/gone cold|\bcold\b|re-?engage|reconnect|lapsed|gone quiet|lost touch|fallen off|drifted|follow(?:ed)?[- ]?up with|need(?:s)? (?:a )?(?:follow|chase|nudge)|chase up|reach out again/.test(t) && !/opportunit|\bdeals?\b|pipeline/.test(t)) return rankContacts(d, "cold", today);
   if ((/\bwarm(est)?\b/.test(t) && /\blead|contact|people|prospect|relationship/.test(t)) || /\bhottest\b/.test(t) || /\bmost engaged\b/.test(t) || /\bbest (?:lead|contact|relationship|prospect)/.test(t) || /\bstrongest relationship/.test(t)) return rankContacts(d, "warmth", today);
   if (/\b(biggest|largest|highest[- ]value|top|most valuable)\b[^?]*\b(deals?|opportunit)/.test(t)) return rankOpportunities(d, "value", parseMinValue(t), today);
@@ -2446,6 +2529,9 @@ export function runTool(call: ToolCall, d: BookData, today: string, sourceText =
     }
     case "findContracts": { const co = filterCompany(a.company); if (co === UNKNOWN) return null; return withDateSurrender(findContracts(d, { status: contractStatus(a.status), company: co, byValue: !!a.byValue }), sourceText.toLowerCase(), "engagements"); }
     case "rankContacts": return rankContacts(d, oneOf(a.by, ["warmth", "cold"] as const, "warmth"), today);
+    case "topBySeniority": return topBySeniority(d, str(a.company) || str(a.org) || undefined, today);
+    case "firstNameCount": return firstNameCount(d, str(a.name) || str(a.first) || sourceText.replace(/[^a-z ]/gi, "").trim());
+    case "talkedNotMet": return talkedNotMet(d);
     case "rankOpportunities": return rankOpportunities(d, oneOf(a.by, ["value", "probability", "risk"] as const, "value"), num(a.minValue), today);
     case "pipelineStats": return TEMPORAL_Q.test(sourceText.toLowerCase()) ? pipelineStatsWindowed(d, today, sourceText.toLowerCase()) : pipelineStats(d);
     case "pipelineAggregate": return pipelineAggregate(d, "", oneOf(a.metric, ["total", "weighted", "average", "gap"] as const, "total"));
@@ -2638,7 +2724,10 @@ export function capabilitiesResult(text?: string, hosted = false): ComputeResult
 }
 // Regex-gated wrapper — used ONLY on the error-fallback path (when the LLM router call failed), so a
 // capability question still gets the right answer with no model available. Not a pre-router gate.
-const CAPABILITY_Q = /\b(what can (?:you|it) (?:do|help)|what (?:do|can) you do|how (?:can|do) you help|what can you help (?:me )?with|what are you (?:able|capable)|what do you do|what('?s| is) your (?:job|purpose|role|function)|work[\s-]?wise|how do you (?:work|function)|how does this (?:work|thing work)|how are you (?:built|set up))\b/i;
+// P3-1: casual phrasings ("what can this thing actually do?") put words between "can" and "do", so the
+// adjacency-based patterns missed them and the ask fell to the "I can't do that" deflection. Allow a
+// short filler span, and accept "this thing / this app / it".
+const CAPABILITY_Q = /\b(what can (?:you|it|this(?: thing| app| tool| copilot| assistant)?)\b[\w\s'’]{0,18}?\b(?:do|help)|what (?:do|can) you do|how (?:can|do) you help|what can you help (?:me )?with|what are you (?:able|capable)|what do you do|what('?s| is) your (?:job|purpose|role|function)|work[\s-]?wise|how do you (?:work|function)|how does this (?:work|thing work)|how are you (?:built|set up))\b/i;
 export function capabilitiesResponse(text: string, hosted = false): ComputeResult | null {
   if (!CAPABILITY_Q.test(text) || text.trim().split(/\s+/).length > 14) return null;
   return capabilitiesResult(text, hosted);

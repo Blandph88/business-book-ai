@@ -1498,7 +1498,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
       // followup_date — contact next_action is legacy ("Actions live on meetings/opportunities").
       // Resolve the subject (named contact, or deal/org → the opp's primary contact) and update their
       // latest meeting; no resolvable subject or no meeting → the dictionary contact card still runs.
-      if (/\bremind me to\b|\b(?:set|add|create)\s+a\s+task\b|\btask me to\b|\bremember to\b/i.test(text) && !questionBlocksAction(text)) {
+      if (/\bremind me to\b|\b(?:set|add|create|put)\s+(?:me\s+)?a\s+(?:task|reminder)\b|\btask me to\b|\bremember to\b|\bset a reminder\b|\breminder to (?:chase|follow|call|contact|reach|ping|nudge)/i.test(text) && !questionBlocksAction(text)) {
         const rs = reminderSubject(text, data, today);
         if (rs && data.meetingRows.some((m) => m.contact_url === rs.url)) {
           await startAction("meeting", "update", `${rs.first} ${rs.last}`.trim(), text, prior, id, text);
