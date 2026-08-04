@@ -44,7 +44,14 @@ export default function App() {
   // Land where the owner left off (default to the dashboard "Your day" brief so a returning owner sees what
   // changed, rather than always the metrics overview).
   const [activeTab, setActiveTab] = useState<TabId>(() => {
-    try { return (localStorage.getItem("bob.lastTab.v1") as TabId) || "dashboard"; } catch { return "dashboard"; }
+    try {
+      const saved = localStorage.getItem("bob.lastTab.v1") as TabId | null;
+      // On a FRESH launch, never reopen the ephemeral "chat" tab — it restores to an empty thread and
+      // reads as a blank screen (screenshot 2026-08-03). Land on the BusinessBook overview (metrics =
+      // the network charts) so the owner sees their book. A content tab the owner left on is restored.
+      if (saved && saved !== "chat") return saved;
+    } catch { /* ignore */ }
+    return "metrics";
   });
   useEffect(() => { try { localStorage.setItem("bob.lastTab.v1", activeTab); } catch { /* ignore */ } }, [activeTab]);
   // Mirror the current tab into a ref so effects keyed on other state (e.g. warmth completion) can
