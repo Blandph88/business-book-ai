@@ -146,7 +146,7 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
               real LinkedIn network — read entirely on your machine.
             </p>
             <Steps />
-            <p className="imp-privacy">🔒 Your connections never leave your computer. The app has no server and can't upload anything — that's the whole point.</p>
+            <p className="imp-privacy">Your connections never leave your computer. The app has no server and can't upload anything — that's the whole point.</p>
             <button className="imp-btn imp-btn-primary" onClick={onClose}>Got it — keep exploring</button>
           </div>
         ) : result ? (
@@ -162,14 +162,14 @@ export function ImportModal({ onClose, onImported }: { onClose: () => void; onIm
                 {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
               </ul>
             )}
-            <p className="imp-privacy">🔒 Everything stayed on this computer — nothing was uploaded.</p>
+            <p className="imp-privacy">Everything stayed on this computer — nothing was uploaded.</p>
             {scoreable > 0 && avail && (
               <div className="imp-warmth">
                 {avail.willRun && !avail.byok ? (
-                  <p className="imp-warmth-lead">✨ Analysing the tone of {scoreable.toLocaleString()} message threads to rank your leads by how keen each contact <em>actually</em> was — running on your machine, in the background. <strong>Open your book and keep working</strong>; progress shows at the top.</p>
+                  <p className="imp-warmth-lead">Analysing the tone of {scoreable.toLocaleString()} message threads to rank your leads by how keen each contact <em>actually</em> was — running on your machine, in the background. <strong>Open your book and keep working</strong>; progress shows at the top.</p>
                 ) : avail.willRun && avail.byok ? (
                   cloudScanStarted ? (
-                    <p className="imp-warmth-lead">✨ Analysing {scoreable.toLocaleString()} message threads to rank your leads — running in the background. Progress shows at the top.</p>
+                    <p className="imp-warmth-lead">Analysing {scoreable.toLocaleString()} message threads to rank your leads — running in the background. Progress shows at the top.</p>
                   ) : (
                     <>
                       <p className="imp-warmth-note">Rank your leads by the tone of your message threads? Your AI is set to your own cloud key, so this sends short, <strong>redacted</strong> message snippets to your provider to score them.</p>

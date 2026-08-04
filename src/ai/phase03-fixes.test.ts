@@ -1,7 +1,7 @@
 // Phase-03 fix batch (DeepSeek-run findings). Seniority/access ranking (P3-7/P3-10/P3-31), first-name
 // count (P3-19), two-way×not-met (P3-14), sectorContacts intro (P3-18).
 import { describe, it, expect } from "vitest";
-import { topBySeniority, firstNameCount, talkedNotMet, sectorContacts, capabilitiesResponse, computeExact, computeForQuery } from "./compute";
+import { topBySeniority, firstNameCount, talkedNotMet, sectorContacts, capabilitiesResponse, computeExact, computeForQuery, pipelineStats } from "./compute";
 import type { BookData } from "./bookContext";
 import type { Contact } from "../data/contacts";
 
@@ -91,6 +91,21 @@ describe("P3-1: casual capability phrasings reach the menu (no 'I can't do that'
   });
   it("'what can you do' still works", () => {
     expect(capabilitiesResponse("what can you do?", false)).not.toBeNull();
+  });
+});
+
+describe("empty-pipeline starter card teaches instead of showing a wall of zeros", () => {
+  it("pipelineStats on a book with no opportunities returns a teaching message, not £0 rows", () => {
+    const r = pipelineStats(book({ contacts: [contact("a", "A", "One", "EY")] }));
+    expect(r.intro).toMatch(/No opportunities in your pipeline yet/i);
+    expect(r.intro).toMatch(/Opportunities tab/i);
+    expect(r.rows.length).toBe(0);
+  });
+  it("pipelineStats with a real opportunity still returns the numbers table", () => {
+    const d = book({ opps: [{ id: "o1", est_value: 1000, probability: 50, status: "Open" } as any] });
+    const r = pipelineStats(d);
+    expect(r.rows.length).toBeGreaterThan(0);
+    expect(r.intro).toMatch(/pipeline at a glance/i);
   });
 });
 

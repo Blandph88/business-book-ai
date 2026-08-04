@@ -88,7 +88,7 @@ export function assembleContext(question: string, d: BookData, charBudget: numbe
     add("Contacts at the companies you mentioned", d.contacts.filter((c) => inOrg(c.organisation)).map(lineContact));
     add("Opportunities at those companies", d.opps.filter((o) => inOrg(o.organisation)).map(lineOpp));
     add("Recent meetings at those companies", d.meetingRows.filter((r) => inOrg(r.contactInfo?.organisation)).map(lineMeeting));
-    add("Contracts at those companies", d.sows.filter((s) => inOrg(s.organisation)).map(lineSow));
+    add("Engagements at those companies", d.sows.filter((s) => inOrg(s.organisation)).map(lineSow));
   }
 
   // 2) Entity-type slices when the question is about a kind of record (covers anaphora like "do THEY
@@ -105,7 +105,7 @@ export function assembleContext(question: string, d: BookData, charBudget: numbe
   // 3) Big budget (local/BYOK): fold in the rest so the model effectively has the whole book.
   if (charBudget > 40000) {
     if (!orgs.size && !has("opportunit", "deal", "pipeline")) add("All opportunities", d.opps.map(lineOpp));
-    add("All contracts / SoWs", d.sows.map(lineSow));
+    add("All engagements / SoWs", d.sows.map(lineSow));
     add("All contacts", d.contacts.map(lineContact));
   }
 

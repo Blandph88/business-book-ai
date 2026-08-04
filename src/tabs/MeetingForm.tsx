@@ -420,7 +420,7 @@ export function MeetingForm({
           {/* Completeness obligation: a held meeting must have a full write-up. */}
           {missing.length > 0 && (
             <div className="mform-overdue-banner mform-writeup-banner" role="alert">
-              <strong>📝 Complete the write-up.</strong> This meeting is held but{" "}
+              <strong>Complete the write-up.</strong> This meeting is held but{" "}
               {missing.length} field{missing.length === 1 ? "" : "s"} still need
               {missing.length === 1 ? "s" : ""} filling: {missing.join(", ")}. It stays in
               “This week” until done.

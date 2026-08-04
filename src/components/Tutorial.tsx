@@ -41,7 +41,7 @@ export const TOUR_STEPS: TourStep[] = [
   // ── Intro + import ──────────────────────────────────────────────────────
   {
     id: "welcome",
-    title: "Welcome to Business Book 👋",
+    title: "Welcome to Business Book",
     body: (
       <>
         Your LinkedIn network turned into a working BD pipeline — classified by industry,
@@ -212,7 +212,7 @@ export const TOUR_STEPS: TourStep[] = [
     title: "Loose ends & staying warm",
     body: (
       <>
-        Data-hygiene nudges: won work with no contract, deals missing a value, decision-makers to log —
+        Data-hygiene nudges: won work with no engagement, deals missing a value, decision-makers to log —
         plus (further down) <strong>Reconnect</strong> for warm contacts going quiet and{" "}
         <strong>Going cold</strong> for stalling deals.
       </>
@@ -359,7 +359,7 @@ export const TOUR_STEPS: TourStep[] = [
     title: "Price it your way",
     body: (
       <>
-        Here’s a contract open. Set its <strong>Commercials</strong>: <strong>fixed-price</strong>{" "}
+        Here’s an engagement open. Set its <strong>Commercials</strong>: <strong>fixed-price</strong>{" "}
         deliverables, each with a value — or switch <strong>Project type</strong> to a{" "}
         <strong>time &amp; materials</strong> rate card by grade. Recognised revenue updates as you go.
       </>
@@ -369,7 +369,7 @@ export const TOUR_STEPS: TourStep[] = [
   // ── Finish ──────────────────────────────────────────────────────────────
   {
     id: "finish",
-    title: "That’s the tour 🎉",
+    title: "That’s the tour",
     body: (
       <>
         Have a play around — it’s all sample data until you import your own. Re-open this

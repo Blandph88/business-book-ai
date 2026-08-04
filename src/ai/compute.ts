@@ -545,6 +545,11 @@ export function rankOpportunities(d: BookData, by: "value" | "probability" | "ri
 
 // 7. pipelineStats — the headline numbers (deterministic).
 export function pipelineStats(d: BookData): ComputeResult {
+  // Fresh book (no opportunities logged yet): teach how the pipeline fills instead of a wall of zeros.
+  if (!d.opps.length) return {
+    intro: "No opportunities in your pipeline yet. Spot one from a meeting (set “Opportunity spotted = Yes”) or add one on the Opportunities tab — then ask me again and I'll break down open value, weighting and win rate.",
+    columns: [], rows: [],
+  };
   const open = d.opps.filter((o) => oppStatus(o) === "Open");
   const won = d.opps.filter((o) => oppStatus(o) === "Won");
   const lost = d.opps.filter((o) => oppStatus(o) === "Lost");
@@ -1714,7 +1719,7 @@ export function computeExact(text: string, d: BookData, today: string): ComputeR
   // Floors that must hold on EVERY tier, before anything else.
   { const del = destructiveAskResponse(text); if (del) return del; }
   if (/\b(log|record|add|book|enter|mark|put in)\b[^?]*\brevenue\b/.test(t) && !/\b(what|how much|show|list|total|my|report|breakdown|summar)\b/.test(t))
-    return { intro: "Revenue is recorded in the Revenue tab against an engagement, so I don't book it from here — open Revenue to log it. I can help you with contacts, meetings, and opportunities, though.", columns: [], rows: [] };
+    return { intro: "Revenue is recorded against an engagement in the Engagements tab, so I don't book it from here — open Engagements to log it. I can help you with contacts, meetings, and opportunities, though.", columns: [], rows: [] };
   // A query naming a REAL record wins outright — regardless of store vocabulary (the "KPMG — Strategy
   // engagement" opportunity vs the SoW store's "engagement" keyword).
   { const rec = exactRecordLookup(text, d); if (rec) return rec; }
@@ -1822,7 +1827,7 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // copilot books. Decline cleanly (BEFORE the reasoning gate, which would otherwise defer it to the model, and
   // before the action pre-check, which would open an opportunity card and inflate est_value).
   if (/\b(log|record|add|book|enter|mark|put in)\b[^?]*\brevenue\b/.test(text.toLowerCase()) && !/\b(what|how much|show|list|total|my|report|breakdown|summar)\b/.test(text.toLowerCase()))
-    return { intro: "Revenue is recorded in the Revenue tab against an engagement, so I don't book it from here — open Revenue to log it. I can help you with contacts, meetings, and opportunities, though.", columns: [], rows: [] };
+    return { intro: "Revenue is recorded against an engagement in the Engagements tab, so I don't book it from here — open Engagements to log it. I can help you with contacts, meetings, and opportunities, though.", columns: [], rows: [] };
   // Hand genuine reasoning / multi-part instructions to the model — never short-circuit them to a table.
   if (isReasoningRequest(text)) return null;
   // DEIXIS GATE: a pronoun with no named entity → the referent lives in the thread; this layer is

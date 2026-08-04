@@ -36,7 +36,7 @@ export function ComputeTable({ data, onNavigate, onClose }: { data: ComputeResul
       )}
       {data.more && (
         <button type="button" className="ctab-more" onClick={() => { onNavigate(data.more!.tab, data.more!.intent); onClose(); }}>
-          View all {data.more.count} in {data.more.tab === "revenue" ? "contracts" : data.more.tab} →
+          View all {data.more.count} in {data.more.tab === "revenue" ? "engagements" : data.more.tab} →
         </button>
       )}
     </div>

@@ -780,28 +780,31 @@ export function MetricsTab({
         )}
         </>)}
 
-        {/* Headline figures for the selected stage. */}
-        <div className="dash-stats">
-          <div className="dash-stat">
-            <span className="dash-stat-value">{stageStats.count}</span>
-            <span className="dash-stat-label">Opportunities</span>
-          </div>
-          <div className="dash-stat">
-            <span className="dash-stat-value">{formatMoney(stageStats.est)}</span>
-            <span className="dash-stat-label">Estimated value</span>
-          </div>
-          <div className="dash-stat">
-            <span className="dash-stat-value">{formatMoney(stageStats.weighted)}</span>
-            <span className="dash-stat-label">Weighted value</span>
-          </div>
-        </div>
-
         {stageStats.count === 0 ? (
-          <p className="dash-card-note">
-            No opportunities {oppPhase === "all" ? "yet" : `in the “${oppPhase}” phase`}.
-          </p>
+          <CardEmpty
+            message={oppPhase === "all"
+              ? "No opportunities yet — spot one from a meeting (set “Opportunity spotted = Yes”) or add it on the Opportunities tab, and your pipeline funnel appears here."
+              : `No opportunities in the “${oppPhase}” phase yet.`}
+            ctaLabel="Go to Opportunities →"
+            onCta={() => onNavigate?.("opportunities")}
+          />
         ) : (
           <>
+            {/* Headline figures for the selected stage. */}
+            <div className="dash-stats">
+              <div className="dash-stat">
+                <span className="dash-stat-value">{stageStats.count}</span>
+                <span className="dash-stat-label">Opportunities</span>
+              </div>
+              <div className="dash-stat">
+                <span className="dash-stat-value">{formatMoney(stageStats.est)}</span>
+                <span className="dash-stat-label">Estimated value</span>
+              </div>
+              <div className="dash-stat">
+                <span className="dash-stat-value">{formatMoney(stageStats.weighted)}</span>
+                <span className="dash-stat-label">Weighted value</span>
+              </div>
+            </div>
             <h4 className="mp-sub">By service line</h4>
             {oppBreakdownGrid(
               oppsByServiceLine,

@@ -192,7 +192,7 @@ export function MeetingsTab({
   const stageFilter = controlsProps.filterValues.stage ?? "";
   const selectStage = (stage: string) => controlsProps.setFilter("stage", stage);
   const stats = [
-    { label: "Meetings", value: statCounts.meetings, onSelect: () => selectStage(""), active: stageFilter === "" },
+    { label: "All", value: statCounts.meetings, onSelect: () => selectStage(""), active: stageFilter === "" },
     { label: "Scheduled", value: statCounts.scheduled, onSelect: () => selectStage("Scheduled"), active: stageFilter === "Scheduled" },
     { label: "Held", value: statCounts.held, onSelect: () => selectStage("Held"), active: stageFilter === "Held" },
     { label: "People met", value: statCounts.peopleMet },
@@ -364,7 +364,7 @@ export function MeetingsTab({
     <section className="meetings">
       <div className="meetings-toolbar">
         <h2>Meetings</h2>
-        <span className="meetings-count">{rows.length} meetings</span>
+        <span className="meetings-count">{rows.length} in your meeting pipeline</span>
         <button
           type="button"
           className="meetings-add"

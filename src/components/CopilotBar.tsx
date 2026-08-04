@@ -218,7 +218,7 @@ function detectView(text: string): RelatedHit | null {
   }
   // Listing contracts / SoWs.
   if (/\b(list|show|pull up)\b[^?]*\b(contract|sow|engagement)/.test(t)) {
-    return view("Open the Contracts list", "revenue", {});
+    return view("Open the Engagements list", "revenue", {});
   }
   return null;
 }

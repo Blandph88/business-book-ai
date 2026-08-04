@@ -158,13 +158,13 @@ export function RevenueForm({
       <aside
         className="mform-panel"
         role="dialog"
-        aria-label="Contract details"
+        aria-label="Engagement details"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="mform-header">
           <div>
             <h3 className="mform-title">
-              {isNew ? "New contract" : draft.engagement_name || "Contract"}
+              {isNew ? "New engagement" : draft.engagement_name || "Engagement"}
             </h3>
             {draft.linked_opportunity_id && onOpenOpportunity && (
               <p className="mform-links">
@@ -377,7 +377,7 @@ export function RevenueForm({
               className="mform-delete"
               onClick={() => onDelete(target.sow.id)}
             >
-              Delete contract
+              Delete engagement
             </button>
           )}
           <span className="mform-footer-spacer" />

@@ -265,10 +265,10 @@ describe("capabilitiesResult (R-J #1)", () => {
 // ── #40: a "log revenue" command declines cleanly (revenue is out of the copilot's scope) ─────────
 describe("computeForQuery revenue-command decline (R-J #40)", () => {
   const d = book();
-  it("declines to book revenue and points at the Revenue tab", () => {
+  it("declines to book revenue and points at the Engagements tab", () => {
     const r = computeForQuery("log £40k of revenue", d, TODAY);
     expect(r).not.toBeNull();
-    expect(r!.intro).toMatch(/Revenue tab/i);
+    expect(r!.intro).toMatch(/Engagements tab/i);
   });
   it("does NOT hijack a revenue read query", () => {
     // "how much revenue" is a legit read — must not trip the decline.

@@ -424,8 +424,8 @@ function FirstRunGate({ onImport }: { onImport: () => void }) {
           Import your LinkedIn connections and messages to see your relationships, pipeline and
           warmest leads — read entirely on your computer.
         </p>
-        <button type="button" className="firstrun-btn" onClick={onImport}>⬆ Import your LinkedIn</button>
-        <p className="firstrun-privacy">🔒 Nothing leaves this device. The app has no server and can't upload anything — that's the whole point.</p>
+        <button type="button" className="firstrun-btn" onClick={onImport}>Import your LinkedIn</button>
+        <p className="firstrun-privacy">The app has no server of its own — your book stays on this device, never uploaded to us.</p>
       </div>
     </div>
   );

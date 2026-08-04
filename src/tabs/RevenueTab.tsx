@@ -209,13 +209,13 @@ export function RevenueTab({
 
       {rows.length === 0 ? (
         <p className="rev-empty">
-          No signed contracts yet. Add one when an opportunity converts.
+          No signed engagements yet. Add one when an opportunity converts.
         </p>
       ) : (
         <>
           <TableControls {...controlsProps} />
           {filtered.length === 0 ? (
-            <p className="rev-empty">No contracts match these filters.</p>
+            <p className="rev-empty">No engagements match these filters.</p>
           ) : (
             <div className="rev-table-wrap">
               <table className="rev-table">
@@ -293,7 +293,7 @@ export function RevenueTab({
                     <button
                       type="button"
                       className="rev-remove"
-                      title="Remove this contract"
+                      title="Remove this engagement"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDelete(sow.id);
