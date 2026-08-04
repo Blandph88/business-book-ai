@@ -136,6 +136,18 @@ export function DashboardTab({ onNavigate, onDraft }: DashboardTabProps) {
     () => contacts.filter((c) => c.latentOpp?.text).length,
     [contacts],
   );
+  // Funnel signals — available the INSTANT a LinkedIn export is imported (derived from contacts +
+  // messages, no manual logging). This is what a fresh upload should showcase, instead of a wall of £0
+  // opportunity/revenue cards that read as "this product has nothing for me".
+  const funnel = useMemo(() => ({
+    contacts: contacts.length,
+    twoWay: contacts.filter((c) => c.two_way || c.responded).length,
+    agreedToMeet: contacts.filter((c) => c.agreed_to_meet).length,
+    met: contacts.filter((c) => c.met).length,
+  }), [contacts]);
+  // Pipeline/opportunity surfaces are hidden until there's something in them (a cold import has none).
+  const hasPipeline = openOppsCount > 0 || recognised > 0 || winLoss.won + winLoss.lost > 0;
+  const hasOpps = opps.length > 0;
 
   if (status === "loading") {
     return <p className="home-status">Loading dashboard…</p>;
@@ -170,16 +182,28 @@ export function DashboardTab({ onNavigate, onDraft }: DashboardTabProps) {
 
       {/* ── Headline numbers ──────────────────────────────────────────── */}
       <div className="kpi-grid">
-        <KpiCard label="Weighted pipeline" value={formatMoney(weightedPipeline)} hint={`${openOppsCount} open`} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Open" } })} />
-        <KpiCard label="Recognised" value={formatMoney(recognised)} hint="across signed engagements" onClick={() => onNavigate("revenue")} />
-        <KpiCard label="Win rate" value={winRateLabel} hint={`${winLoss.won}W · ${winLoss.lost}L`} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Won" } })} />
-        {/* AI-derived — gated: only appear once there's a signal (owed replies from the deterministic thread
-            read; opportunities from the opt-in message scan). */}
+        {/* Import-derived funnel — the value a fresh LinkedIn upload unlocks immediately, shown FIRST. */}
+        <KpiCard label="Contacts" value={funnel.contacts.toLocaleString()} hint="in your network" onClick={() => onNavigate("contacts")} />
+        <KpiCard label="Two-way conversations" value={funnel.twoWay.toLocaleString()} hint="people who've replied to you" onClick={() => onNavigate("contacts", { filter: { key: "responded", value: "Yes" } })} />
+        {funnel.agreedToMeet > 0 && (
+          <KpiCard label="Agreed to meet" value={funnel.agreedToMeet.toLocaleString()} hint="said yes — line them up" onClick={() => onNavigate("contacts", { filter: { key: "agreed", value: "Yes" } })} />
+        )}
+        {funnel.met > 0 && (
+          <KpiCard label="Met" value={funnel.met.toLocaleString()} hint="meetings logged" onClick={() => onNavigate("contacts", { filter: { key: "met", value: "Yes" } })} />
+        )}
         {repliesOwed > 0 && (
           <KpiCard label="Replies owed" value={repliesOwed} hint="they messaged last" onClick={() => onNavigate("contacts", { filter: { key: "owed", value: "Yes" } })} />
         )}
         {oppSignals > 0 && (
           <KpiCard label="Opportunity signals in messages" value={oppSignals} hint="leads spotted by the scan — review & pursue" onClick={() => onNavigate("contacts", { filter: { key: "opportunity", value: "Yes" } })} />
+        )}
+        {/* Pipeline/revenue KPIs — hidden until there's real pipeline (a cold import shows £0 otherwise). */}
+        {hasPipeline && (
+          <>
+            <KpiCard label="Weighted pipeline" value={formatMoney(weightedPipeline)} hint={`${openOppsCount} open`} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Open" } })} />
+            <KpiCard label="Recognised" value={formatMoney(recognised)} hint="across signed engagements" onClick={() => onNavigate("revenue")} />
+            <KpiCard label="Win rate" value={winRateLabel} hint={`${winLoss.won}W · ${winLoss.lost}L`} onClick={() => onNavigate("opportunities", { filter: { key: "status", value: "Won" } })} />
+          </>
         )}
       </div>
 
@@ -209,7 +233,10 @@ export function DashboardTab({ onNavigate, onDraft }: DashboardTabProps) {
             Who &amp; what to chase — computed, not manually tagged
           </span>
         </div>
+        {/* One grid: the opportunity columns (Close these / Going cold) appear only when there are opps;
+            a fresh LinkedIn import shows Key relationships + Reconnect side by side, no empty deal columns. */}
         <div className="home-cols">
+          {hasOpps && (
           <div>
             <h4 className="home-sub">Close these</h4>
             <p className="home-microcopy">Biggest deals nearest signature.</p>
@@ -233,9 +260,10 @@ export function DashboardTab({ onNavigate, onDraft }: DashboardTabProps) {
               </ul>
             )}
           </div>
+          )}
           <div>
             <h4 className="home-sub">Key relationships</h4>
-            <p className="home-microcopy">Senior decision-makers, boosted by live deals.</p>
+            <p className="home-microcopy">Senior decision-makers in your network.</p>
             {keyPeople.length === 0 ? (
               <p className="home-empty">No contacts to surface yet.</p>
             ) : (
@@ -256,8 +284,6 @@ export function DashboardTab({ onNavigate, onDraft }: DashboardTabProps) {
               </ul>
             )}
           </div>
-        </div>
-        <div className="home-cols">
           <div>
             <h4 className="home-sub">Reconnect</h4>
             <p className="home-microcopy">Warm+ contacts gone quiet (45 days+).</p>
@@ -276,6 +302,7 @@ export function DashboardTab({ onNavigate, onDraft }: DashboardTabProps) {
               </ul>
             )}
           </div>
+          {hasOpps && (
           <div>
             <h4 className="home-sub">Going cold</h4>
             <p className="home-microcopy">Open opportunities with no movement (30 days+).</p>
@@ -294,6 +321,7 @@ export function DashboardTab({ onNavigate, onDraft }: DashboardTabProps) {
               </ul>
             )}
           </div>
+          )}
         </div>
       </div>
 
