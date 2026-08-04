@@ -1269,6 +1269,22 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
     // Render a computed result directly (clickable rows via `compute`); markdown kept for persistence + chips.
     const renderCompute = async (computed: ComputeResult): Promise<void> => {
       if (computed.subject) pushReferent(id, { kind: computed.subject.kind, id: computed.subject.id, label: computed.subject.label });
+      // P3-16: a which-one disambiguation renders as CONVERSATIONAL picker chips (re-issue the brief),
+      // not a deep-link table that ejects the user to the Contacts tab. Clicking a chip continues in chat.
+      if (isDisambiguation(computed.intro) && computed.rows.length) {
+        const nameCol = Math.max(0, computed.columns.indexOf("Name"));
+        const orgCol = computed.columns.indexOf("Organisation");
+        const pickChips: Chip[] = computed.rows.slice(0, 6).map((r) => {
+          const name = String(r.cells[nameCol] || "").trim();
+          const org = orgCol >= 0 ? String(r.cells[orgCol] || "").trim() : "";
+          const at = org && org !== "—" ? ` at ${org}` : "";
+          return { label: `${name}${at ? ` · ${org}` : ""}`, prompt: `Brief me on ${name}${at}` };
+        });
+        persistTo(id, [...history, { role: "you", text }, { role: "ai", text: computed.intro }]);
+        if (chatIdRef.current === id) setChat([...prior, { role: "you", text }, { role: "ai", text: computed.intro, chips: pickChips }]);
+        setAsking(false); markDone(id);
+        return;
+      }
       const md = computeText(computed);
       // Only derive chips when there are REAL records — a "can't find / nothing matches" reply has no
       // entities worth anchoring to, and deriving them produces non-sequiturs (a stray "Smith" → "DS Smith").

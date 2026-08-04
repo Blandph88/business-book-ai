@@ -105,3 +105,23 @@ describe("P3-18: sectorContacts intro no longer implies all are senior", () => {
     expect(r.intro).not.toMatch(/most senior contacts/i);
   });
 });
+
+describe("P3-4: 'highlights of my network' routes deterministically to the snapshot (context-free)", () => {
+  const d = book({ contacts: [
+    contact("a", "A", "One", "EY", { sector_group: "Professional Services", seniority: "Manager" }),
+    contact("b", "B", "Two", "PwC", { sector_group: "Professional Services", seniority: "Associate / Analyst" }),
+  ] });
+  it("routes to personalSnapshot, not a ranking tool", () => {
+    const r = route("give me the highlights of my network", d);
+    expect(r).not.toBeNull();
+    expect(r!.intro).toMatch(/what I know about your book/i); // personalSnapshot
+    expect(r!.rows.some((row) => /Contacts in network/i.test(String(row.cells[0])))).toBe(true);
+    expect(r!.columns).not.toContain("Warmth"); // not a warmest-leads table
+  });
+  it("'what does my network say about my career' still goes to the function breakdown (not the snapshot)", () => {
+    const r = route("what does my network say about my career?", d);
+    expect(r).not.toBeNull();
+    // breakdown carries a Function/Share table, not the personal snapshot
+    expect(r!.intro).not.toMatch(/Warmest relationship/);
+  });
+});

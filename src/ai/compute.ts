@@ -2069,7 +2069,9 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
 
   // ── Generic, unfiltered lists / counts ("show my contacts", "how many people do I have") ─────────
   // Only when NOT scoped to a company (COMPANY_AT below handles "... at EY").
-  if (!at && /\b(contacts?|people|network|connections?|leads?|prospects?|my book)\b/.test(t) && (LIST_VERB.test(t) || /\beveryone\b/.test(t))) return findContacts(d, {});
+  // P3-4: "highlights/overview/shape of my network" is a SNAPSHOT ask (handled below), not a raw contact
+  // dump — exclude it here so it falls through to personalSnapshot instead of a bare "N contacts" list.
+  if (!at && /\b(contacts?|people|network|connections?|leads?|prospects?|my book)\b/.test(t) && (LIST_VERB.test(t) || /\beveryone\b/.test(t)) && !/(?:highlights?|overview|the shape|a shape|snapshot|the picture|a picture|the lay) of/.test(t)) return findContacts(d, {});
   // Un-windowed meetings ask: a COUNT wants the all-time number (handled by COUNT_SHAPE above, but catch
   // "total meetings" phrasings here too); a LIST defaults to 90 days LABELLED AS SUCH — never "quarter"
   // masquerading as the user's ask (Gate-0 #5).
@@ -2081,7 +2083,9 @@ export function computeForQuery(text: string, d: BookData, today: string, prevTe
   // ── Personal snapshot ("what do you know about me", "summarise my book") ─────────────────────────
   // This is a request for THEIR own numbers, NOT a contact lookup — guard it before ABOUT, or "...about
   // me" fuzzy-matches a person whose name contains "me" (e.g. A·ME·lia). Breakdowns ("by sector") win.
-  if (/\babout me\b|\bknow about me\b|\babout myself\b|tell me about myself|summari[sz]e (?:my )?(?:book|network|business|pipeline)|summary of my (?:book|network|business|pipeline)|how'?s my (?:book|network)|what(?:'?s| is) in my (?:book|network)|how big is my (?:book|network|pipeline)/.test(t) && !/by sector|by function|by seniority|by role|by industry/.test(t)) return personalSnapshot(d, today);
+  // P3-4: "highlights/overview/shape/picture of my network" must route DETERMINISTICALLY to the snapshot
+  // so it's context-free — via the LLM router it bled to the prior turn's warmth tool in a continuing chat.
+  if (/\babout me\b|\bknow about me\b|\babout myself\b|tell me about myself|summari[sz]e (?:my )?(?:book|network|business|pipeline)|summary of my (?:book|network|business|pipeline)|(?:highlights?|overview|the shape|a snapshot|the snapshot|the picture|a picture|the lay) of (?:my )?(?:book|network)|how'?s my (?:book|network)|what(?:'?s| is) in my (?:book|network)|how big is my (?:book|network|pipeline)/.test(t) && !/by sector|by function|by seniority|by role|by industry|say about my|about my career/.test(t)) return personalSnapshot(d, today);
 
   // "my footprint / presence / coverage / how deep am I at X" → the company's whole account footprint.
   // (Distinct from "everyone at X" below — these phrasings name no people-noun, so they were falling to the
