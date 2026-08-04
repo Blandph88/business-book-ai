@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkNarration, stripForeignGlitch, numericClaims, isDisambiguation } from "./narrationCheck";
+import { checkNarration, stripForeignGlitch, stripPhantomActions, numericClaims, isDisambiguation } from "./narrationCheck";
 
 // The evidence tables are drawn from the retest transcripts (abbreviated).
 const RISK_TABLE = `Open opportunities with NO next meeting booked (20 of 20 open) — the follow-up-debt list, biggest first:
@@ -125,5 +125,84 @@ describe("stripForeignGlitch: Qwen code-switch sentences drop, clean text unchan
   it("clean English text passes through untouched", () => {
     const t = "A perfectly ordinary reply. Nothing to strip here.";
     expect(stripForeignGlitch(t)).toBe(t);
+  });
+});
+
+// ── DeepSeek-run additions (Phase 03): invented stage-breakdowns, invented location, phantom actions ──
+
+// A SAMA-style row table: stages live per-row, never as per-stage COUNTS.
+const SAMA_TABLE = `87 contacts at Saudi central bank (showing 40, most engaged first):
+| Name | Position | Organisation | Stage | Last heard |
+| Faisal Aloqayli | Legal Analyst | Saudi Central Bank – SAMA | Agreed to meet | 2026-06-04 |
+| Soleman Alsabban | General Director | Saudi Central Bank – SAMA | Two-way contact | 2026-03-31 |
+| Ghadir Alshehri | Senior Economic Analyst | Saudi Central Bank – SAMA | Messaged | 2026-06-08 |`;
+
+// A function-breakdown table DOES carry per-category counts — those claims must survive.
+const FUNCTION_TABLE = `Your network broken down by function (26167 contacts):
+| Function | Contacts | Share |
+| Finance & Accounting | 4083 | 16% |
+| Founder, Owner & Partner | 3455 | 13% |
+| Risk, Audit & Actuarial | 3338 | 13% |`;
+
+describe("P3-9/P3-14: invented funnel-stage breakdowns drop", () => {
+  it("drops the fabricated '12 Agreed, 20 Two-way, 15 Messaged' (sums to 47, not in evidence)", () => {
+    const v = checkNarration("You're connected to 87 contacts, with 12 marked as Agreed to Meet, 20 in Two-way Contact, and 15 Messaged.", SAMA_TABLE);
+    expect(v.dropped.some((s) => /12 marked as Agreed to Meet/i.test(s))).toBe(true);
+  });
+  it("drops '26,167 people marked Agreed to meet' when the evidence total is a never-met count", () => {
+    const NEVER_MET = `26167 people you've never met (showing 40, most engaged first):
+| Name | Position | Organisation | Stage | Last heard |
+| Chris Elliott | Designer | BAE | Agreed to meet | 2020-06-15 |`;
+    const v = checkNarration("You have 26,167 people marked 'Agreed to meet' but never met.", NEVER_MET);
+    expect(v.dropped.some((s) => /26,167 people marked/i.test(s))).toBe(true);
+  });
+  it("KEEPS a real per-category count from a breakdown table (13% founders)", () => {
+    const v = checkNarration("Your network skews to execution, with a 13% Founder, Owner & Partner concentration worth leveraging.", FUNCTION_TABLE);
+    expect(v.dropped.length).toBe(0);
+    expect(v.cleaned).toMatch(/13% Founder/);
+  });
+  it("KEEPS a legit owed-reply count (not a guarded funnel stage)", () => {
+    const OWED = "You owe a reply — 1770 people, most promising first.";
+    const v = checkNarration("You owe a reply to 1,770 people who messaged last.", OWED);
+    expect(v.dropped.length).toBe(0);
+  });
+});
+
+describe("P3-8/P3-18: invented location claims drop (no location field exists)", () => {
+  it("drops 'Half are based in the Middle East'", () => {
+    const v = checkNarration("You have deep finance ties. Half are based in the Middle East, with strong Saudi representation.", FUNCTION_TABLE);
+    expect(v.dropped.some((s) => /Half are based in the Middle East/i.test(s))).toBe(true);
+  });
+  it("KEEPS an org reference that merely contains a place name", () => {
+    const v = checkNarration("Your Saudi Central Bank contacts cluster in risk and policy roles.", SAMA_TABLE);
+    expect(v.dropped.length).toBe(0);
+  });
+});
+
+describe("P3-26: phantom-action guard on free-text replies", () => {
+  it("strips the false 'I'll set a reminder' but keeps the honest offer", () => {
+    const out = stripPhantomActions("Got it — I'll set a reminder to follow up with Al Rajhi next week. Want me to draft a quick note now?");
+    expect(out).not.toMatch(/set a reminder/i);
+    expect(out).toMatch(/draft a quick note/i);
+  });
+  it("strips a past-tense phantom claim", () => {
+    const out = stripPhantomActions("I've logged that meeting for you. Anything else?");
+    expect(out).not.toMatch(/logged that meeting/i);
+  });
+  it("falls back to an honest line when the whole reply was a phantom claim", () => {
+    const out = stripPhantomActions("Done — reminder set for next week.");
+    expect(out).toMatch(/can't take that action from chat/i);
+  });
+  it("KEEPS a genuine offer (question, not a claim)", () => {
+    const t = "Want me to set a reminder on your latest meeting?";
+    expect(stripPhantomActions(t)).toBe(t);
+  });
+  it("KEEPS a capability statement ('I can set that up if…')", () => {
+    const t = "I can set that up once you log a meeting with them first.";
+    expect(stripPhantomActions(t)).toBe(t);
+  });
+  it("leaves ordinary text untouched", () => {
+    const t = "Your warmest lead is David Baxter at Portage Point.";
+    expect(stripPhantomActions(t)).toBe(t);
   });
 });

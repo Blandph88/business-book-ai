@@ -115,6 +115,47 @@ function orgPairingViolation(sentence: string, rows: string[][]): boolean {
 }
 function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
+// FUNNEL-STAGE COUNT check (P3-9/P3-14 — DeepSeek run). A weak model narrates INVENTED stage breakdowns
+// over a row table — "12 Agreed to Meet, 20 Two-way, 15 Messaged" (sums to 47≠87), or "26,167 marked
+// Agreed to meet" when the evidence's 26,167 is actually a NEVER-MET total. The evidence carries a stage
+// PER ROW, never a per-stage COUNT — so any "<number> <funnel-stage>" claim must be justified by an
+// evidence LINE that pairs that same number with that stage; otherwise it's fabricated. The caller passes
+// the date-stripped sentence so a year isn't read as a count.
+// Unambiguous stage DESCRIPTORS only — the bare verbs "messaged"/"responded" are excluded because they
+// appear legitimately in prose ("1,770 people who messaged last"); a multi-stage fabrication still trips
+// on "agreed to meet"/"two-way" in the same sentence, so nothing is lost.
+const FUNNEL_STAGE_LABELS = [
+  "agreed to meet", "agreed-to-meet", "two-way contact", "two way contact", "never met",
+  "never messaged", "not contacted", "not yet contacted",
+];
+function labelledStageViolation(sentence: string, evidence: string): boolean {
+  const sl = sentence.toLowerCase();
+  const evLines = evidence.toLowerCase().split("\n").map((l) => l.replace(/,/g, ""));
+  for (const label of FUNNEL_STAGE_LABELS) {
+    let idx = sl.indexOf(label);
+    while (idx >= 0) {
+      const win = sl.slice(Math.max(0, idx - 40), idx + label.length + 24);
+      const num = win.match(/\b(\d[\d,]*)\b/);
+      if (num) {
+        const n = num[1].replace(/,/g, "");
+        const justified = evLines.some((ln) => ln.includes(label) && ln.includes(n));
+        if (!justified) return true;
+      }
+      idx = sl.indexOf(label, idx + 1);
+    }
+  }
+  return false;
+}
+
+// LOCATION check (P3-8/P3-18 — DeepSeek run). The book has NO location field, so ANY claim about where
+// contacts are BASED/LOCATED is invented ("Half are based in the Middle East"). Org NAMES that contain a
+// place (Riyad Bank, Saudi Central Bank) are references, not location claims — so only explicit based/
+// located-in phrasing about the PEOPLE is flagged, never a mere org mention.
+const LOCATION_CLAIM = /\b(?:based|located|headquartered|situated|reside|residing|domiciled)\s+(?:in|out of|across|around|near)\b|\b(?:riyadh|jeddah|dubai|abu dhabi|gulf|saudi|mena|ksa|london)[- ]based\b|\b(?:half|most|many|several|all|majority|a third|two[- ]thirds|\d+\s*%?)\s+(?:of\s+(?:them|these|your\s+contacts?|which)\s+)?(?:are\s+)?(?:based\s+|located\s+|sitting\s+)?in\s+(?:the\s+)?(?:middle east|gulf|ksa|saudi arabia|saudi|riyadh|jeddah|uae|dubai|abu dhabi|region|country)\b/i;
+function locationClaimViolation(sentence: string): boolean {
+  return LOCATION_CLAIM.test(sentence);
+}
+
 // Sentence-level check: a sentence whose numeric claims aren't all present in the evidence is dropped.
 // Dates (2026-07-18 / "July 18") and years are exempt — they're framing, not figures, and the formats
 // rarely match textually. Small counts 1–3 are exempt when the evidence's ROW COUNT covers them ("both",
@@ -135,6 +176,9 @@ export function checkNarration(narration: string, evidence: string): NarrationVe
       .replace(/\b(?:19|20)\d{2}\b/g, " ");
     if (sentimentPairingViolation(sent, rowsParsed)) { dropped.push(sent); continue; }
     if (orgPairingViolation(sent, rowsParsed)) { dropped.push(sent); continue; }
+    // DeepSeek-run additions: invented stage-breakdown counts + invented location claims.
+    if (locationClaimViolation(sent)) { dropped.push(sent); continue; }
+    if (labelledStageViolation(noDates, evidence)) { dropped.push(sent); continue; }
     const claims = numericClaims(noDates);
     const bad = claims.filter((c) => {
       if (ev.has(c)) return false;
@@ -155,6 +199,23 @@ export function checkNarration(narration: string, evidence: string): NarrationVe
 // retest's which-Rachel commentary misattributed rows and lobbied for an arbitrary pick).
 export function isDisambiguation(intro: string): boolean {
   return /which one did you mean/i.test(intro);
+}
+
+// PHANTOM-ACTION guard (P3-26 — DeepSeek run). A FREE-TEXT reply must never CLAIM it performed an action
+// ("Got it, I'll set a reminder", "I've logged that", "reminder set"). Real actions run through the
+// confirm-card path (a card is shown and saved); a text reply that merely CLAIMS an action did NOTHING —
+// the user then trusts a reminder/log that doesn't exist (a silent missed follow-up). Drop the claiming
+// sentence; if that empties the reply, return an honest fallback. NEVER call this on draft CONTENT — a
+// drafted message legitimately says "I've reviewed…"; only assistant→user replies pass through here.
+const PHANTOM_ACTION = /\b(?:i'?ve|i have|i'?ll|i will|i'?m going to|let me|consider it|it'?s all)\s+(?:just\s+|now\s+|already\s+|gone ahead and\s+)?(?:set|setting|logged?|logging|created?|creating|added?|adding|saved?|saving|scheduled?|scheduling|booked?|booking|updated?|updating|marked?|marking|noted that|made a note|recorded?|arranged?|reminded?|put a reminder|flagged)\b|\breminder (?:is )?(?:now )?set\b|\b(?:done|got it|all set)\s*[—,:-]\s*(?:i'?ve|i'?ll|reminder|that'?s (?:saved|logged|set|done)|saved|logged|set)\b/i;
+
+export function stripPhantomActions(text: string): string {
+  if (!PHANTOM_ACTION.test(text)) return text;
+  const kept = text.split(/(?<=[.!?\n])\s+/).filter((s) => !PHANTOM_ACTION.test(s));
+  const cleaned = kept.join(" ").replace(/\s{2,}/g, " ").trim();
+  return cleaned.length >= 15
+    ? cleaned
+    : "I can't take that action from chat directly — tell me the specifics (who, and what to do) and I'll help you set it up the right way.";
 }
 
 // LANGUAGE GUARD: Qwen-family local models occasionally code-switch into Chinese mid-sentence and

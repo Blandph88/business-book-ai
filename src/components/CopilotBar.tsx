@@ -45,7 +45,7 @@ import { listChats, getChat, saveChat, deleteChat, newChatId, titleFromTurns, ty
 import { relevantNotes, addNotes, listNotes, deleteNote, clearNotes, type Note } from "../storage/memory";
 import type { ContactRow } from "../tabs/ContactForm";
 import { markBusy, markDone, isBusy, subscribeInflight } from "../ai/inflight";
-import { checkNarration, isDisambiguation, stripForeignGlitch } from "../ai/narrationCheck";
+import { checkNarration, isDisambiguation, stripForeignGlitch, stripPhantomActions } from "../ai/narrationCheck";
 import { explainFailure, startKeepalive } from "../ai/health";
 import { logFailure, failuresReportText } from "../ai/failureLog";
 import { FlagModal, type FlagMeta } from "./FlagModal";
@@ -1034,7 +1034,7 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         turnBudget,
         firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
       ]);
-      let aiText = stripForeignGlitch(reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, "")) || "(no response)";
+      let aiText = stripPhantomActions(stripForeignGlitch(reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, ""))) || "(no response)";
       // NOT-AN-ADVISOR floor (re-verify item 30): a money-decision turn gets the caveat DETERMINISTICALLY —
       // the prompt asks for it, but a 14B skips it often enough that trust can't ride on the ask.
       if (MONEY_DECISION.test(text) && !/\b(?:not (?:a|your) (?:financial |licensed )?advi[sc]|regulated advi[sc]|financial advi[sc]er|IFA\b)/i.test(aiText) && aiText !== "(no response)") {
@@ -1699,7 +1699,9 @@ export function CopilotBar({ onNavigate, onOpenAccount, onClose, initialView = "
         firstTokenStall(() => firstTok, () => !!aiLoadRef.current?.active, () => { bailed = true; }),
       ]);
       setStreaming(false);
-      const aiText = reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, "") || "(no response)";
+      // stripPhantomActions: a free-text answer must never CLAIM an action it didn't take ("I'll set a
+      // reminder") — real actions go through the confirm-card path (P3-26).
+      const aiText = stripPhantomActions(reply.trim().replace(/^(?:You|Assistant|AI|Them)\s*:\s*/i, "")) || "(no response)";
       // Chips come ONLY from who the answer actually names (accurate on every tier). If the answer named
       // nobody recognisable (e.g. a purely analytical reply), show no chips here rather than inventing a
       // random book contact/company — the model-generated, answer-validated chips below may still add some.
