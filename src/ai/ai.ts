@@ -225,13 +225,44 @@ export function backendLabel(backend?: string, byok?: boolean): string {
 }
 
 // React hook: the active backend + a friendly label. Re-checks when `nonce` changes (e.g. after a switch).
+// ── Live AI-settings sync ─────────────────────────────────────────────────────────────────────
+// The host (Freehold) notifies the sealed app when the buyer changes their AI tier/model/key, via
+// window.freehold.onCapabilitiesChanged. We surface it as a nonce that bumps on each change so the hooks
+// below re-fetch availability() — otherwise a cached label (e.g. the copilot's "AI: <model>") keeps showing
+// the tier resolved at launch until the app remounts. No-op on hosts that predate the event (the guard)
+// and in the dev shim (tier changes there reload the page).
+type FreeholdEvents = { onCapabilitiesChanged?: (cb: () => void) => (() => void) };
+let capNonce = 0;
+const capListeners = new Set<() => void>();
+let capSubscribed = false;
+function ensureCapSubscription(): void {
+  if (capSubscribed) return;
+  capSubscribed = true;
+  const f = (window as unknown as { freehold?: FreeholdEvents }).freehold;
+  if (f && typeof f.onCapabilitiesChanged === "function") {
+    f.onCapabilitiesChanged(() => { capNonce++; capListeners.forEach((l) => { try { l(); } catch { /* ignore */ } }); });
+  }
+}
+// A nonce that increments whenever the buyer changes AI settings on the host — depend on it to re-fetch.
+export function useCapabilitiesNonce(): number {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    ensureCapSubscription();
+    const l = () => bump((n) => n + 1);
+    capListeners.add(l);
+    return () => { capListeners.delete(l); };
+  }, []);
+  return capNonce;
+}
+
 export function useAiBackend(nonce = 0): { backend?: string; label: string; contextTokens?: number; byok?: boolean; model?: string; local?: boolean } {
   const [s, setS] = useState<{ backend?: string; label: string; contextTokens?: number; byok?: boolean; model?: string; local?: boolean }>({ label: "AI" });
+  const capNonce = useCapabilitiesNonce();
   useEffect(() => {
     let live = true;
     aiAvailability().then((a) => { if (live) setS({ backend: a.backend, label: backendLabel(a.backend, a.byok), contextTokens: a.contextTokens, byok: a.byok, model: a.model, local: a.local }); });
     return () => { live = false; };
-  }, [nonce]);
+  }, [nonce, capNonce]);
   return s;
 }
 
@@ -268,6 +299,7 @@ export function setDevBackend(id: AiBackend): void {
 // React hook: null while checking, then true/false. AI affordances render only when true.
 export function useAiAvailable(): boolean | null {
   const [ok, setOk] = useState<boolean | null>(null);
+  const capNonce = useCapabilitiesNonce();
   useEffect(() => {
     let live = true;
     aiAvailable().then((v) => {
@@ -276,6 +308,6 @@ export function useAiAvailable(): boolean | null {
     return () => {
       live = false;
     };
-  }, []);
+  }, [capNonce]);
   return ok;
 }
