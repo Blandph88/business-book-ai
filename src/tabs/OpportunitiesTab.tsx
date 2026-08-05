@@ -279,7 +279,6 @@ export function OpportunitiesTab({
     unlinkOpportunity(id); // clear it off any meeting that sourced it (no dead "View opportunity →"; allows recreate)
     unlinkOpportunityFromSows(id); // …and off any linked SoW on the revenue side (same dangling-link fix)
     setFormTarget(null);
-    flashSaved();
   }
 
   return (

@@ -344,7 +344,6 @@ export function MeetingsTab({
   function handleDelete(id: string) {
     setSaved(deleteMeeting(id));
     setFormTarget(null);
-    flashSaved();
   }
 
   if (status === "loading") {

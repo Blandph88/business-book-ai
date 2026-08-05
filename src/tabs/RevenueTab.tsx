@@ -170,7 +170,6 @@ export function RevenueTab({
   function handleDelete(id: string) {
     setSaved(deleteSow(id));
     setFormTarget(null);
-    flashSaved();
   }
 
   return (
