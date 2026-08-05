@@ -24,6 +24,7 @@ export function SideNav({
   onOpenChats,
   onNewChat,
   onOpenChat,
+  aiOff,
 }: {
   activeTab: TabId;
   open: boolean;
@@ -34,6 +35,8 @@ export function SideNav({
   onOpenChats: () => void;
   onNewChat: () => void;
   onOpenChat: (id: string) => void;
+  // No AI set up → hide the AI-only entries (Insights tab, the Chats surface + recent chats).
+  aiOff?: boolean;
 }) {
   const tab = (open ? 0 : -1);
   return (
@@ -62,7 +65,7 @@ export function SideNav({
           <span className="sidenav-item-label">Business<span className="sidenav-item-thin">Book</span></span>
         </button>
         {/* The record tabs (the chat surface is presented separately below, not as a plain tab). */}
-        {TABS.filter((t) => t.id !== "chat").map((t) => (
+        {TABS.filter((t) => t.id !== "chat" && (!aiOff || t.id !== "insights")).map((t) => (
           <button
             key={t.id}
             type="button"
@@ -75,27 +78,32 @@ export function SideNav({
           </button>
         ))}
 
-        {/* Chat entry points: Chats (the searchable list) and, under it, New chat. */}
-        <button
-          type="button"
-          tabIndex={tab}
-          className={activeTab === "chat" ? "sidenav-item sidenav-item--active" : "sidenav-item"}
-          onClick={onOpenChats}
-        >
-          <span className="sidenav-item-icon">{NAV_ICON.chat}</span>
-          <span className="sidenav-item-label">Chats</span>
-        </button>
-        <button type="button" tabIndex={tab} className="sidenav-item sidenav-item--sub" onClick={onNewChat}>
-          <span className="sidenav-item-icon">{PLUS_ICON}</span>
-          <span className="sidenav-item-label">New chat</span>
-        </button>
+        {/* Chat entry points: Chats (the searchable list) and, under it, New chat. Hidden with no AI. */}
+        {!aiOff && (
+          <>
+            <button
+              type="button"
+              tabIndex={tab}
+              className={activeTab === "chat" ? "sidenav-item sidenav-item--active" : "sidenav-item"}
+              onClick={onOpenChats}
+            >
+              <span className="sidenav-item-icon">{NAV_ICON.chat}</span>
+              <span className="sidenav-item-label">Chats</span>
+            </button>
+            <button type="button" tabIndex={tab} className="sidenav-item sidenav-item--sub" onClick={onNewChat}>
+              <span className="sidenav-item-icon">{PLUS_ICON}</span>
+              <span className="sidenav-item-label">New chat</span>
+            </button>
+          </>
+        )}
 
         <button type="button" tabIndex={tab} className="sidenav-item sidenav-item--import" onClick={onImport}>
           Import your LinkedIn
         </button>
       </nav>
 
-      {/* Recent chats — always here regardless of tab; the list scrolls on its own (not the page). */}
+      {/* Recent chats — the copilot's history; hidden when AI is off (nothing to open). */}
+      {!aiOff && (
       <div className="sidenav-recent" aria-hidden={!open}>
         <div className="sidenav-recent-head">Recent chats</div>
         <div className="sidenav-recent-list">
@@ -117,6 +125,7 @@ export function SideNav({
           )}
         </div>
       </div>
+      )}
     </aside>
   );
 }

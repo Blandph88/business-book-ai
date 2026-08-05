@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import "./App.css";
-import { TabNav, type TabId, type TabIntent } from "./components/TabNav";
+import { TabNav, AI_TAB_IDS, type TabId, type TabIntent } from "./components/TabNav";
 import { Tutorial, buildTourSteps } from "./components/Tutorial";
 import { DashboardTab } from "./tabs/DashboardTab";
 import { MetricsTab } from "./tabs/MetricsTab";
@@ -28,6 +28,7 @@ import { loadAllOpportunities } from "./storage/opportunities";
 import { loadAllSows } from "./storage/revenue";
 import { loadOwnedContacts } from "./storage/ownedContacts";
 import { subscribeWarmth, getWarmthState, resumeIfInterrupted } from "./ai/warmthTask";
+import { useAiAvailable } from "./ai/ai";
 
 // Persisted "the onboarding tour has been seen" flag. Written through localStorage so it
 // rides the same persistence as the rest of the app: in the OWNED app the vault persists it
@@ -57,6 +58,16 @@ export default function App() {
     return "metrics";
   });
   useEffect(() => { try { localStorage.setItem("bob.lastTab.v1", activeTab); } catch { /* ignore */ } }, [activeTab]);
+
+  // AI availability, probed from the Freehold host. A buyer running with NO AI (e.g. a locked-down
+  // work machine that chose "Use without AI") shouldn't see the AI-only tabs (copilot Chat, Insights)
+  // — they're hidden from the nav — and if their last-open tab was one of them, send them home rather
+  // than a dead surface. `useAiAvailable()` returns null while probing → aiOff stays false (no flash
+  // for the common AI case), resolving to true only once we know there's no model.
+  const aiOff = useAiAvailable() === false;
+  useEffect(() => {
+    if (aiOff && AI_TAB_IDS.includes(activeTab)) setActiveTab("dashboard");
+  }, [aiOff, activeTab]);
   // Mirror the current tab into a ref so effects keyed on other state (e.g. warmth completion) can
   // read the LIVE tab without taking activeTab as a dependency (which would re-fire them on every nav).
   const activeTabRef = useRef(activeTab);
@@ -270,7 +281,7 @@ export default function App() {
           <Brand onClick={() => selectTab("metrics")} />
           {/* TabNav stays rendered only for the device-gated mobile bottom bar; it's hidden on
               every desktop width (CSS) where the right-hand side rail is the nav. */}
-          <TabNav activeTab={activeTab} onSelect={selectTab} />
+          <TabNav activeTab={activeTab} onSelect={selectTab} aiOff={aiOff} />
           <button
             type="button"
             className="topbar-search"
@@ -336,6 +347,7 @@ export default function App() {
         onOpenChats={openChats}
         onNewChat={newChat}
         onOpenChat={openChatById}
+        aiOff={aiOff}
       />
 
       <div className="app">

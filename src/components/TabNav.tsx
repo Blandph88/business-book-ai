@@ -56,15 +56,23 @@ export const TABS: { id: TabId; label: string }[] = [
   { id: "chat", label: "Chat" },
 ];
 
+// Tabs that only make sense once AI is set up — the copilot Chat and the AI Insights hub. When the
+// buyer is running with no AI (e.g. a locked-down work machine that picked "Use without AI"), these
+// are hidden from the nav so nothing leads to a surface that can't do anything. The rest of the app
+// is fully usable without a model.
+export const AI_TAB_IDS: TabId[] = ["insights", "chat"];
+
 type TabNavProps = {
   activeTab: TabId;
   onSelect: (tab: TabId) => void;
+  aiOff?: boolean;
 };
 
-export function TabNav({ activeTab, onSelect }: TabNavProps) {
+export function TabNav({ activeTab, onSelect, aiOff }: TabNavProps) {
+  const tabs = aiOff ? TABS.filter((t) => !AI_TAB_IDS.includes(t.id)) : TABS;
   return (
     <nav className="tab-nav">
-      {TABS.map((tab) => (
+      {tabs.map((tab) => (
         <button
           key={tab.id}
           className={
