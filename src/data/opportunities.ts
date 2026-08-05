@@ -331,8 +331,10 @@ export function buildOpportunityFromMeeting(
     organisation: contact.organisation,
     primary_contact: contact.name,
     service_line: "Strategy",
-    // A meeting-spotted opportunity starts at the first workflow step.
+    // A meeting-spotted opportunity starts at the first workflow step, with that step's designed
+    // probability (0.1) so its weighted value isn't £0 the instant it's spotted.
     current_step: "meeting",
+    probability: stepDef("meeting").prob,
     // Inherit the contact's buyer function and sector group (both editable in the form).
     function: contact.function || undefined,
     sector_group: contact.sector_group || undefined,

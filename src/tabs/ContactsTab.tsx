@@ -63,8 +63,8 @@ const CONTACTS_CONTROLS: ControlsConfig<ContactRow> = {
   searchText: (c) => `${c.first} ${c.last} ${c.organisation} ${c.position}`,
   searchFields: [
     { key: "name", label: "Name", get: (c) => `${c.first} ${c.last}` },
-    { key: "company", label: "Company", get: (c) => c.organisation ?? "" },
-    { key: "title", label: "Title", get: (c) => c.position ?? "" },
+    { key: "company", label: "Organisation", get: (c) => c.organisation ?? "" },
+    { key: "title", label: "Position", get: (c) => c.position ?? "" },
   ],
   filters: [
     { key: "seniority", label: "Seniority", options: SENIORITY, get: (c) => c.seniority },
@@ -338,7 +338,7 @@ export function ContactsTab({
             classified, searchable, and read entirely on your computer.
           </p>
           <button className="imp-btn imp-btn-primary" onClick={onImport}>
-            ⬆ Import your LinkedIn
+            Import your LinkedIn
           </button>
         </div>
       </section>

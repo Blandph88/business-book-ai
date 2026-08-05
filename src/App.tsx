@@ -284,7 +284,7 @@ export default function App() {
               title="Import your LinkedIn connections"
               onClick={openImport}
             >
-              ⬆ Import LinkedIn
+              Import LinkedIn
             </button>
             <label className="app-currency" title="Display currency">
               <span>Currency</span>

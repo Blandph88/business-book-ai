@@ -35,7 +35,7 @@ const REVENUE_CONTROLS: ControlsConfig<Sow> = {
   searchText: (s) => `${s.engagement_name} ${s.organisation}`,
   searchFields: [
     { key: "engagement", label: "Engagement", get: (s) => s.engagement_name ?? "" },
-    { key: "company", label: "Company", get: (s) => s.organisation ?? "" },
+    { key: "company", label: "Organisation", get: (s) => s.organisation ?? "" },
   ],
   filters: [
     { key: "service_line", label: "Service line", options: SERVICE_LINE, get: (s) => s.service_line },

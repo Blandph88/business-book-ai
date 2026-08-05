@@ -57,7 +57,7 @@ const MEETINGS_CONTROLS: ControlsConfig<MeetingRow> = {
   searchText: (m) => `${m.contactInfo.name} ${m.contactInfo.organisation}`,
   searchFields: [
     { key: "contact", label: "Contact", get: (m) => m.contactInfo.name },
-    { key: "company", label: "Company", get: (m) => m.contactInfo.organisation ?? "" },
+    { key: "company", label: "Organisation", get: (m) => m.contactInfo.organisation ?? "" },
   ],
   filters: [
     { key: "sector_group", label: "Sector group", options: SECTOR_GROUPS, get: (m) => m.contactInfo.sector_group },

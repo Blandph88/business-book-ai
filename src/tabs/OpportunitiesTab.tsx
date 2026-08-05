@@ -65,7 +65,7 @@ const OPPS_CONTROLS_BASE: ControlsConfig<Opportunity> = {
   searchText: (o) => `${o.opportunity_name} ${o.organisation} ${o.primary_contact}`,
   searchFields: [
     { key: "name", label: "Name", get: (o) => o.opportunity_name ?? "" },
-    { key: "company", label: "Company", get: (o) => o.organisation ?? "" },
+    { key: "company", label: "Organisation", get: (o) => o.organisation ?? "" },
     { key: "contact", label: "Contact", get: (o) => o.primary_contact ?? "" },
   ],
   filters: [

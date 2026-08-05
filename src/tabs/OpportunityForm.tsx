@@ -54,6 +54,9 @@ const EMPTY: Opportunity = {
   primary_contact: "",
   service_line: "Strategy",
   current_step: "meeting",
+  // Seed the step's designed probability (0.1) so weighted value isn't £0 the moment you add an
+  // opportunity — it follows the step, and the Dashboard "Weighted pipeline" KPI reflects it immediately.
+  probability: stepDef("meeting").prob,
 };
 
 export function OpportunityForm({

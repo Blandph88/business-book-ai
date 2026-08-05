@@ -91,7 +91,7 @@ export function SideNav({
         </button>
 
         <button type="button" tabIndex={tab} className="sidenav-item sidenav-item--import" onClick={onImport}>
-          ⬆ Import your LinkedIn
+          Import your LinkedIn
         </button>
       </nav>
 
