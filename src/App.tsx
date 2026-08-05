@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import "./App.css";
 import { TabNav, type TabId, type TabIntent } from "./components/TabNav";
-import { Tutorial } from "./components/Tutorial";
+import { Tutorial, buildTourSteps } from "./components/Tutorial";
 import { DashboardTab } from "./tabs/DashboardTab";
 import { MetricsTab } from "./tabs/MetricsTab";
 import { ContactsTab } from "./tabs/ContactsTab";
@@ -23,6 +23,9 @@ import { CURRENCY_CODE, CURRENCY_OPTIONS, setCurrency, subscribeCurrency } from 
 import { listChats, type SavedChat } from "./storage/chats";
 import { getAppMode } from "./lib/appMode";
 import { hasImportedContacts } from "./storage/importedContacts";
+import { loadAllMeetings } from "./storage/meetings";
+import { loadAllOpportunities } from "./storage/opportunities";
+import { loadAllSows } from "./storage/revenue";
 import { loadOwnedContacts } from "./storage/ownedContacts";
 import { subscribeWarmth, getWarmthState, resumeIfInterrupted } from "./ai/warmthTask";
 
@@ -399,7 +402,20 @@ export default function App() {
       )}
 
       {/* The onboarding tour drives the real tabs (it can switch tabs to spotlight each). */}
-      {tutorialOpen && <Tutorial onTab={selectTab} onClose={closeTutorial} />}
+      {/* Gate the tour to what's actually populated: the demo seeds meetings/opps/engagements so it
+          walks everything; an owned book that's just imported connections + messages gets the
+          condensed tour with the empty tabs dropped. Recomputed on open (a book fills up over time). */}
+      {tutorialOpen && (
+        <Tutorial
+          steps={buildTourSteps({
+            meetings: Object.keys(loadAllMeetings()).length > 0,
+            opportunities: Object.keys(loadAllOpportunities()).length > 0,
+            engagements: Object.keys(loadAllSows()).length > 0,
+          })}
+          onTab={selectTab}
+          onClose={closeTutorial}
+        />
+      )}
 
       {/* Global "Import your LinkedIn" modal (opened from the top bar / side nav / Contacts). */}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}

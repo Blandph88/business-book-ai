@@ -45,8 +45,8 @@ export const TOUR_STEPS: TourStep[] = [
     body: (
       <>
         Your LinkedIn network turned into a working BD pipeline — classified by industry,
-        function and seniority, and read <strong>entirely on your computer</strong>. This tour
-        walks every tab; leave any time with the ✕.
+        function and seniority, and read <strong>entirely on your computer</strong>. Step through
+        with Next, or skip any time.
       </>
     ),
   },
@@ -319,7 +319,7 @@ export const TOUR_STEPS: TourStep[] = [
     body: <>Click a deal to move it through the phases, set its value and probability, and record win/loss.</>,
   },
 
-  // ── Contracts ───────────────────────────────────────────────────────────
+  // ── Engagements ─────────────────────────────────────────────────────────
   {
     id: "rev-stats",
     tab: "revenue",
@@ -378,6 +378,53 @@ export const TOUR_STEPS: TourStep[] = [
     ),
   },
 ];
+
+// Build the tour for the current book. The DEMO seeds meetings/opportunities/engagements, so it
+// shows the FULL walkthrough. An OWNED book that's only just imported connections + messages has
+// none of those yet — so we drop the steps that would spotlight empty tabs (the same idea as the
+// data-gated empty cards) and end on a forward-looking note instead of "it's all sample data".
+export function buildTourSteps(has: {
+  meetings: boolean;
+  opportunities: boolean;
+  engagements: boolean;
+}): TourStep[] {
+  // A step id → whether its screen has anything to show. Anything not listed always stays
+  // (welcome/import, the network/contacts steps that light up from connections + messages).
+  const keep: Record<string, boolean> = {
+    "met-opp-phase": has.opportunities,
+    "met-opp-breakdowns": has.opportunities,
+    "dash-week": has.meetings || has.opportunities,
+    "dash-opp-funnel": has.opportunities,
+    "dash-hygiene": has.meetings || has.opportunities,
+    "meetings-stats": has.meetings,
+    "meetings-search": has.meetings,
+    "meetings-list": has.meetings,
+    "opps-stats": has.opportunities,
+    "opps-search": has.opportunities,
+    "opps-list": has.opportunities,
+    "rev-stats": has.engagements,
+    "rev-search": has.engagements,
+    "rev-list": has.engagements,
+    "rev-form": has.engagements,
+  };
+  const kept = TOUR_STEPS.filter((s) => keep[s.id] ?? true);
+  if (kept.length === TOUR_STEPS.length) return kept; // demo / fully-populated book → full tour
+  return kept.map((s) =>
+    s.id === "finish"
+      ? {
+          ...s,
+          title: "You’re set up",
+          body: (
+            <>
+              As you log meetings, move deals through the pipeline and sign engagements, those tabs
+              fill in — and your dashboard and charts update automatically. Re-open this walkthrough
+              any time from the <strong>?</strong> button in the top-right.
+            </>
+          ),
+        }
+      : s,
+  );
+}
 
 export function Tutorial({
   steps = TOUR_STEPS,
